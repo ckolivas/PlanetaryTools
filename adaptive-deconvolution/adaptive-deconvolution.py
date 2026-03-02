@@ -468,6 +468,13 @@ class AdaptiveDeconvolution(Gimp.PlugIn):
         height = process_rect.height
         num_pixels = width * height
 
+        # 32-bit float images from RAW processing frequently contain small
+        # negative values from demosaicing or colour matrix transforms.
+        # These propagate through lum/conv into extreme corr_minus_one values,
+        # producing artefacts (rendered as white via NaN in gamma).
+        # Clamp the entire input to [0, 1] before any processing.
+        pixel_array = array('f', (max(0.0, min(1.0, v)) for v in pixel_array))
+
         is_preview = self.original_pixels is not None
 
         if is_preview:
