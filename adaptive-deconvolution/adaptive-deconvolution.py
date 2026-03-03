@@ -107,12 +107,19 @@ def oklab_to_linearrgb(flat_oklab, ratio, width, height, max_val=1.0):
     L_ch = flat_oklab[0::3]   # array slice — C-level copy, no Python loop
     a_ch = flat_oklab[1::3]
     b_ch = flat_oklab[2::3]
+    # Scale L, a and b all by the same per-pixel ratio.
+    # Scaling only L while leaving a and b fixed reduces perceived saturation
+    # in proportion to the brightening applied: saturation = C/L = sqrt(a²+b²)/L,
+    # and boosting L by ratio divides saturation by ratio. Scaling a and b by
+    # the same ratio keeps C/L exactly constant — same hue, same saturation.
     L_scaled = array('f', map(operator.mul, L_ch, ratio))
+    a_scaled = array('f', map(operator.mul, a_ch, ratio))
+    b_scaled = array('f', map(operator.mul, b_ch, ratio))
     # Re-interleave: build scaled flat array
     scaled = array('f', [0.0] * (n * 3))
     scaled[0::3] = L_scaled
-    scaled[1::3] = a_ch
-    scaled[2::3] = b_ch
+    scaled[1::3] = a_scaled
+    scaled[2::3] = b_scaled
 
     in_buf  = Gegl.Buffer.new("R~G~B~ float", 0, 0, width, height)
     out_buf = Gegl.Buffer.new("R~G~B~ float", 0, 0, width, height)
