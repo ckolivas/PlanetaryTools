@@ -95,6 +95,13 @@ class StretchContrastOklab(Gimp.PlugIn):
                 n = width * chunk_h
                 for i in range(n):
                     r, g, b = struct.unpack_from('fff', raw, i * 12)
+                    # Clamp to [0,1]: 32-bit float images from RAW processing
+                    # can contain small negative values. Negative r/g/b causes
+                    # V = max(r,g,b) < 0, making f_max = 1/V negative and
+                    # enormously large in magnitude, producing blown highlights.
+                    r = max(0.0, min(1.0, r))
+                    g = max(0.0, min(1.0, g))
+                    b = max(0.0, min(1.0, b))
                     L = self.rgb_to_L(r, g, b)
                     if L < L_min:
                         L_min = L
@@ -121,6 +128,9 @@ class StretchContrastOklab(Gimp.PlugIn):
                 n = width * chunk_h
                 for i in range(n):
                     r, g, b = struct.unpack_from('fff', raw, i * 12)
+                    r = max(0.0, min(1.0, r))
+                    g = max(0.0, min(1.0, g))
+                    b = max(0.0, min(1.0, b))
                     L = self.rgb_to_L(r, g, b)
                     if L < 1e-7:
                         continue
@@ -152,6 +162,9 @@ class StretchContrastOklab(Gimp.PlugIn):
                 out = bytearray()
                 for i in range(n):
                     r, g, b = struct.unpack_from('fff', raw, i * 12)
+                    r = max(0.0, min(1.0, r))
+                    g = max(0.0, min(1.0, g))
+                    b = max(0.0, min(1.0, b))
                     L = self.rgb_to_L(r, g, b)
 
                     if L < 1e-7:
