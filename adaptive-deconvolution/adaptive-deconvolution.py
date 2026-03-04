@@ -107,19 +107,12 @@ def oklab_to_linearrgb(flat_oklab, ratio, width, height, max_val=1.0):
     L_ch = flat_oklab[0::3]   # array slice — C-level copy, no Python loop
     a_ch = flat_oklab[1::3]
     b_ch = flat_oklab[2::3]
-    # Scale L, a and b all by the same per-pixel ratio.
-    # Scaling only L while leaving a and b fixed reduces perceived saturation
-    # in proportion to the brightening applied: saturation = C/L = sqrt(a²+b²)/L,
-    # and boosting L by ratio divides saturation by ratio. Scaling a and b by
-    # the same ratio keeps C/L exactly constant — same hue, same saturation.
     L_scaled = array('f', map(operator.mul, L_ch, ratio))
-    a_scaled = array('f', map(operator.mul, a_ch, ratio))
-    b_scaled = array('f', map(operator.mul, b_ch, ratio))
     # Re-interleave: build scaled flat array
     scaled = array('f', [0.0] * (n * 3))
     scaled[0::3] = L_scaled
-    scaled[1::3] = a_scaled
-    scaled[2::3] = b_scaled
+    scaled[1::3] = a_ch
+    scaled[2::3] = b_ch
 
     in_buf  = Gegl.Buffer.new("R~G~B~ float", 0, 0, width, height)
     out_buf = Gegl.Buffer.new("R~G~B~ float", 0, 0, width, height)
@@ -319,6 +312,9 @@ class AdaptiveDeconvolution(Gimp.PlugIn):
         self.cached_max_val_red = None
         self.cached_max_val_green = None
         self.cached_max_val_blue = None
+        self.cached_max_input_lum = None
+        self.last_contrast_ratio = None
+        self.contrast_label = None
 
     def do_set_i18n(self, name):
         return False
@@ -516,6 +512,28 @@ class AdaptiveDeconvolution(Gimp.PlugIn):
             self.cached_flat_rgb = flat_rgb
             self.cached_lum = lum
             self.cached_original_lum = array('f', lum[:])
+            # Compute input luminance peak using pure Python BT.709.
+            # Deliberately NOT reusing max_lum from linear_rgb2lum (GEGL) because
+            # the output peak is also computed with pure Python BT.709 — using the
+            # same method for both ensures ratio == 1.0 at amount=0.
+            if is_gray:
+                _max_in = 0.0
+                for _p in range(num_pixels):
+                    _v = pixel_array[_p * channels]
+                    if _v > _max_in:
+                        _max_in = _v
+                self.cached_max_input_lum = _max_in
+            else:
+                _max_in = 0.0
+                _nc = channels
+                for _p in range(num_pixels):
+                    _b = _p * _nc
+                    _l = (0.212671 * pixel_array[_b] +
+                          0.715160 * pixel_array[_b + 1] +
+                          0.072169 * pixel_array[_b + 2])
+                    if _l > _max_in:
+                        _max_in = _l
+                self.cached_max_input_lum = _max_in
             self.cached_contrast, self.cached_contrast_min, self.cached_contrast_max = std_windowed(self.cached_lum, width, height, (7, 7))
             denom = self.cached_contrast_max - self.cached_contrast_min + 1e-10
             self.cached_contrast_norm = array('f', [(c - self.cached_contrast_min) / denom for c in self.cached_contrast])
@@ -771,6 +789,34 @@ class AdaptiveDeconvolution(Gimp.PlugIn):
         #stats.print_stats(20)
         #Gimp.message("Profile Stats:\n" + s.getvalue())
 
+        # Compute contrast ratio = max_output_lum / max_input_lum.
+        # Both values use pure Python BT.709 so the method is identical —
+        # this guarantees ratio == 1.0 at amount=0 regardless of mode.
+        if is_preview and self.cached_max_input_lum and self.cached_max_input_lum > 1e-7:
+            max_out_lum = 0.0
+            if is_gray:
+                for p in range(num_pixels):
+                    v = out_flat[p * channels]
+                    if v > max_out_lum:
+                        max_out_lum = v
+            else:
+                for p in range(num_pixels):
+                    base = p * channels
+                    lum_p = (0.212671 * out_flat[base] +
+                             0.715160 * out_flat[base + 1] +
+                             0.072169 * out_flat[base + 2])
+                    if lum_p > max_out_lum:
+                        max_out_lum = lum_p
+            if max_out_lum > 1e-7:
+                self.last_contrast_ratio = (
+                    self.cached_max_input_lum,
+                    max_out_lum,
+                    max_out_lum / self.cached_max_input_lum)
+            else:
+                self.last_contrast_ratio = None
+        else:
+            self.last_contrast_ratio = None
+
         return out_flat
 
     def debounce_update(self, dialog, image, drawable, config):
@@ -806,11 +852,23 @@ class AdaptiveDeconvolution(Gimp.PlugIn):
                 self.original_pixels = self.get_flat_array_from_buffer(buffer, process_rect, babl_format)
             out_flat = self.process_pixels(self.original_pixels, self.process_rect, self.channels, self.has_alpha, amount, adaptive, oklab, self.is_gray)
             self.apply_to_buffer(drawable, out_flat, self.process_rect, self.babl_format, self.update_x, self.update_y, self.update_w, self.update_h, push_undo=False)
+            if self.contrast_label is not None:
+                r = self.last_contrast_ratio
+                if r is not None:
+                    in_pct, out_pct, ratio = r
+                    self.contrast_label.set_text(
+                        '%.1f%% → %.1f%% (×%.2f)' % (
+                            in_pct * 100.0, out_pct * 100.0, ratio))
+                else:
+                    self.contrast_label.set_text('—')
         else:
             if self.original_pixels is not None:
                 self.apply_to_buffer(drawable, self.original_pixels, self.process_rect, self.babl_format, self.update_x, self.update_y, self.update_w, self.update_h, push_undo=False)
                 self.original_pixels = None
                 self.process_rect = None
+                self.last_contrast_ratio = None
+                if self.contrast_label is not None:
+                    self.contrast_label.set_text('—')
                 self.cached_lum = None
                 self.cached_original_lum = None
                 self.cached_contrast_norm = None
@@ -834,6 +892,7 @@ class AdaptiveDeconvolution(Gimp.PlugIn):
                 self.cached_max_val_red = None
                 self.cached_max_val_green = None
                 self.cached_max_val_blue = None
+                self.cached_max_input_lum = None
 
     def adaptive_deconvolution(self, procedure, run_mode, image, drawables, config, run_data):
         n_drawables = len(drawables)
@@ -915,6 +974,16 @@ class AdaptiveDeconvolution(Gimp.PlugIn):
                 preview_check.set_active(config.get_property('preview'))
                 preview_check.set_tooltip_text('Apply delayed preview on canvas')
                 content_area.pack_start(preview_check, False, False, 0)
+
+                # Contrast ratio display — only active in preview mode
+                contrast_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+                contrast_title = Gtk.Label(label='Contrast increase:')
+                contrast_title.set_xalign(0.0)
+                self.contrast_label = Gtk.Label(label='—')
+                self.contrast_label.set_xalign(0.0)
+                contrast_box.pack_start(contrast_title, False, False, 0)
+                contrast_box.pack_start(self.contrast_label, False, False, 0)
+                content_area.pack_start(contrast_box, False, False, 0)
 
                 dialog.show_all()
 
