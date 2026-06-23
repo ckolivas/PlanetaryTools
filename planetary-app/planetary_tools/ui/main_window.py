@@ -287,6 +287,55 @@ class MainWindow(QMainWindow):
         exts = " ".join(f"*{e}" for e in supported_extensions())
         return f"Images ({exts});;All Files (*)"
 
+    def _save_as_filters(self) -> str:
+        return (
+            "TIFF float32 (*.tif *.tiff);;"
+            "TIFF 16-bit (*.tif *.tiff);;"
+            "PNG 16-bit (*.png);;"
+            "PNG 8-bit (*.png);;"
+            "JPEG (*.jpg *.jpeg);;"
+            "All Files (*)"
+        )
+
+    def _default_save_as_filter(self) -> str:
+        if self._document is None:
+            return "PNG 16-bit (*.png)"
+        if self._document.storage_bits <= 8:
+            return "PNG 8-bit (*.png)"
+        return "PNG 16-bit (*.png)"
+
+    def _bit_depth_for_save(self, path: str, selected_filter: str) -> int:
+        sel = selected_filter.lower()
+        if "float32" in sel:
+            return 32
+        if "png 8-bit" in sel or ("png" in sel and "8-bit" in sel):
+            return 8
+        if "png 16-bit" in sel or ("png" in sel and "16-bit" in sel):
+            return 16
+        if "tiff 16-bit" in sel or ("tiff" in sel and "16-bit" in sel):
+            return 16
+        if "jpeg" in sel:
+            return 8
+        suffix = Path(path).suffix.lower()
+        if suffix in {".tif", ".tiff"}:
+            return 16
+        if suffix == ".png" and self._document is not None:
+            bits = self._document.storage_bits
+            return bits if bits in (8, 16) else 16
+        return 8
+
+    def _save_as_dialog_options(self) -> QFileDialog.Option:
+        # Windows/macOS native dialogs merge filters that share the same
+        # extension, so PNG 8-bit and PNG 16-bit collapse to a single entry.
+        return QFileDialog.Option.DontUseNativeDialog
+
+    def _write_document(self, path: str, bit_depth: int) -> None:
+        if self._document is None:
+            return
+        save_image(self._document, path, bit_depth=bit_depth)
+        self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
+        self._status.showMessage(f"Saved {path}")
+
     def _open_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", self._file_filter())
         if not path:
@@ -313,22 +362,29 @@ class MainWindow(QMainWindow):
     def _save_file_as(self) -> None:
         if self._document is None:
             return
+        selected_filter = self._default_save_as_filter()
         path, selected = QFileDialog.getSaveFileName(
-            self, "Save Image As", "",
-            "TIFF float32 (*.tif *.tiff);;TIFF 16-bit (*.tif *.tiff);;PNG (*.png);;JPEG (*.jpg *.jpeg);;All Files (*)",
+            self,
+            "Save Image As",
+            "",
+            self._save_as_filters(),
+            selected_filter,
+            options=self._save_as_dialog_options(),
         )
         if not path:
             return
-        if "float32" in selected:
-            bit_depth = 32
-        elif path.lower().endswith((".tif", ".tiff")):
-            bit_depth = 16
-        else:
-            bit_depth = self._document.storage_bits
+        if selected:
+            selected_filter = selected
+        if not Path(path).suffix:
+            if "png" in selected_filter.lower():
+                path += ".png"
+            elif "jpeg" in selected_filter.lower() or "jpg" in selected_filter.lower():
+                path += ".jpg"
+            elif "tiff" in selected_filter.lower() or "tif" in selected_filter.lower():
+                path += ".tif"
+        bit_depth = self._bit_depth_for_save(path, selected_filter)
         try:
-            save_image(self._document, path, bit_depth=bit_depth)
-            self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
-            self._status.showMessage(f"Saved {path}")
+            self._write_document(path, bit_depth)
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", str(exc))
 

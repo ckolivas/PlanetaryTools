@@ -130,6 +130,13 @@ def _effective_bit_depth(doc: ImageDocument, path: Path, bit_depth: int | None) 
     return 16
 
 
+def _finalize_save(doc: ImageDocument, path: Path, depth: int) -> None:
+    doc.path = path
+    doc.modified = False
+    if depth in (8, 16, 32):
+        doc.storage_bits = depth
+
+
 def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = None) -> None:
     """Save document. Float TIFF preserves linear data; PNG/TIFF honour bit depth."""
     from planetary_tools.core.color import linear_to_srgb
@@ -143,8 +150,7 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = 
             tifffile.imwrite(path, doc.data.astype(np.float32), photometric="minisblack")
         else:
             tifffile.imwrite(path, doc.data.astype(np.float32))
-        doc.path = path
-        doc.modified = False
+        _finalize_save(doc, path, depth)
         return
 
     if doc.is_grayscale:
@@ -153,8 +159,7 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = 
             out = np.clip(src, 0.0, 1.0)
             out = (out * 65535.0 + 0.5).astype(np.uint16)
             tifffile.imwrite(path, out, photometric="minisblack")
-            doc.path = path
-            doc.modified = False
+            _finalize_save(doc, path, depth)
             return
         srgb = linear_to_srgb(src)
         srgb = np.clip(srgb, 0.0, 1.0)
@@ -175,5 +180,4 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = 
             out = (srgb * 255.0 + 0.5).astype(np.uint8)
             iio.imwrite(path, out)
 
-    doc.path = path
-    doc.modified = False
+    _finalize_save(doc, path, depth)
