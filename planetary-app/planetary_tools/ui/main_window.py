@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 from PyQt6.QtCore import QEventLoop, Qt
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -384,22 +384,9 @@ class MainWindow(QMainWindow):
             return
         self._open_path(path)
 
-    def _save_file(self) -> None:
+    def _try_save_document_as(self) -> bool:
         if self._document is None:
-            return
-        if self._document.path is None:
-            self._save_file_as()
-            return
-        try:
-            save_image(self._document, self._document.path)
-            self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
-            self._status.showMessage(f"Saved {self._document.path}")
-        except Exception as exc:
-            QMessageBox.critical(self, "Save failed", str(exc))
-
-    def _save_file_as(self) -> None:
-        if self._document is None:
-            return
+            return True
         selected_filter = self._default_save_as_filter()
         path, selected = QFileDialog.getSaveFileName(
             self,
@@ -410,7 +397,7 @@ class MainWindow(QMainWindow):
             options=self._save_as_dialog_options(),
         )
         if not path:
-            return
+            return False
         if selected:
             selected_filter = selected
         if not Path(path).suffix:
@@ -423,8 +410,69 @@ class MainWindow(QMainWindow):
         bit_depth = self._bit_depth_for_save(path, selected_filter)
         try:
             self._write_document(path, bit_depth)
+            return True
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", str(exc))
+            return False
+
+    def _try_save_document(self) -> bool:
+        if self._document is None:
+            return True
+        if self._document.path is None:
+            return self._try_save_document_as()
+        try:
+            save_image(self._document, self._document.path)
+            self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
+            self._status.showMessage(f"Saved {self._document.path}")
+            return True
+        except Exception as exc:
+            QMessageBox.critical(self, "Save failed", str(exc))
+            return False
+
+    def _save_file(self) -> None:
+        if self._document is None:
+            return
+        if self._document.path is None:
+            self._try_save_document_as()
+            return
+        try:
+            save_image(self._document, self._document.path)
+            self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
+            self._status.showMessage(f"Saved {self._document.path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save failed", str(exc))
+
+    def _save_file_as(self) -> None:
+        self._try_save_document_as()
+
+    def _confirm_close(self) -> bool:
+        if self._document is None or not self._document.modified:
+            return True
+
+        name = self._document.path.name if self._document.path else "Untitled"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Unsaved changes")
+        box.setText(f'Save changes to "{name}" before closing?')
+        save_btn = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
+        discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked == cancel_btn:
+            return False
+        if clicked == discard_btn:
+            return True
+        if clicked == save_btn:
+            return self._try_save_document()
+        return False
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._confirm_close():
+            event.accept()
+        else:
+            event.ignore()
 
     def _clear_filter_panel(self) -> None:
         while self._filter_host_layout.count():
