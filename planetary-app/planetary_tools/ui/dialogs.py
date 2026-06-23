@@ -483,11 +483,17 @@ class AdaptiveDeconvDialog(_FilterDialog):
         self.amount = self._add_double(
             "Amount", fdef.default_params["amount"], 0.0, 200.0, step=1.0, decimals=0
         )
-        self.adaptive = QCheckBox("Adaptive contrast")
+        self.adaptive = QCheckBox("Contrast Adaptive")
+        self.adaptive.setToolTip(
+            "Increases sharpening in areas of higher contrast."
+        )
         self.adaptive.setChecked(fdef.default_params["adaptive"])
         self.adaptive.toggled.connect(lambda _: self.params_changed.emit())
         self._form.addRow(self.adaptive)
         self.oklab = QCheckBox("OKLab luminance")
+        self.oklab.setToolTip(
+            "Sharpens on luminance layer decreasing color noise but lowers saturation."
+        )
         self.oklab.setChecked(fdef.default_params["oklab"] and not self._is_grayscale)
         self.oklab.setEnabled(not self._is_grayscale)
         self.oklab.toggled.connect(lambda _: self.params_changed.emit())
@@ -823,11 +829,17 @@ def edit_filter_params(
         amount.setValue(params.get("amount", fdef.default_params["amount"]))
         form.addRow("Amount", amount)
         widgets["amount"] = amount
-        adaptive = QCheckBox("Adaptive contrast")
+        adaptive = QCheckBox("Contrast Adaptive")
+        adaptive.setToolTip(
+            "Increases sharpening in areas of higher contrast."
+        )
         adaptive.setChecked(params.get("adaptive", fdef.default_params["adaptive"]))
         form.addRow(adaptive)
         widgets["adaptive"] = adaptive
         oklab = QCheckBox("OKLab luminance")
+        oklab.setToolTip(
+            "Sharpens on luminance layer decreasing color noise but lowers saturation."
+        )
         oklab.setChecked(params.get("oklab", fdef.default_params["oklab"]) and not is_grayscale)
         oklab.setEnabled(not is_grayscale)
         form.addRow(oklab)
