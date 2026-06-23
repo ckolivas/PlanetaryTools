@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QStatusBar,
     QToolBar,
@@ -41,6 +42,7 @@ from planetary_tools.ui.dialogs import (
     _FilterDialog,
 )
 from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
+from planetary_tools.ui.recent_files import add_recent, list_recent, remove_recent
 
 
 class MainWindow(QMainWindow):
@@ -109,6 +111,10 @@ class MainWindow(QMainWindow):
         self._open_act.setShortcut(QKeySequence.StandardKey.Open)
         self._open_act.triggered.connect(self._open_file)
         file_menu.addAction(self._open_act)
+
+        self._recent_menu = QMenu("Open &Recent", self)
+        self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
+        file_menu.addMenu(self._recent_menu)
 
         self._save_act = QAction("&Save", self)
         self._save_act.setShortcut(QKeySequence.StandardKey.Save)
@@ -336,15 +342,47 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
         self._status.showMessage(f"Saved {path}")
 
+    def _populate_recent_menu(self) -> None:
+        self._recent_menu.clear()
+        paths = list_recent()
+        if not paths:
+            empty = self._recent_menu.addAction("No recent files")
+            empty.setEnabled(False)
+            return
+        for path in paths:
+            label = Path(path).name
+            if not Path(path).is_file():
+                label = f"{label} (not found)"
+            action = self._recent_menu.addAction(label)
+            action.setToolTip(path)
+            action.setEnabled(Path(path).is_file())
+            action.triggered.connect(
+                lambda _checked=False, p=path: self._open_recent(p),
+            )
+
+    def _open_path(self, path: str | Path) -> bool:
+        try:
+            doc = load_image(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Open failed", str(exc))
+            return False
+        self._set_document(doc)
+        add_recent(path)
+        return True
+
+    def _open_recent(self, path: str) -> None:
+        if not Path(path).is_file():
+            remove_recent(path)
+            self._populate_recent_menu()
+            QMessageBox.warning(self, "Open failed", f"File not found:\n{path}")
+            return
+        self._open_path(path)
+
     def _open_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", self._file_filter())
         if not path:
             return
-        try:
-            doc = load_image(path)
-            self._set_document(doc)
-        except Exception as exc:
-            QMessageBox.critical(self, "Open failed", str(exc))
+        self._open_path(path)
 
     def _save_file(self) -> None:
         if self._document is None:
@@ -666,9 +704,5 @@ def run_app(argv: list[str] | None = None) -> int:
     window = MainWindow()
     window.show()
     if len(argv) > 1 and not argv[1].startswith("-"):
-        try:
-            doc = load_image(argv[1])
-            window._set_document(doc)
-        except Exception as exc:
-            QMessageBox.warning(window, "Open failed", str(exc))
+        window._open_path(argv[1])
     return app.exec()
