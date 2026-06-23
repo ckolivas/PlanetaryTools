@@ -31,6 +31,7 @@ from planetary_tools.io.loader import load_image, save_image, supported_extensio
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.dialogs import (
+    FILTER_PANEL_WIDTH,
     AdaptiveDeconvDialog,
     ColorMatrixDialog,
     LevelsDialog,
@@ -75,7 +76,7 @@ class MainWindow(QMainWindow):
         self._filter_host_layout.setContentsMargins(8, 8, 8, 8)
         self._filter_dock.setWidget(self._filter_host)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._filter_dock)
-        self._filter_dock.setMinimumWidth(330)
+        self._filter_dock.setFixedWidth(FILTER_PANEL_WIDTH)
         self._filter_dock.hide()
         self._filter_loop: QEventLoop | None = None
         self._filter_accepted = False

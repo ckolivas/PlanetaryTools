@@ -53,7 +53,7 @@ _LEVEL_CHANNEL_LABELS = {
 }
 
 _LEVEL_PCT_SPIN_WIDTH = 102
-_LEVEL_DIALOG_WIDTH = 330
+FILTER_PANEL_WIDTH = 330
 
 
 def _make_level_pct_spin(
@@ -136,6 +136,7 @@ def _make_matrix_grid(
             spin.setRange(-10.0, 10.0)
             spin.setDecimals(4)
             spin.setSingleStep(0.01)
+            spin.setMaximumWidth(72)
             spin.setValue(float(matrix[row_idx][col_idx]))
             if on_change is not None:
                 spin.valueChanged.connect(lambda _: on_change())
@@ -235,6 +236,8 @@ class _FilterDialog(QWidget):
             self._populate_preset_combo()
             self._set_combo_to("Last")
             self.set_params(self._presets["Last"])
+
+        self.setFixedWidth(FILTER_PANEL_WIDTH)
 
     def _make_preset_row(self) -> QWidget:
         row = QWidget()
@@ -595,7 +598,6 @@ class LevelsDialog(_FilterDialog):
         self._loading_channel = False
         self._editing_channel = "L"
         super().__init__("Levels", parent)
-        self.setMaximumWidth(_LEVEL_DIALOG_WIDTH)
         self._form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint,
         )
@@ -794,6 +796,7 @@ def edit_filter_params(
         | Qt.WindowType.WindowCloseButtonHint
     )
     dlg.setModal(False)
+    dlg.setFixedWidth(FILTER_PANEL_WIDTH)
     layout = QVBoxLayout(dlg)
     form = QFormLayout()
     layout.addLayout(form)
