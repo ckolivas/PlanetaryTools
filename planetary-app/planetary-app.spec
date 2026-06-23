@@ -1,15 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 datas = []
 datas += copy_metadata('imageio')
 
-# 16-bit PNG helpers are imported from loader; list explicitly so onefile
-# builds never omit them when analysis skips optional import paths.
-hiddenimports = [
-    'planetary_tools.io.png_read',
-    'planetary_tools.io.png_write',
-]
+# Bundle every planetary_tools submodule (png_read, recent_files, etc.).
+hiddenimports = collect_submodules('planetary_tools')
 
 a = Analysis(
     ['run.py'],
