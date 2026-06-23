@@ -28,6 +28,7 @@ from planetary_tools.core.presets import RESERVED, ensure_builtin_presets, save_
 from planetary_tools.filters.color_matrix import IDENTITY_MATRIX
 from planetary_tools.filters.levels import (
     LEVEL_CHANNELS,
+    auto_balance_levels,
     default_levels_params,
     identity_levels,
     normalize_levels_params,
@@ -613,6 +614,8 @@ class LevelsDialog(_FilterDialog):
         self._channel_params = default_levels_params()
         self._loading_channel = False
         self._editing_channel = "L"
+        self._input_data: np.ndarray | None = None
+        self._is_grayscale = False
         super().__init__("Levels", parent)
         self._form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint,
@@ -652,11 +655,19 @@ class LevelsDialog(_FilterDialog):
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
+        auto_balance = QPushButton("Auto Balance")
+        auto_balance.setToolTip(
+            "Set RGB input levels from 2% / 98% histogram percentiles "
+            "(GIMP Auto Input Levels), then set RGB output maximum to the "
+            "lowest input maximum. Luminance is not changed."
+        )
+        auto_balance.clicked.connect(self._auto_balance)
         reset_ch = QPushButton("Reset")
         reset_ch.setToolTip("Reset the selected channel")
         reset_ch.clicked.connect(self._reset_channel)
         reset_all = QPushButton("Reset all")
         reset_all.clicked.connect(self._reset_all)
+        layout.addWidget(auto_balance)
         layout.addWidget(reset_ch)
         layout.addWidget(reset_all)
         self._form.addRow(row)
@@ -726,6 +737,22 @@ class LevelsDialog(_FilterDialog):
 
     def _reset_all(self) -> None:
         self._channel_params = default_levels_params()
+        self._load_channel_into_spins(self._editing_channel)
+        self._notify_params_changed(immediate=True)
+
+    def set_input_brightness(self, data: np.ndarray, is_grayscale: bool) -> None:
+        super().set_input_brightness(data, is_grayscale)
+        self._input_data = np.asarray(data, dtype=np.float32)
+        self._is_grayscale = is_grayscale
+
+    def _auto_balance(self) -> None:
+        if self._input_data is None:
+            return
+        self._store_spins_in_channel(self._editing_channel)
+        self._channel_params = auto_balance_levels(
+            self._input_data,
+            is_grayscale=self._is_grayscale,
+        )
         self._load_channel_into_spins(self._editing_channel)
         self._notify_params_changed(immediate=True)
 
