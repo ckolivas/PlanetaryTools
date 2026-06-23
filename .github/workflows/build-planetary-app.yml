@@ -1,8 +1,9 @@
-name: Build planetary-app
+name: Build and Release planetary-app
 
 on:
   push:
-    branches: [ master, main ]
+    tags:
+      - 'v*'           # Trigger on version tags like v0.1.0, v1.2.3, etc.
   workflow_dispatch:
 
 jobs:
@@ -10,7 +11,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: planetary-app
+            asset_name: planetary-app-linux
+          - os: windows-latest
+            artifact_name: planetary-app.exe
+            asset_name: planetary-app-windows.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -29,17 +36,14 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pyinstaller
-          pip install -e .
 
       - name: Build with PyInstaller
         working-directory: planetary-app
-        shell: bash
-        run: >
-          pyinstaller --onefile --windowed --clean --name planetary-app
-          --copy-metadata imageio run.py
+        run: pyinstaller --onefile --windowed --clean --name planetary-app --copy-metadata imageio run.py
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: planetary-app-${{ matrix.os }}
-          path: planetary-app/dist/
+          files: planetary-app/dist/${{ matrix.artifact_name }}
+          asset_name: ${{ matrix.asset_name }}
