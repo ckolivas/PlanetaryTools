@@ -1,0 +1,60 @@
+name: Build planetary-app
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'planetary-app/**'
+  release:
+    types: [ published ]
+  workflow_dispatch:   # Allows manual trigger from the Actions tab
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: planetary-app
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+          pip install -e .
+
+      - name: Build with PyInstaller (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: planetary-app
+        run: |
+          pyinstaller --onefile --windowed --clean --name planetary-app \
+            --copy-metadata imageio \
+            run.py
+
+      - name: Build with PyInstaller (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: planetary-app
+        run: |
+          pyinstaller --onefile --windowed --clean --name planetary-app \
+            --copy-metadata imageio \
+            run.py
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: planetary-app-${{ matrix.os }}
+          path: planetary-app/dist/
+          retention-days: 30
+
