@@ -3,11 +3,7 @@ name: Build planetary-app
 on:
   push:
     branches: [ master, main ]
-    paths:
-      - 'planetary-app/**'
-  release:
-    types: [ published ]
-  workflow_dispatch:   # Allows manual trigger from the Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,10 +15,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -35,26 +31,15 @@ jobs:
           pip install pyinstaller
           pip install -e .
 
-      - name: Build with PyInstaller (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build with PyInstaller
         working-directory: planetary-app
-        run: |
-          pyinstaller --onefile --windowed --clean --name planetary-app \
-            --copy-metadata imageio \
-            run.py
+        shell: bash
+        run: >
+          pyinstaller --onefile --windowed --clean --name planetary-app
+          --copy-metadata imageio run.py
 
-      - name: Build with PyInstaller (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: planetary-app
-        run: |
-          pyinstaller --onefile --windowed --clean --name planetary-app \
-            --copy-metadata imageio \
-            run.py
-
-      - name: Upload build artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: planetary-app-${{ matrix.os }}
           path: planetary-app/dist/
-          retention-days: 30
-
