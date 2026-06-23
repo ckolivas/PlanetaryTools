@@ -466,6 +466,7 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("Unsaved changes")
         box.setText(f'Save changes to "{name}" before closing?')
         save_btn = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
+        save_as_btn = box.addButton("Save As…", QMessageBox.ButtonRole.ActionRole)
         discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
         cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
         box.exec()
@@ -477,6 +478,8 @@ class MainWindow(QMainWindow):
             return True
         if clicked == save_btn:
             return self._try_save_document()
+        if clicked == save_as_btn:
+            return self._try_save_document_as()
         return False
 
     def closeEvent(self, event: QCloseEvent) -> None:
