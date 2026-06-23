@@ -1,7 +1,13 @@
-Planetary Tools plug-ins for GIMP v3
-
 This is a set of tools designed for processing stacked planetary image captures.
 
+Contains Planetary Tools standalone application and plug-ins for GIMP v3
+
+Standalone application requires no installation, simply run the executable.
+Download the latest for Ubuntu & Windows here:
+https://github.com/ckolivas/PlanetaryTools/releases
+
+
+GIMP plugins:
 
 The whole set of directories and their files should go into the user's GIMP v3 plug-ins directory.
 
