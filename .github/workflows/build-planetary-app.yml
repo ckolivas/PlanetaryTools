@@ -42,7 +42,7 @@ jobs:
 
       - name: Build with PyInstaller
         working-directory: planetary-app
-        run: pyinstaller --onefile --windowed --clean --name planetary-app --copy-metadata imageio run.py
+        run: pyinstaller --clean planetary-app.spec
 
       - name: Prepare binary for release
         working-directory: planetary-app
