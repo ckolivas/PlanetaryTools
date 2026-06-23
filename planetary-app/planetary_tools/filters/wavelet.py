@@ -5,11 +5,14 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
+from planetary_tools.core.color import linear_to_srgb, srgb_to_linear
+
 NUM_SCALES = 3
 # GIMP wavelet-decompose: wavelet-blur radius 2**scale_index → 1, 2, 4.
 _WAVELET_RADII = (1.0, 2.0, 4.0)
 # GIMP unsharp-mask on scale layers uses std-dev 16.
 _UNSHARP_STD = 16.0
+# Grain extract / merge midpoint in R'G'B' float (GEGL non-legacy).
 _GRAIN_MIDPOINT = 0.5
 
 
@@ -54,11 +57,21 @@ def wavelet_blur(channel: np.ndarray, radius: float) -> np.ndarray:
     return tmp.astype(np.float32)
 
 
+def _to_perceptual(channel: np.ndarray) -> np.ndarray:
+    """Document linear light → R'G'B' float (gegl:wavelet-blur working format)."""
+    return linear_to_srgb(channel).astype(np.float64)
+
+
+def _from_perceptual(channel: np.ndarray) -> np.ndarray:
+    """R'G'B' float result → document linear light."""
+    return srgb_to_linear(np.clip(channel, 0.0, 1.0)).astype(np.float32)
+
+
 def _wavelet_decompose(
     channel: np.ndarray,
     n_scales: int = NUM_SCALES,
 ) -> tuple[list[np.ndarray], np.ndarray]:
-    """plug-in-wavelet-decompose for float linear data (grain extract scales)."""
+    """plug-in-wavelet-decompose in R'G'B' float (grain-extract scales)."""
     scales: list[np.ndarray] = []
     current = np.asarray(channel, dtype=np.float64)
     for i in range(n_scales):
@@ -70,7 +83,7 @@ def _wavelet_decompose(
 
 
 def _merge_wavelet(scales: list[np.ndarray], residual: np.ndarray) -> np.ndarray:
-    """Recompose with grain merge: lower + upper − midpoint per scale layer."""
+    """Recompose with grain merge in R'G'B' float."""
     out = np.asarray(residual, dtype=np.float64)
     for scale in scales:
         out += np.asarray(scale, dtype=np.float64) - _GRAIN_MIDPOINT
@@ -108,15 +121,24 @@ def wavelet_sharpen(
     medium: float = 8.0,
     coarse: float = 1.0,
 ) -> np.ndarray:
+    """Wavelet sharpen matching GIMP plug-in-wavelet-sharpen.
+
+    GEGL gegl:wavelet-blur-1d prepares with
+    ``babl_format_with_space ("R'G'B' float", space)`` — perceptual
+    sRGB-encoded float, not linear light.  ImageDocument stores linear
+    RGB; this filter converts to R'G'B' for decompose / unsharp / merge,
+    then converts back to linear for the document.
+    """
     amounts = (fine, medium, coarse)
 
     def sharpen_channel(ch: np.ndarray) -> np.ndarray:
-        scales, residual = _wavelet_decompose(ch)
+        work = _to_perceptual(ch)
+        scales, residual = _wavelet_decompose(work)
         sharpened = [
             _unsharp_mask(scale, _UNSHARP_STD, amounts[i])
             for i, scale in enumerate(scales)
         ]
-        return _merge_wavelet(sharpened, residual)
+        return _from_perceptual(_merge_wavelet(sharpened, residual))
 
     return _process_channels(data, is_grayscale, sharpen_channel)
 
@@ -128,10 +150,12 @@ def wavelet_denoise(
     medium: float = 1.0,
     coarse: float = 0.0,
 ) -> np.ndarray:
+    """Wavelet denoise in the same R'G'B' float space as GIMP decompose."""
     radii = (fine, medium, coarse)
 
     def denoise_channel(ch: np.ndarray) -> np.ndarray:
-        scales, residual = _wavelet_decompose(ch)
+        work = _to_perceptual(ch)
+        scales, residual = _wavelet_decompose(work)
         denoised = []
         for i, scale in enumerate(scales):
             r = radii[i]
@@ -139,6 +163,6 @@ def wavelet_denoise(
                 denoised.append(gaussian_filter(scale, r).astype(np.float32))
             else:
                 denoised.append(scale)
-        return _merge_wavelet(denoised, residual)
+        return _from_perceptual(_merge_wavelet(denoised, residual))
 
     return _process_channels(data, is_grayscale, denoise_channel)
