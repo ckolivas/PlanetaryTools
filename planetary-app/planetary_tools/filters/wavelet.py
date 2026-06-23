@@ -67,6 +67,26 @@ def _from_perceptual(channel: np.ndarray) -> np.ndarray:
     return srgb_to_linear(np.clip(channel, 0.0, 1.0)).astype(np.float32)
 
 
+def _grain_extract(channel: np.ndarray, blurred: np.ndarray) -> np.ndarray:
+    """gimp:grain-extract-legacy with CLAMP(comp, 0, 1)."""
+    comp = (
+        np.asarray(channel, dtype=np.float64)
+        - np.asarray(blurred, dtype=np.float64)
+        + _GRAIN_MIDPOINT
+    )
+    return np.clip(comp, 0.0, 1.0).astype(np.float32)
+
+
+def _grain_merge(base: np.ndarray, layer: np.ndarray) -> np.ndarray:
+    """gimp:grain-merge-legacy with CLAMP(comp, 0, 1)."""
+    comp = (
+        np.asarray(base, dtype=np.float64)
+        + np.asarray(layer, dtype=np.float64)
+        - _GRAIN_MIDPOINT
+    )
+    return np.clip(comp, 0.0, 1.0).astype(np.float32)
+
+
 def _wavelet_decompose(
     channel: np.ndarray,
     n_scales: int = NUM_SCALES,
@@ -77,17 +97,17 @@ def _wavelet_decompose(
     for i in range(n_scales):
         radius = _WAVELET_RADII[i] if i < len(_WAVELET_RADII) else 2.0 ** i
         blurred = wavelet_blur(current, radius).astype(np.float64)
-        scales.append((current - blurred + _GRAIN_MIDPOINT).astype(np.float32))
+        scales.append(_grain_extract(current, blurred))
         current = blurred
     return scales, current.astype(np.float32)
 
 
 def _merge_wavelet(scales: list[np.ndarray], residual: np.ndarray) -> np.ndarray:
-    """Recompose with grain merge in R'G'B' float."""
-    out = np.asarray(residual, dtype=np.float64)
-    for scale in scales:
-        out += np.asarray(scale, dtype=np.float64) - _GRAIN_MIDPOINT
-    return out.astype(np.float32)
+    """Recompose with grain merge coarse → fine (GIMP layer-stack order)."""
+    out = np.asarray(residual, dtype=np.float32)
+    for scale in reversed(scales):
+        out = _grain_merge(out, scale)
+    return out
 
 
 def _unsharp_mask(layer: np.ndarray, std_dev: float, amount: float) -> np.ndarray:
