@@ -574,6 +574,16 @@ class SaturationVibranceDialog(_FilterDialog):
             "Adjusts chroma in OKLab. 1.00 on each control leaves the image unchanged."
         ))
 
+        reset_btn = QPushButton("Reset")
+        reset_btn.setToolTip("Reset saturation and vibrance to 1.00 (no change).")
+        reset_btn.clicked.connect(self._reset_defaults)
+        self._form.addRow(reset_btn)
+
+    def _reset_defaults(self) -> None:
+        self.set_params(FILTERS[self.filter_id].default_params)
+        self.params_changed.emit()
+        self.preview_now.emit()
+
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
         p.update({
