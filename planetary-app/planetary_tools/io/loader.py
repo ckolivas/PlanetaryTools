@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zlib
 from pathlib import Path
 
 import imageio.v3 as iio
@@ -10,6 +11,8 @@ import tifffile
 
 from planetary_tools.core.color import srgb_to_linear
 from planetary_tools.core.document import ImageDocument
+from planetary_tools.io.png_read import read_png_ihdr, read_png_rgb16
+from planetary_tools.io.png_write import write_png_gray16, write_png_rgb16
 
 _IMAGE_EXTENSIONS = {
     ".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp", ".webp",
@@ -32,8 +35,37 @@ def _is_probably_linear(path: Path, arr: np.ndarray) -> bool:
     return False
 
 
-def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool]:
-    """Return (float32 linear HxW or HxWx3, is_grayscale)."""
+def _load_array(path: Path) -> np.ndarray:
+    suffix = path.suffix.lower()
+    if suffix == ".png":
+        try:
+            _, _, bit_depth, color_type = read_png_ihdr(path)
+            if bit_depth == 16 and color_type == 2:
+                return read_png_rgb16(path)
+        except (ValueError, OSError, zlib.error):
+            pass
+        except Exception:
+            pass
+    if suffix in {".fits", ".fit", ".fts"}:
+        try:
+            return tifffile.imread(path)
+        except Exception:
+            return iio.imread(path)
+    return iio.imread(path)
+
+
+def _storage_bits(arr: np.ndarray, path: Path) -> int:
+    if arr.dtype == np.uint8:
+        return 8
+    if arr.dtype == np.uint16:
+        return 16
+    if arr.dtype in (np.float32, np.float64):
+        return 32
+    return 8
+
+
+def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool, int]:
+    """Return (float32 linear HxW or HxWx3, is_grayscale, storage_bits)."""
     arr = np.asarray(arr)
 
     if arr.ndim == 2:
@@ -50,6 +82,7 @@ def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool]:
     else:
         raise ValueError(f"Unsupported image rank: {arr.ndim}")
 
+    storage_bits = _storage_bits(arr, path)
     linear_input = _is_probably_linear(path, arr)
 
     if arr.dtype == np.uint8:
@@ -63,7 +96,6 @@ def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool]:
     elif arr.dtype in (np.float32, np.float64):
         f = arr.astype(np.float32)
         if f.max() > 1.5:
-            # 16-bit float stored in 32-bit container
             f = f / 65535.0
     else:
         f = arr.astype(np.float32)
@@ -71,7 +103,7 @@ def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool]:
             f = f / f.max()
 
     f = np.clip(f, 0.0, None).astype(np.float32)
-    return f, grayscale
+    return f, grayscale, storage_bits
 
 
 def load_image(path: str | Path) -> ImageDocument:
@@ -79,27 +111,34 @@ def load_image(path: str | Path) -> ImageDocument:
     if not path.exists():
         raise FileNotFoundError(path)
 
-    suffix = path.suffix.lower()
-    if suffix in {".fits", ".fit", ".fts"}:
-        try:
-            arr = tifffile.imread(path)
-        except Exception:
-            arr = iio.imread(path)
-    else:
-        arr = iio.imread(path)
-
-    data, grayscale = _normalize_array(arr, path)
-    return ImageDocument(data=data, path=path, is_grayscale=grayscale, modified=False)
+    arr = _load_array(path)
+    data, grayscale, storage_bits = _normalize_array(arr, path)
+    return ImageDocument(
+        data=data,
+        path=path,
+        is_grayscale=grayscale,
+        modified=False,
+        storage_bits=storage_bits,
+    )
 
 
-def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int = 16) -> None:
-    """Save document. Float TIFF preserves linear data; other formats use sRGB."""
+def _effective_bit_depth(doc: ImageDocument, path: Path, bit_depth: int | None) -> int:
+    if bit_depth is not None:
+        return bit_depth
+    if doc.storage_bits in (8, 16, 32):
+        return doc.storage_bits
+    return 16
+
+
+def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = None) -> None:
+    """Save document. Float TIFF preserves linear data; PNG/TIFF honour bit depth."""
     from planetary_tools.core.color import linear_to_srgb
 
     path = Path(path)
     suffix = path.suffix.lower()
+    depth = _effective_bit_depth(doc, path, bit_depth)
 
-    if suffix in {".tif", ".tiff"} and bit_depth == 32:
+    if suffix in {".tif", ".tiff"} and depth == 32:
         if doc.is_grayscale:
             tifffile.imwrite(path, doc.data.astype(np.float32), photometric="minisblack")
         else:
@@ -110,7 +149,7 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int = 16) -> 
 
     if doc.is_grayscale:
         src = doc.data
-        if suffix in _FLOAT_EXTENSIONS and bit_depth == 16:
+        if suffix in _FLOAT_EXTENSIONS and depth == 16:
             out = np.clip(src, 0.0, 1.0)
             out = (out * 65535.0 + 0.5).astype(np.uint16)
             tifffile.imwrite(path, out, photometric="minisblack")
@@ -118,14 +157,20 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int = 16) -> 
             doc.modified = False
             return
         srgb = linear_to_srgb(src)
-        out = (np.clip(srgb, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
-        iio.imwrite(path, out)
+        srgb = np.clip(srgb, 0.0, 1.0)
+        if suffix == ".png" and depth >= 16:
+            write_png_gray16(path, (srgb * 65535.0 + 0.5).astype(np.uint16))
+        else:
+            out = (srgb * 255.0 + 0.5).astype(np.uint8)
+            iio.imwrite(path, out)
     else:
         srgb = linear_to_srgb(doc.data)
         srgb = np.clip(srgb, 0.0, 1.0)
-        if suffix in _FLOAT_EXTENSIONS and bit_depth == 16:
+        if suffix in _FLOAT_EXTENSIONS and depth == 16:
             out = (srgb * 65535.0 + 0.5).astype(np.uint16)
             tifffile.imwrite(path, out)
+        elif suffix == ".png" and depth >= 16:
+            write_png_rgb16(path, (srgb * 65535.0 + 0.5).astype(np.uint16))
         else:
             out = (srgb * 255.0 + 0.5).astype(np.uint8)
             iio.imwrite(path, out)

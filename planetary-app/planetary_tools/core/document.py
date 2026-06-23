@@ -18,6 +18,8 @@ class ImageDocument:
     path: Path | None = None
     is_grayscale: bool = False
     modified: bool = False
+    # Native channel precision of the source file (8, 16, or 32).
+    storage_bits: int = 32
     # oklab_channels: dict[str, np.ndarray] = field(default_factory=dict)  # OKLab decompose (disabled)
 
     @property

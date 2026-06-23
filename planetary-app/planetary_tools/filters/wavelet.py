@@ -10,7 +10,6 @@ NUM_SCALES = 3
 _WAVELET_RADII = (1.0, 2.0, 4.0)
 # GIMP unsharp-mask on scale layers uses std-dev 16.
 _UNSHARP_STD = 16.0
-# Float-precision grain extract / merge midpoint (GIMP non-legacy modes).
 _GRAIN_MIDPOINT = 0.5
 
 
@@ -65,7 +64,6 @@ def _wavelet_decompose(
     for i in range(n_scales):
         radius = _WAVELET_RADII[i] if i < len(_WAVELET_RADII) else 2.0 ** i
         blurred = wavelet_blur(current, radius).astype(np.float64)
-        # Grain extract: lower − upper + midpoint.
         scales.append((current - blurred + _GRAIN_MIDPOINT).astype(np.float32))
         current = blurred
     return scales, current.astype(np.float32)

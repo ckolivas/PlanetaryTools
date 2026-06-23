@@ -319,7 +319,12 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        bit_depth = 32 if "float32" in selected or path.lower().endswith((".tif", ".tiff")) else 8
+        if "float32" in selected:
+            bit_depth = 32
+        elif path.lower().endswith((".tif", ".tiff")):
+            bit_depth = 16
+        else:
+            bit_depth = self._document.storage_bits
         try:
             save_image(self._document, path, bit_depth=bit_depth)
             self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
