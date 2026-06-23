@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "planetary-app"
+version = "0.1.0"
+description = "Standalone planetary imaging processing application"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+    { name = "Con Kolivas", email = "kernel@kolivas.org" }
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "PyQt6>=6.5",
+    "Pillow>=10.0",
+    "imageio>=2.31",
+    "tifffile>=2023.7",
+]
+
+[project.gui-scripts]
+planetary-app = "planetary_tools.ui.main_window:run_app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["planetary_tools*"]
+
