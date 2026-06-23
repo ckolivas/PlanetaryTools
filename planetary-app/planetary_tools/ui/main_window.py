@@ -43,7 +43,12 @@ from planetary_tools.ui.dialogs import (
     _FilterDialog,
 )
 from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
-from planetary_tools.ui.recent_files import add_recent, list_recent, remove_recent
+from planetary_tools.ui.recent_files import (
+    add_recent,
+    last_open_directory,
+    list_recent,
+    remove_recent,
+)
 
 
 class MainWindow(QMainWindow):
@@ -380,7 +385,12 @@ class MainWindow(QMainWindow):
         self._open_path(path)
 
     def _open_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", self._file_filter())
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Image",
+            last_open_directory(),
+            self._file_filter(),
+        )
         if not path:
             return
         self._open_path(path)
