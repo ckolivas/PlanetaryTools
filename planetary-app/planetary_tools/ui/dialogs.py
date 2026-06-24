@@ -144,7 +144,7 @@ def _make_matrix_grid(
         for col_idx in range(3):
             spin = QDoubleSpinBox()
             spin.setRange(-10.0, 10.0)
-            spin.setDecimals(4)
+            spin.setDecimals(3)
             spin.setSingleStep(0.01)
             spin.setMaximumWidth(72)
             spin.setValue(float(matrix[row_idx][col_idx]))
