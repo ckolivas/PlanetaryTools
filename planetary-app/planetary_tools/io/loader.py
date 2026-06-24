@@ -103,6 +103,9 @@ def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool, int
             f = f / f.max()
 
     f = np.clip(f, 0.0, None).astype(np.float32)
+    if grayscale:
+        f = np.stack([f, f, f], axis=-1)
+        grayscale = False
     return f, grayscale, storage_bits
 
 

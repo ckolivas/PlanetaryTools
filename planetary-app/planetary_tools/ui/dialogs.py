@@ -513,7 +513,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
     def _build_filter_params(self) -> None:
         fdef = FILTERS[self.filter_id]
         self.amount = self._add_double(
-            "Amount", fdef.default_params["amount"], 0.0, 200.0, step=1.0, decimals=0
+            "Amount", fdef.default_params["amount"], 0.0, 200.0, step=0.1, decimals=1
         )
         self.adaptive = QCheckBox("Contrast Adaptive")
         self.adaptive.setToolTip(
@@ -896,7 +896,8 @@ def edit_filter_params(
     elif filter_id == "adaptive_deconv":
         amount = QDoubleSpinBox()
         amount.setRange(0.0, 200.0)
-        amount.setDecimals(0)
+        amount.setDecimals(1)
+        amount.setSingleStep(0.1)
         amount.setValue(params.get("amount", fdef.default_params["amount"]))
         form.addRow("Amount", amount)
         widgets["amount"] = amount
