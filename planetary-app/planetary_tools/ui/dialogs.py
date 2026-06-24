@@ -672,7 +672,10 @@ class LevelsDialog(_FilterDialog):
         layout.addWidget(reset_all)
         self._form.addRow(row)
 
-        note = QLabel("Luminance uses OKLab; RGB uses linear light.")
+        note = QLabel(
+            "Luminance uses OKLab. RGB matches GIMP perceptual gamma "
+            "(sRGB-encoded); output is applied before input."
+        )
         note.setWordWrap(True)
         self._form.addRow(note)
         self._load_channel_into_spins(self._current_channel())

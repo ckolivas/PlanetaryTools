@@ -1,4 +1,4 @@
-"""Per-channel levels on OKLab luminance and linear RGB."""
+"""Per-channel levels: OKLab luminance and GIMP-matched sRGB-encoded RGB."""
 
 from __future__ import annotations
 
@@ -7,7 +7,12 @@ from typing import Any
 
 import numpy as np
 
-from planetary_tools.core.color import oklab_to_rgb, rgb_to_oklab
+from planetary_tools.core.color import (
+    linear_to_srgb,
+    oklab_to_rgb,
+    rgb_to_oklab,
+    srgb_to_linear,
+)
 
 LEVEL_CHANNELS = ("L", "R", "G", "B")
 LEVEL_KEYS = ("in_min", "in_max", "gamma", "out_min", "out_max")
@@ -69,7 +74,7 @@ def _apply_output_curve(
     values: np.ndarray,
     levels: dict[str, float],
 ) -> np.ndarray:
-    """Map linear values through the output range first."""
+    """Map channel values through the output range first."""
     if _is_identity_output(levels):
         return np.asarray(values, dtype=np.float32)
 
@@ -115,42 +120,54 @@ def apply_levels_curve(
     return _apply_input_curve(out, levels)
 
 
-def _apply_channel_output(
+def _apply_oklab_l_output(rgb: np.ndarray, levels: dict[str, float]) -> np.ndarray:
+    if _is_identity_output(levels):
+        return rgb
+    lab = rgb_to_oklab(rgb)
+    lab[..., 0] = _apply_output_curve(lab[..., 0], levels)
+    return oklab_to_rgb(lab, clamp=False)
+
+
+def _apply_oklab_l_input(rgb: np.ndarray, levels: dict[str, float]) -> np.ndarray:
+    if _is_identity_input(levels):
+        return rgb
+    lab = rgb_to_oklab(rgb)
+    lab[..., 0] = _apply_input_curve(lab[..., 0], levels)
+    return oklab_to_rgb(lab, clamp=False)
+
+
+def _apply_srgb_rgb_output(
     rgb: np.ndarray,
     channels: dict[str, dict[str, float]],
 ) -> np.ndarray:
-    """Output pass for OKLab L and linear RGB."""
-    if not _is_identity_output(channels["L"]):
-        lab = rgb_to_oklab(rgb)
-        lab[..., 0] = _apply_output_curve(lab[..., 0], channels["L"])
-        rgb = oklab_to_rgb(lab, clamp=False)
+    """Output pass on GIMP-matched sRGB-encoded R, G, B."""
+    if all(_is_identity_output(channels[ch]) for ch in ("R", "G", "B")):
+        return rgb
 
+    srgb = linear_to_srgb(rgb)
     for idx, ch in enumerate(("R", "G", "B")):
         if not _is_identity_output(channels[ch]):
-            rgb[..., idx] = _apply_output_curve(rgb[..., idx], channels[ch])
+            srgb[..., idx] = _apply_output_curve(srgb[..., idx], channels[ch])
+    return srgb_to_linear(srgb)
 
-    return rgb
 
-
-def _apply_channel_input(
+def _apply_srgb_rgb_input(
     rgb: np.ndarray,
     channels: dict[str, dict[str, float]],
 ) -> np.ndarray:
-    """Input pass for OKLab L and linear RGB."""
-    if not _is_identity_input(channels["L"]):
-        lab = rgb_to_oklab(rgb)
-        lab[..., 0] = _apply_input_curve(lab[..., 0], channels["L"])
-        rgb = oklab_to_rgb(lab, clamp=False)
+    """Input pass on GIMP-matched sRGB-encoded R, G, B."""
+    if all(_is_identity_input(channels[ch]) for ch in ("R", "G", "B")):
+        return rgb
 
+    srgb = linear_to_srgb(rgb)
     for idx, ch in enumerate(("R", "G", "B")):
         if not _is_identity_input(channels[ch]):
-            rgb[..., idx] = _apply_input_curve(rgb[..., idx], channels[ch])
-
-    return rgb
+            srgb[..., idx] = _apply_input_curve(srgb[..., idx], channels[ch])
+    return srgb_to_linear(srgb)
 
 
 def apply_levels(data: np.ndarray, params: dict[str, Any]) -> np.ndarray:
-    """Apply stored per-channel levels to OKLab L and linear R, G, B."""
+    """Apply OKLab L and sRGB-encoded R, G, B (output pass, then input pass)."""
     channels = normalize_levels_params(params)
     if all(is_identity_levels(channels[ch]) for ch in LEVEL_CHANNELS):
         return np.asarray(data, dtype=np.float32)
@@ -160,8 +177,10 @@ def apply_levels(data: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     if rgb.ndim == 2:
         rgb = np.stack([rgb, rgb, rgb], axis=-1)
 
-    rgb = _apply_channel_output(rgb, channels)
-    rgb = _apply_channel_input(rgb, channels)
+    rgb = _apply_oklab_l_output(rgb, channels["L"])
+    rgb = _apply_srgb_rgb_output(rgb, channels)
+    rgb = _apply_oklab_l_input(rgb, channels["L"])
+    rgb = _apply_srgb_rgb_input(rgb, channels)
     return rgb.astype(np.float32)
 
 
@@ -177,8 +196,9 @@ def _channel_values(data: np.ndarray, channel: str) -> np.ndarray:
         rgb = np.stack([rgb, rgb, rgb], axis=-1)
     if channel == "L":
         return rgb_to_oklab(rgb)[..., 0].ravel()
+    srgb = linear_to_srgb(rgb)
     idx = {"R": 0, "G": 1, "B": 2}[channel]
-    return rgb[..., idx].ravel()
+    return srgb[..., idx].ravel()
 
 
 def auto_input_levels_for_channel(values: np.ndarray) -> dict[str, float]:
