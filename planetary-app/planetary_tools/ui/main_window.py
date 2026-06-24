@@ -366,7 +366,11 @@ class MainWindow(QMainWindow):
                 lambda _checked=False, p=path: self._open_recent(p),
             )
 
-    def _open_path(self, path: str | Path) -> bool:
+    def _open_path(self, path: str | Path, *, confirm_unsaved: bool = True) -> bool:
+        if confirm_unsaved and not self._confirm_unsaved_changes(
+            "before opening another file"
+        ):
+            return False
         try:
             doc = load_image(path)
         except Exception as exc:
@@ -385,6 +389,8 @@ class MainWindow(QMainWindow):
         self._open_path(path)
 
     def _open_file(self) -> None:
+        if not self._confirm_unsaved_changes("before opening another file"):
+            return
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open Image",
@@ -393,7 +399,7 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        self._open_path(path)
+        self._open_path(path, confirm_unsaved=False)
 
     def _try_save_document_as(self) -> bool:
         if self._document is None:
@@ -456,7 +462,7 @@ class MainWindow(QMainWindow):
     def _save_file_as(self) -> None:
         self._try_save_document_as()
 
-    def _confirm_close(self) -> bool:
+    def _confirm_unsaved_changes(self, action: str) -> bool:
         if self._document is None or not self._document.modified:
             return True
 
@@ -464,7 +470,7 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle("Unsaved changes")
-        box.setText(f'Save changes to "{name}" before closing?')
+        box.setText(f'Save changes to "{name}" {action}?')
         save_btn = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
         save_as_btn = box.addButton("Save As…", QMessageBox.ButtonRole.ActionRole)
         discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
@@ -483,7 +489,7 @@ class MainWindow(QMainWindow):
         return False
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self._confirm_close():
+        if self._confirm_unsaved_changes("before closing"):
             event.accept()
         else:
             event.ignore()
