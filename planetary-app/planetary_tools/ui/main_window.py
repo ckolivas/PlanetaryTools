@@ -586,8 +586,10 @@ class MainWindow(QMainWindow):
         dlg = getattr(self, "_active_filter_dlg", None)
         if dlg is None or self._document is None or not dlg.filter_id:
             return
-        if not (self._preview.is_active and dlg.preview.isChecked()):
+        preview_on = self._preview.is_active and dlg.preview.isChecked()
+        if not preview_on:
             dlg.update_output_brightness(None)
+            dlg.update_histogram_display(None)
             return
         original = self._preview.original_data()
         if original is None:
@@ -599,6 +601,11 @@ class MainWindow(QMainWindow):
             dlg.get_params(),
         )
         dlg.update_output_brightness(stats.brightness, stats.brightness_increase_pct)
+        preview_data = self._preview.display_data()
+        if preview_data is not None:
+            dlg.update_histogram_display(preview_data)
+        else:
+            dlg.update_histogram_display(None)
 
     def _on_dialog_params_changed(self) -> None:
         sender = self.sender()

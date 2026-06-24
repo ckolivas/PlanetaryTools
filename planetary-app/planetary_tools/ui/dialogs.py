@@ -40,8 +40,16 @@ from planetary_tools.filters.registry import (
     FILTERS,
     apply_filter,
 )
+from planetary_tools.ui.histogram import RgbHistogramWidget
 
 FilterFunc = Callable[[np.ndarray, bool], np.ndarray]
+
+COLOR_FILTER_IDS = frozenset({
+    "stretch_contrast",
+    "color_matrix",
+    "saturation_vibrance",
+    "levels",
+})
 
 _MATRIX_INPUT_LABELS = ("R in", "G in", "B in")
 _MATRIX_OUTPUT_LABELS = ("R out", "G out", "B out")
@@ -167,6 +175,13 @@ class _FilterDialog(QWidget):
         self._input_info: BrightnessInfo | None = None
 
         root = QVBoxLayout(self)
+
+        self._histogram_source: np.ndarray | None = None
+        self._histogram_is_grayscale = False
+        self._histogram: RgbHistogramWidget | None = None
+        if self.filter_id in COLOR_FILTER_IDS:
+            self._histogram = RgbHistogramWidget()
+            root.addWidget(self._histogram)
 
         self._input_label = QLabel("Input —")
         self._input_label.setStyleSheet("font-weight: bold;")
@@ -309,6 +324,21 @@ class _FilterDialog(QWidget):
     def set_input_brightness(self, data: np.ndarray, is_grayscale: bool) -> None:
         self._input_info = measure_brightness(data, is_grayscale)
         self._input_label.setText(self._input_info.format_line("Input — "))
+        self._histogram_source = np.asarray(data, dtype=np.float32)
+        self._histogram_is_grayscale = is_grayscale
+        self.update_histogram_display(data)
+
+    def update_histogram_display(self, data: np.ndarray | None) -> None:
+        if self._histogram is None:
+            return
+        if data is None:
+            if self._histogram_source is not None:
+                self._histogram.set_data(
+                    self._histogram_source,
+                    self._histogram_is_grayscale,
+                )
+            return
+        self._histogram.set_data(data, self._histogram_is_grayscale)
 
     def update_output_brightness(
         self,
