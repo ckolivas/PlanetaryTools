@@ -40,6 +40,11 @@ ENHANCE_FILTER_IDS = frozenset({
     "adaptive_deconv",
 })
 
+CLAMP_FILTER_IDS = ENHANCE_FILTER_IDS | frozenset({
+    "color_matrix",
+    "saturation_vibrance",
+})
+
 
 @dataclass(frozen=True)
 class FilterOutputStats:
@@ -165,13 +170,13 @@ FILTERS: dict[str, FilterDef] = {
         id="color_matrix",
         label="Colour Correction Matrix",
         requires_rgb=True,
-        default_params={"matrix": [row[:] for row in IDENTITY_MATRIX]},
+        default_params=_with_defaults({"matrix": [row[:] for row in IDENTITY_MATRIX]}),
     ),
     "saturation_vibrance": SaturationVibranceDef(
         id="saturation_vibrance",
         label="Saturation & Vibrance",
         requires_rgb=True,
-        default_params={"saturation": 1.0, "vibrance": 1.0},
+        default_params=_with_defaults({"saturation": 1.0, "vibrance": 1.0}),
     ),
     "levels": LevelsDef(
         id="levels",
@@ -225,10 +230,10 @@ def post_process(
     filter_id: str,
 ) -> np.ndarray:
     """Highlight clamping and automatic clip-black when clamp-to-0% is off."""
-    enhance = filter_id in ENHANCE_FILTER_IDS
-    clamp_high = enhance and _clamp_high_enabled(params)
-    clamp_low = enhance and clamp_high and _clamp_low_enabled(params)
-    clip_black = enhance and not clamp_low
+    clampable = filter_id in CLAMP_FILTER_IDS
+    clamp_high = clampable and _clamp_high_enabled(params)
+    clamp_low = clampable and clamp_high and _clamp_low_enabled(params)
+    clip_black = clampable and not clamp_low
     return apply_channel_post_process(
         raw,
         is_grayscale,

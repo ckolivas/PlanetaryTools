@@ -34,6 +34,7 @@ from planetary_tools.filters.levels import (
     normalize_levels_params,
 )
 from planetary_tools.filters.registry import (
+    CLAMP_FILTER_IDS,
     CLAMP_LOW_PARAM,
     CLAMP_PARAM,
     ENHANCE_FILTER_IDS,
@@ -573,7 +574,7 @@ class SaturationVibranceDialog(_FilterDialog):
 
     filter_id = "saturation_vibrance"
     supports_presets = True
-    supports_clamp = False
+    supports_clamp = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Saturation & Vibrance", parent)
@@ -809,7 +810,7 @@ class ColorMatrixDialog(_FilterDialog):
 
     filter_id = "color_matrix"
     supports_presets = True
-    supports_clamp = False
+    supports_clamp = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Colour Correction Matrix", parent)
@@ -989,7 +990,7 @@ def edit_filter_params(
     else:
         layout.addWidget(QLabel("No numeric parameters for this filter."))
 
-    if filter_id in ENHANCE_FILTER_IDS:
+    if filter_id in CLAMP_FILTER_IDS:
         clamp_box = QCheckBox("Clamp to 100% when clipping")
         clamp_val = params.get(
             CLAMP_PARAM,
