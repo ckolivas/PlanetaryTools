@@ -14,14 +14,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from planetary_tools.core.color import linear_to_srgb
+from planetary_tools.core.colour import linear_to_srgb
 
 HISTOGRAM_BINS = 256
 _MAX_SAMPLES = 250_000
 _PLOT_HEIGHT = 120
 _HEADER_HEIGHT = 24
 
-_CHANNEL_COLORS = (
+_CHANNEL_COLOURS = (
     QColor(235, 70, 70, 200),
     QColor(70, 210, 80, 200),
     QColor(80, 130, 235, 200),
@@ -190,7 +190,7 @@ class _HistogramPlot(QWidget):
                 path.lineTo(x, y)
             path.lineTo(right, bottom)
             path.closeSubpath()
-            painter.fillPath(path, _CHANNEL_COLORS[ch])
+            painter.fillPath(path, _CHANNEL_COLOURS[ch])
 
         painter.setPen(QPen(QColor(120, 120, 128), 1, Qt.PenStyle.DashLine))
         mid_x = left + plot_w * 0.5

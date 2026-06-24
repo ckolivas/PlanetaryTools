@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from planetary_tools.core.color import oklab_to_rgb, rgb_to_oklab
+from planetary_tools.core.colour import oklab_to_rgb, rgb_to_oklab
 
 # Typical OKLab chroma span used to weight vibrance (1.0 = 100%).
 _OKLAB_CHROMA_REF = 0.4

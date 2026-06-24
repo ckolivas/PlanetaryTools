@@ -7,7 +7,7 @@ from typing import Callable
 import numpy as np
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
-from planetary_tools.core.color import linear_to_srgb
+from planetary_tools.core.colour import linear_to_srgb
 
 FilterFunc = Callable[[np.ndarray, bool], np.ndarray]
 

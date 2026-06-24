@@ -14,9 +14,9 @@ from planetary_tools.core.brightness import (
     measure_brightness,
 )
 from planetary_tools.filters.adaptive_deconv import adaptive_deconvolution
-from planetary_tools.filters.color_matrix import (
+from planetary_tools.filters.colour_matrix import (
     IDENTITY_MATRIX,
-    apply_color_matrix,
+    apply_colour_matrix,
     matrix_from_params,
 )
 # from planetary_tools.filters.oklab_filters import oklab_luminance
@@ -41,7 +41,7 @@ ENHANCE_FILTER_IDS = frozenset({
 })
 
 CLAMP_FILTER_IDS = ENHANCE_FILTER_IDS | frozenset({
-    "color_matrix",
+    "colour_matrix",
     "saturation_vibrance",
 })
 
@@ -105,9 +105,9 @@ class StretchContrastDef(FilterDef):
 
 
 @dataclass
-class ColorMatrixDef(FilterDef):
+class ColourMatrixDef(FilterDef):
     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
-        return apply_color_matrix(data, matrix_from_params(params))
+        return apply_colour_matrix(data, matrix_from_params(params))
 
 
 @dataclass
@@ -166,8 +166,8 @@ FILTERS: dict[str, FilterDef] = {
         requires_rgb=True,
         default_params={},
     ),
-    "color_matrix": ColorMatrixDef(
-        id="color_matrix",
+    "colour_matrix": ColourMatrixDef(
+        id="colour_matrix",
         label="Colour Correction Matrix",
         requires_rgb=True,
         default_params=_with_defaults({"matrix": [row[:] for row in IDENTITY_MATRIX]}),
@@ -191,6 +191,14 @@ FILTERS: dict[str, FilterDef] = {
     #     default_params={},
     # ),
 }
+
+# Legacy American-spelling filter id.
+_LEGACY_FILTER_IDS = {"color_matrix": "colour_matrix"}
+FILTERS["color_matrix"] = FILTERS["colour_matrix"]
+
+
+def _canonical_filter_id(filter_id: str) -> str:
+    return _LEGACY_FILTER_IDS.get(filter_id, filter_id)
 
 
 def _merge_params(fdef: FilterDef, params: dict[str, Any] | None) -> dict[str, Any]:
@@ -230,7 +238,7 @@ def post_process(
     filter_id: str,
 ) -> np.ndarray:
     """Highlight clamping and automatic clip-black when clamp-to-0% is off."""
-    clampable = filter_id in CLAMP_FILTER_IDS
+    clampable = _canonical_filter_id(filter_id) in CLAMP_FILTER_IDS
     clamp_high = clampable and _clamp_high_enabled(params)
     clamp_low = clampable and clamp_high and _clamp_low_enabled(params)
     clip_black = clampable and not clamp_low
@@ -276,7 +284,7 @@ def output_filter_stats(
     brightness = measure_brightness(raw, is_grayscale)
 
     increase: float | None = None
-    if filter_id in ENHANCE_FILTER_IDS:
+    if _canonical_filter_id(filter_id) in ENHANCE_FILTER_IDS:
         increase = brightness_increase_pct(data, raw, is_grayscale)
 
     return FilterOutputStats(brightness, increase)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from planetary_tools.core.color import clamp01, rgb_to_oklab_L
+from planetary_tools.core.colour import clamp01, rgb_to_oklab_L
 
 
 def stretch_contrast_oklab(data: np.ndarray) -> np.ndarray:

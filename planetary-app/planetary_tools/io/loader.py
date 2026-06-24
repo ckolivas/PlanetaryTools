@@ -9,7 +9,7 @@ import imageio.v3 as iio
 import numpy as np
 import tifffile
 
-from planetary_tools.core.color import srgb_to_linear
+from planetary_tools.core.colour import srgb_to_linear
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.io.png_read import read_png_ihdr, read_png_rgb16
 from planetary_tools.io.png_write import write_png_gray16, write_png_rgb16
@@ -39,8 +39,8 @@ def _load_array(path: Path) -> np.ndarray:
     suffix = path.suffix.lower()
     if suffix == ".png":
         try:
-            _, _, bit_depth, color_type = read_png_ihdr(path)
-            if bit_depth == 16 and color_type == 2:
+            _, _, bit_depth, colour_type = read_png_ihdr(path)
+            if bit_depth == 16 and colour_type == 2:
                 return read_png_rgb16(path)
         except (ValueError, OSError, zlib.error):
             pass
@@ -139,7 +139,7 @@ def _finalize_save(doc: ImageDocument, path: Path, depth: int) -> None:
 
 def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = None) -> None:
     """Save document. Float TIFF preserves linear data; PNG/TIFF honour bit depth."""
-    from planetary_tools.core.color import linear_to_srgb
+    from planetary_tools.core.colour import linear_to_srgb
 
     path = Path(path)
     suffix = path.suffix.lower()

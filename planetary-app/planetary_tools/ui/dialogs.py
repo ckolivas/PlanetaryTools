@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 
 from planetary_tools.core.brightness import BrightnessInfo, measure_brightness
 from planetary_tools.core.presets import RESERVED, ensure_builtin_presets, save_presets
-from planetary_tools.filters.color_matrix import IDENTITY_MATRIX
+from planetary_tools.filters.colour_matrix import IDENTITY_MATRIX
 from planetary_tools.filters.levels import (
     LEVEL_CHANNELS,
     auto_balance_levels,
@@ -45,9 +45,9 @@ from planetary_tools.ui.histogram import RgbHistogramWidget
 
 FilterFunc = Callable[[np.ndarray, bool], np.ndarray]
 
-COLOR_FILTER_IDS = frozenset({
+COLOUR_FILTER_IDS = frozenset({
     "stretch_contrast",
-    "color_matrix",
+    "colour_matrix",
     "saturation_vibrance",
     "levels",
 })
@@ -180,7 +180,7 @@ class _FilterDialog(QWidget):
         self._histogram_source: np.ndarray | None = None
         self._histogram_is_grayscale = False
         self._histogram: RgbHistogramWidget | None = None
-        if self.filter_id in COLOR_FILTER_IDS:
+        if self.filter_id in COLOUR_FILTER_IDS:
             self._histogram = RgbHistogramWidget()
             root.addWidget(self._histogram)
 
@@ -524,7 +524,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
         self._form.addRow(self.adaptive)
         self.oklab = QCheckBox("OKLab luminance")
         self.oklab.setToolTip(
-            "Sharpens on luminance layer decreasing color noise but lowers saturation."
+            "Sharpens on luminance layer decreasing colour noise but lowers saturation."
         )
         self.oklab.setChecked(fdef.default_params["oklab"] and not self._is_grayscale)
         self.oklab.setEnabled(not self._is_grayscale)
@@ -805,10 +805,10 @@ class LevelsDialog(_FilterDialog):
         self._load_channel_into_spins(self._editing_channel)
 
 
-class ColorMatrixDialog(_FilterDialog):
+class ColourMatrixDialog(_FilterDialog):
     """3×3 colour correction matrix with preset save/load."""
 
-    filter_id = "color_matrix"
+    filter_id = "colour_matrix"
     supports_presets = True
     supports_clamp = True
 
@@ -909,7 +909,7 @@ def edit_filter_params(
         widgets["adaptive"] = adaptive
         oklab = QCheckBox("OKLab luminance")
         oklab.setToolTip(
-            "Sharpens on luminance layer decreasing color noise but lowers saturation."
+            "Sharpens on luminance layer decreasing colour noise but lowers saturation."
         )
         oklab.setChecked(params.get("oklab", fdef.default_params["oklab"]) and not is_grayscale)
         oklab.setEnabled(not is_grayscale)
@@ -917,7 +917,7 @@ def edit_filter_params(
         widgets["oklab"] = oklab
     elif filter_id == "stretch_contrast":
         layout.addWidget(QLabel("No parameters — stretch is applied automatically."))
-    elif filter_id == "color_matrix":
+    elif filter_id == "colour_matrix":
         matrix = params.get("matrix", fdef.default_params["matrix"])
         panel, matrix_widgets = _make_matrix_grid(matrix)
         form.addRow(QLabel("Matrix (linear RGB):"), panel)

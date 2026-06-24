@@ -18,7 +18,7 @@ def matrix_from_params(params: dict) -> np.ndarray:
     return mat
 
 
-def apply_color_matrix(data: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+def apply_colour_matrix(data: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     """Apply [R′, G′, B′] = M × [R, G, B] to linear RGB."""
     rgb = np.asarray(data, dtype=np.float32)
     if rgb.ndim == 2:

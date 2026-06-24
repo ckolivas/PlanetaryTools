@@ -15,7 +15,7 @@ def _chunk(chunk_type: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + chunk_type + data + struct.pack(">I", crc)
 
 
-def _write_png16(path: str | Path, arr: np.ndarray, *, color_type: int, channels: int) -> None:
+def _write_png16(path: str | Path, arr: np.ndarray, *, colour_type: int, channels: int) -> None:
     height, width = arr.shape[:2]
     bpp = channels * 2
     rows: list[bytes] = []
@@ -27,7 +27,7 @@ def _write_png16(path: str | Path, arr: np.ndarray, *, color_type: int, channels
 
     raw = b"".join(rows)
     compressed = zlib.compress(raw, level=6)
-    ihdr = struct.pack(">IIBBBBB", width, height, 16, color_type, 0, 0, 0)
+    ihdr = struct.pack(">IIBBBBB", width, height, 16, colour_type, 0, 0, 0)
     png = (
         b"\x89PNG\r\n\x1a\n"
         + _chunk(b"IHDR", ihdr)
@@ -44,7 +44,7 @@ def write_png_rgb16(path: str | Path, rgb: np.ndarray) -> None:
         raise ValueError(f"write_png_rgb16 expects HxWx3, got {arr.shape}")
     if arr.dtype != np.uint16:
         arr = np.clip(arr, 0, 65535).astype(np.uint16)
-    _write_png16(path, arr, color_type=2, channels=3)
+    _write_png16(path, arr, colour_type=2, channels=3)
 
 
 def write_png_gray16(path: str | Path, gray: np.ndarray) -> None:
@@ -54,4 +54,4 @@ def write_png_gray16(path: str | Path, gray: np.ndarray) -> None:
         raise ValueError(f"write_png_gray16 expects HxW, got {arr.shape}")
     if arr.dtype != np.uint16:
         arr = np.clip(arr, 0, 65535).astype(np.uint16)
-    _write_png16(path, arr, color_type=0, channels=1)
+    _write_png16(path, arr, colour_type=0, channels=1)

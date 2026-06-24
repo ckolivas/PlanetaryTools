@@ -7,7 +7,7 @@ import math
 import numpy as np
 from scipy.ndimage import convolve, uniform_filter
 
-from planetary_tools.core.color import clamp01, linear_luminance, oklab_to_rgb, rgb_to_oklab
+from planetary_tools.core.colour import clamp01, linear_luminance, oklab_to_rgb, rgb_to_oklab
 
 # Moffat PSF (gamma=1, beta=2, 5x5) — matches GIMP plug-in
 _GAMMA = 1.0

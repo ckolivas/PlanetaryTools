@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from planetary_tools.core.color import (
+from planetary_tools.core.colour import (
     linear_to_srgb,
     oklab_to_rgb,
     rgb_to_oklab,

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from planetary_tools.core.color import linear_to_srgb
+from planetary_tools.core.colour import linear_to_srgb
 
 
 @dataclass

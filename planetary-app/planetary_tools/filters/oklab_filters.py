@@ -7,7 +7,7 @@ from __future__ import annotations
 
 # import numpy as np
 #
-# from planetary_tools.core.color import clamp01, oklab_to_rgb, rgb_to_oklab
+# from planetary_tools.core.colour import clamp01, oklab_to_rgb, rgb_to_oklab
 #
 #
 # def oklab_luminance(data: np.ndarray) -> np.ndarray:

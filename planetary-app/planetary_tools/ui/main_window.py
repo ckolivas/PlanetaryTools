@@ -33,7 +33,7 @@ from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.dialogs import (
     FILTER_PANEL_WIDTH,
     AdaptiveDeconvDialog,
-    ColorMatrixDialog,
+    ColourMatrixDialog,
     LevelsDialog,
     # InstantFilterDialog,
     SaturationVibranceDialog,
@@ -167,35 +167,35 @@ class MainWindow(QMainWindow):
         self._deconv_act.triggered.connect(self._run_adaptive_deconv)
         enhance_menu.addAction(self._deconv_act)
 
-        colors_menu = self.menuBar().addMenu("&Colors")
+        colours_menu = self.menuBar().addMenu("&Colours")
         self._stretch_act = QAction("Stretch Contrast &OKLab", self)
         self._stretch_act.triggered.connect(self._run_stretch)
-        colors_menu.addAction(self._stretch_act)
+        colours_menu.addAction(self._stretch_act)
 
-        self._color_matrix_act = QAction("Colour Correction &Matrix…", self)
-        self._color_matrix_act.triggered.connect(self._run_color_matrix)
-        colors_menu.addAction(self._color_matrix_act)
+        self._colour_matrix_act = QAction("Colour Correction &Matrix…", self)
+        self._colour_matrix_act.triggered.connect(self._run_colour_matrix)
+        colours_menu.addAction(self._colour_matrix_act)
 
         self._saturation_act = QAction("Saturation && &Vibrance…", self)
         self._saturation_act.triggered.connect(self._run_saturation_vibrance)
-        colors_menu.addAction(self._saturation_act)
+        colours_menu.addAction(self._saturation_act)
 
         self._levels_act = QAction("&Levels…", self)
         self._levels_act.triggered.connect(self._run_levels)
-        colors_menu.addAction(self._levels_act)
+        colours_menu.addAction(self._levels_act)
 
         # self._lum_act = QAction("OKLab &Luminance", self)
         # self._lum_act.triggered.connect(self._run_luminance)
-        # colors_menu.addAction(self._lum_act)
+        # colours_menu.addAction(self._lum_act)
         #
-        # colors_menu.addSeparator()
+        # colours_menu.addSeparator()
         # self._decompose_act = QAction("OKLab &Decompose…", self)
         # self._decompose_act.triggered.connect(self._run_decompose)
-        # colors_menu.addAction(self._decompose_act)
+        # colours_menu.addAction(self._decompose_act)
         #
         # self._compose_act = QAction("OKLab &Compose…", self)
         # self._compose_act.triggered.connect(self._run_compose)
-        # colors_menu.addAction(self._compose_act)
+        # colours_menu.addAction(self._compose_act)
         # self._compose_act.setEnabled(True)
 
         view_menu = self.menuBar().addMenu("&View")
@@ -230,7 +230,7 @@ class MainWindow(QMainWindow):
         for act in (
             self._save_act, self._save_as_act,
             self._sharpen_act, self._denoise_act, self._deconv_act,
-            self._stretch_act, self._color_matrix_act, self._saturation_act,
+            self._stretch_act, self._colour_matrix_act, self._saturation_act,
             self._levels_act,
             # self._lum_act, self._decompose_act,
         ):
@@ -660,13 +660,13 @@ class MainWindow(QMainWindow):
             return
         self._run_filter_dialog(StretchContrastDialog(self), "Stretch Contrast OKLab")
 
-    def _run_color_matrix(self) -> None:
+    def _run_colour_matrix(self) -> None:
         if self._document is None or self._document.is_grayscale:
             QMessageBox.information(
                 self, "Colour Correction Matrix", "This filter requires an RGB image."
             )
             return
-        self._run_filter_dialog(ColorMatrixDialog(self), "Colour Correction Matrix")
+        self._run_filter_dialog(ColourMatrixDialog(self), "Colour Correction Matrix")
 
     def _run_saturation_vibrance(self) -> None:
         if self._document is None or self._document.is_grayscale:

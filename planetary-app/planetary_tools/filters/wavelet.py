@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-from planetary_tools.core.color import linear_to_srgb, srgb_to_linear
+from planetary_tools.core.colour import linear_to_srgb, srgb_to_linear
 
 NUM_SCALES = 3
 # GIMP wavelet-decompose: wavelet-blur radius 2**scale_index → 1, 2, 4.
