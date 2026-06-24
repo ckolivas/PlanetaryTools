@@ -6,11 +6,29 @@ import json
 import os
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 PRESET_DIR = Path(os.path.expanduser("~/.config/planetary-tools/presets"))
 
 RESERVED = frozenset({"Default", "Last"})
+
+_BUILTIN_PRESET_BUILDERS: dict[str, Callable[[dict[str, Any]], dict[str, dict[str, Any]]]] = {}
+_BUILTIN_RESERVED: dict[str, frozenset[str]] = {}
+
+
+def register_builtin_presets(
+    filter_id: str,
+    builder: Callable[[dict[str, Any]], dict[str, dict[str, Any]]],
+    *,
+    reserved_names: frozenset[str] = frozenset(),
+) -> None:
+    _BUILTIN_PRESET_BUILDERS[filter_id] = builder
+    if reserved_names:
+        _BUILTIN_RESERVED[filter_id] = reserved_names
+
+
+def reserved_preset_names(filter_id: str) -> frozenset[str]:
+    return RESERVED | _BUILTIN_RESERVED.get(filter_id, frozenset())
 
 _LEGACY_PRESET_IDS = {"colour_matrix": "color_matrix"}
 
@@ -53,5 +71,26 @@ def ensure_builtin_presets(
         presets["Default"] = deepcopy(default_params)
     if "Last" not in presets:
         presets["Last"] = deepcopy(presets["Default"])
+    builder = _BUILTIN_PRESET_BUILDERS.get(filter_id)
+    if builder is not None:
+        for name, params in builder(default_params).items():
+            if name not in presets:
+                presets[name] = deepcopy(params)
     save_presets(filter_id, presets)
     return presets
+
+
+def _register_filter_builtin_presets() -> None:
+    from planetary_tools.filters.colour_matrix import (
+        COLOUR_MATRIX_SENSOR_NAMES,
+        colour_matrix_sensor_presets,
+    )
+
+    register_builtin_presets(
+        "colour_matrix",
+        colour_matrix_sensor_presets,
+        reserved_names=COLOUR_MATRIX_SENSOR_NAMES,
+    )
+
+
+_register_filter_builtin_presets()

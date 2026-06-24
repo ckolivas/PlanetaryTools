@@ -24,7 +24,11 @@ from PyQt6.QtWidgets import (
 )
 
 from planetary_tools.core.brightness import BrightnessInfo, measure_brightness
-from planetary_tools.core.presets import RESERVED, ensure_builtin_presets, save_presets
+from planetary_tools.core.presets import (
+    ensure_builtin_presets,
+    reserved_preset_names,
+    save_presets,
+)
 from planetary_tools.filters.colour_matrix import IDENTITY_MATRIX
 from planetary_tools.filters.levels import (
     LEVEL_CHANNELS,
@@ -294,7 +298,7 @@ class _FilterDialog(QWidget):
         if not ok or not name.strip():
             return
         name = name.strip()
-        if name in RESERVED:
+        if name in reserved_preset_names(self.filter_id):
             QMessageBox.warning(self, "Save Preset", f'"{name}" is a reserved preset name.')
             return
         is_new = name not in self._presets
@@ -306,7 +310,7 @@ class _FilterDialog(QWidget):
 
     def _delete_preset(self) -> None:
         name = self._preset_combo.currentText()
-        if name in RESERVED:
+        if name in reserved_preset_names(self.filter_id):
             QMessageBox.warning(self, "Delete Preset", f'Cannot delete the "{name}" preset.')
             return
         if name not in self._presets:
