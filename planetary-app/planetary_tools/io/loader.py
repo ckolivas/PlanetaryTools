@@ -20,6 +20,8 @@ _IMAGE_EXTENSIONS = {
 }
 
 _FLOAT_EXTENSIONS = {".tif", ".tiff", ".fits", ".fit", ".fts"}
+_JPEG_EXTENSIONS = {".jpg", ".jpeg"}
+_JPEG_QUALITY = 100
 
 
 def supported_extensions() -> list[str]:
@@ -133,6 +135,14 @@ def _effective_bit_depth(doc: ImageDocument, path: Path, bit_depth: int | None) 
     return 16
 
 
+def _write_imageio(path: Path, arr: np.ndarray) -> None:
+    """Write 8-bit image via imageio; JPEG uses maximum quality."""
+    if path.suffix.lower() in _JPEG_EXTENSIONS:
+        iio.imwrite(path, arr, quality=_JPEG_QUALITY)
+    else:
+        iio.imwrite(path, arr)
+
+
 def _finalize_save(doc: ImageDocument, path: Path, depth: int) -> None:
     doc.path = path
     doc.modified = False
@@ -170,7 +180,7 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = 
             write_png_gray16(path, (srgb * 65535.0 + 0.5).astype(np.uint16))
         else:
             out = (srgb * 255.0 + 0.5).astype(np.uint8)
-            iio.imwrite(path, out)
+            _write_imageio(path, out)
     else:
         srgb = linear_to_srgb(doc.data)
         srgb = np.clip(srgb, 0.0, 1.0)
@@ -181,6 +191,6 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = 
             write_png_rgb16(path, (srgb * 65535.0 + 0.5).astype(np.uint16))
         else:
             out = (srgb * 255.0 + 0.5).astype(np.uint8)
-            iio.imwrite(path, out)
+            _write_imageio(path, out)
 
     _finalize_save(doc, path, depth)
