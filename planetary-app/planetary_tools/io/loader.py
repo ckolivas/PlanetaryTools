@@ -29,11 +29,13 @@ def supported_extensions() -> list[str]:
 
 
 def _is_probably_linear(path: Path, arr: np.ndarray) -> bool:
-    """Heuristic: float TIFF/FITS from stacking pipelines is usually linear."""
-    if path.suffix.lower() in _FLOAT_EXTENSIONS and arr.dtype in (np.float32, np.float64):
-        return True
-    if arr.dtype in (np.uint16, np.int16) and path.suffix.lower() in _FLOAT_EXTENSIONS:
-        return True
+    """Heuristic for whether integer samples are radiometric vs display-encoded."""
+    suffix = path.suffix.lower()
+    if arr.dtype in (np.float32, np.float64):
+        return suffix in _FLOAT_EXTENSIONS
+    # 16-bit TIFF written by this app (and most display TIFFs) is sRGB-encoded.
+    if arr.dtype in (np.uint16, np.int16):
+        return suffix in {".fits", ".fit", ".fts"}
     return False
 
 
