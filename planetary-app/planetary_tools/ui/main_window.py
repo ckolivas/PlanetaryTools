@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from planetary_tools.core.document import ImageDocument
+from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import UndoManager
 # from planetary_tools.filters import oklab_compose, oklab_decompose
 from planetary_tools.filters.registry import output_filter_stats
@@ -43,6 +44,7 @@ from planetary_tools.ui.dialogs import (
     _FilterDialog,
 )
 from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
+from planetary_tools.ui.scale_dialog import ScaleImageDialog
 from planetary_tools.ui.recent_files import (
     add_recent,
     last_open_directory,
@@ -154,6 +156,11 @@ class MainWindow(QMainWindow):
         self._redo_act.triggered.connect(self._redo_action)
         edit_menu.addAction(self._redo_act)
 
+        edit_menu.addSeparator()
+        self._scale_act = QAction("&Scale Image…", self)
+        self._scale_act.triggered.connect(self._run_scale_image)
+        edit_menu.addAction(self._scale_act)
+
         enhance_menu = self.menuBar().addMenu("&Enhance")
         self._sharpen_act = QAction("Wavelet &Sharpen…", self)
         self._sharpen_act.triggered.connect(self._run_wavelet_sharpen)
@@ -228,7 +235,7 @@ class MainWindow(QMainWindow):
     def _update_actions(self) -> None:
         has_doc = self._document is not None
         for act in (
-            self._save_act, self._save_as_act,
+            self._save_act, self._save_as_act, self._scale_act,
             self._sharpen_act, self._denoise_act, self._deconv_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
             self._levels_act,
@@ -769,6 +776,39 @@ class MainWindow(QMainWindow):
         self._canvas.refresh()
         self._update_undo_actions()
         self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
+
+    def _run_scale_image(self) -> None:
+        if self._document is None:
+            return
+        dlg = ScaleImageDialog(
+            self._document.width,
+            self._document.height,
+            self,
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        new_w, new_h = dlg.output_size()
+        if new_w == self._document.width and new_h == self._document.height:
+            return
+        try:
+            result = scale_image(self._document.data, new_w, new_h)
+        except Exception as exc:
+            QMessageBox.critical(self, "Scale Image", str(exc))
+            return
+        self._undo.record(
+            self._document.data,
+            self._document.is_grayscale,
+            "Scale Image",
+        )
+        self._document.set_data(result)
+        self._canvas.refresh()
+        self._update_undo_actions()
+        self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
+        self._status.showMessage(
+            f"{new_w}×{new_h}  "
+            f"{'Greyscale' if self._document.is_grayscale else 'RGB'}  "
+            f"32-bit float linear"
+        )
 
 
 def run_app(argv: list[str] | None = None) -> int:
