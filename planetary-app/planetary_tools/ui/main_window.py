@@ -36,6 +36,7 @@ from planetary_tools.ui.dialogs import (
     AdaptiveDeconvDialog,
     ColourMatrixDialog,
     LevelsDialog,
+    MergeWaveletDetailDialog,
     # InstantFilterDialog,
     SaturationVibranceDialog,
     StretchContrastDialog,
@@ -174,6 +175,15 @@ class MainWindow(QMainWindow):
         self._deconv_act.triggered.connect(self._run_adaptive_deconv)
         enhance_menu.addAction(self._deconv_act)
 
+        enhance_menu.addSeparator()
+        self._merge_detail_act = QAction("&Merge Wavelet Detail…", self)
+        self._merge_detail_act.setToolTip(
+            "Load an aligned higher resolution NIR image to merge its detail into a colour image."
+        )
+        self._merge_detail_act.triggered.connect(self._run_merge_wavelet_detail)
+        enhance_menu.addAction(self._merge_detail_act)
+        enhance_menu.setToolTipsVisible(True)
+
         colours_menu = self.menuBar().addMenu("&Colours")
         self._stretch_act = QAction("Stretch Contrast &OKLab", self)
         self._stretch_act.triggered.connect(self._run_stretch)
@@ -237,6 +247,7 @@ class MainWindow(QMainWindow):
         for act in (
             self._save_act, self._save_as_act, self._scale_act,
             self._sharpen_act, self._denoise_act, self._deconv_act,
+            self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
             self._levels_act,
             # self._lum_act, self._decompose_act,
@@ -665,6 +676,27 @@ class MainWindow(QMainWindow):
         self._run_filter_dialog(
             AdaptiveDeconvDialog(self._document.is_grayscale, self),
             "Adaptive Deconvolution",
+        )
+
+    def _run_merge_wavelet_detail(self) -> None:
+        if self._document is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load secondary image for wavelet detail merge",
+            last_open_directory(),
+            self._file_filter(),
+        )
+        if not path:
+            return
+        try:
+            sec_doc = load_image(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load failed", str(exc))
+            return
+        self._run_filter_dialog(
+            MergeWaveletDetailDialog(path, sec_doc.data, self),
+            "Merge Wavelet Detail",
         )
 
     def _run_stretch(self) -> None:

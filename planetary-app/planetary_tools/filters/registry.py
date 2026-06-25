@@ -23,7 +23,7 @@ from planetary_tools.filters.colour_matrix import (
 from planetary_tools.filters.levels import apply_levels, default_levels_params
 from planetary_tools.filters.saturation import apply_saturation_vibrance
 from planetary_tools.filters.stretch import stretch_contrast_oklab
-from planetary_tools.filters.wavelet import wavelet_denoise, wavelet_sharpen
+from planetary_tools.filters.wavelet import merge_wavelet_detail, wavelet_denoise, wavelet_sharpen
 
 FilterFunc = Callable[[np.ndarray, bool], np.ndarray]
 
@@ -126,6 +126,20 @@ class LevelsDef(FilterDef):
         return apply_levels(data, params)
 
 
+@dataclass
+class MergeWaveletDetailDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        secondary = params.get("secondary_data")
+        if secondary is None:
+            return data
+        return merge_wavelet_detail(
+            data,
+            secondary,
+            is_grayscale,
+            params.get("n_secondary_scales", 3),
+        )
+
+
 # @dataclass
 # class OklabLuminanceDef(FilterDef):
 #     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
@@ -183,6 +197,12 @@ FILTERS: dict[str, FilterDef] = {
         label="Levels",
         requires_rgb=True,
         default_params={"channels": default_levels_params()},
+    ),
+    "merge_wavelet_detail": MergeWaveletDetailDef(
+        id="merge_wavelet_detail",
+        label="Merge Wavelet Detail",
+        batch_enabled=False,
+        default_params={"n_secondary_scales": 3},
     ),
     # "oklab_luminance": OklabLuminanceDef(
     #     id="oklab_luminance",

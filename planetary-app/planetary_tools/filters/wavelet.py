@@ -170,6 +170,57 @@ def wavelet_sharpen(
     return _process_channels(data, is_grayscale, sharpen_channel)
 
 
+def merge_wavelet_detail(
+    main_data: np.ndarray,
+    secondary_data: np.ndarray,
+    main_is_grayscale: bool,
+    n_secondary_scales: int = 3,
+) -> np.ndarray:
+    """Replace the finest N wavelet scales from a secondary (NIR) image.
+
+    The main image's residual (low-frequency colour) is preserved; the
+    finest ``n_secondary_scales`` detail layers come from the secondary
+    image, with the remaining coarser layers kept from the main image.
+    The secondary is reduced to luminance so it can drive all colour
+    channels of the main image.
+    """
+    # Reduce secondary to a single luminance channel (NIR is typically grey)
+    if secondary_data.ndim == 3 and secondary_data.shape[2] >= 3:
+        sec_lin: np.ndarray = (
+            0.2126 * secondary_data[..., 0]
+            + 0.7152 * secondary_data[..., 1]
+            + 0.0722 * secondary_data[..., 2]
+        ).astype(np.float32)
+    elif secondary_data.ndim == 3:
+        sec_lin = secondary_data[..., 0].astype(np.float32)
+    else:
+        sec_lin = np.asarray(secondary_data, dtype=np.float32)
+
+    # Resize secondary if dimensions differ from main
+    main_h, main_w = main_data.shape[:2]
+    if sec_lin.shape != (main_h, main_w):
+        from planetary_tools.core.scale import scale_image  # avoid circular
+        sec_3ch = np.stack([sec_lin, sec_lin, sec_lin], axis=-1)
+        sec_lin = scale_image(sec_3ch, main_w, main_h)[..., 0]
+
+    # Decompose secondary once; reuse its scales for every main channel
+    sec_perc = linear_to_srgb(sec_lin).astype(np.float64)
+    sec_scales, _ = _wavelet_decompose(sec_perc)
+
+    n = min(max(n_secondary_scales, 0), NUM_SCALES)
+
+    def merge_channel(main_ch: np.ndarray) -> np.ndarray:
+        work = _to_perceptual(main_ch)
+        main_scales, main_residual = _wavelet_decompose(work)
+        merged = [
+            sec_scales[i] if i < n else main_scales[i]
+            for i in range(NUM_SCALES)
+        ]
+        return _from_perceptual(_merge_wavelet(merged, main_residual))
+
+    return _process_channels(main_data, main_is_grayscale, merge_channel)
+
+
 def wavelet_denoise(
     data: np.ndarray,
     is_grayscale: bool,

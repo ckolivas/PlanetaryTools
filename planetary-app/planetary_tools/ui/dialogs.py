@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Callable
 
 import numpy as np
@@ -19,6 +20,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -807,6 +809,48 @@ class LevelsDialog(_FilterDialog):
         self._channel_params = normalize_levels_params(params)
         self._editing_channel = self._current_channel()
         self._load_channel_into_spins(self._editing_channel)
+
+
+class MergeWaveletDetailDialog(_FilterDialog):
+    """Merge fine wavelet detail from a secondary (NIR) image into the main image."""
+
+    filter_id = "merge_wavelet_detail"
+    supports_presets = False
+    supports_clamp = False
+
+    def __init__(
+        self,
+        secondary_path: str,
+        secondary_data: np.ndarray,
+        parent: QWidget | None = None,
+    ) -> None:
+        self._secondary_path = secondary_path
+        self._secondary_data = secondary_data
+        super().__init__("Merge Wavelet Detail", parent)
+
+    def _build_filter_params(self) -> None:
+        name = os.path.basename(self._secondary_path) if self._secondary_path else "(none)"
+        lbl = QLabel(name)
+        lbl.setWordWrap(True)
+        self._form.addRow("Secondary:", lbl)
+
+        self._scales_spin = QSpinBox()
+        self._scales_spin.setRange(1, 3)
+        self._scales_spin.setValue(3)
+        self._scales_spin.setToolTip(
+            "Number of finest wavelet scales to take from the secondary image.\n"
+            "1 = fine scale only, 2 = fine + medium, 3 = all three scales."
+        )
+        self._scales_spin.valueChanged.connect(lambda _: self.params_changed.emit())
+        self._form.addRow("Scales:", self._scales_spin)
+
+    def get_params(self) -> dict[str, Any]:
+        p = super().get_params()
+        p.update({
+            "n_secondary_scales": self._scales_spin.value(),
+            "secondary_data": self._secondary_data,
+        })
+        return p
 
 
 class ColourMatrixDialog(_FilterDialog):
