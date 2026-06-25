@@ -111,12 +111,20 @@ def _merge_wavelet(scales: list[np.ndarray], residual: np.ndarray) -> np.ndarray
 
 
 def _unsharp_mask(layer: np.ndarray, std_dev: float, amount: float) -> np.ndarray:
-    """gegl:unsharp-mask with threshold 0: input + scale × (input − blur)."""
+    """gegl:unsharp-mask with threshold 0: input + scale × (input − blur).
+
+    GEGL's gegl:gaussian-blur prepares with "RGB float" (linear), so for
+    R'G'B' scale layers (from U16_NON_LINEAR images) the gaussian is computed
+    in linear light.  The USM arithmetic also runs in linear; the result is
+    clipped and converted back to R'G'B' before reconstruction.
+    """
     if amount == 0.0:
         return np.asarray(layer, dtype=np.float32)
-    layer = np.asarray(layer, dtype=np.float64)
-    blurred = gaussian_filter(layer, std_dev)
-    return (layer + amount * (layer - blurred)).astype(np.float32)
+    layer_f32 = np.asarray(layer, dtype=np.float32)
+    layer_lin = srgb_to_linear(layer_f32).astype(np.float64)
+    blurred = gaussian_filter(layer_lin, std_dev)
+    usm_lin = layer_lin + amount * (layer_lin - blurred)
+    return linear_to_srgb(np.clip(usm_lin, 0.0, 1.0).astype(np.float32))
 
 
 def _process_channels(
@@ -143,11 +151,10 @@ def wavelet_sharpen(
 ) -> np.ndarray:
     """Wavelet sharpen matching GIMP plug-in-wavelet-sharpen.
 
-    GEGL gegl:wavelet-blur-1d prepares with
-    ``babl_format_with_space ("R'G'B' float", space)`` — perceptual
-    sRGB-encoded float, not linear light.  ImageDocument stores linear
-    RGB; this filter converts to R'G'B' for decompose / unsharp / merge,
-    then converts back to linear for the document.
+    Decompose and merge operate in R'G'B' perceptual float (matching
+    gegl:wavelet-blur-1d).  The unsharp-mask step converts each scale
+    layer to linear light (matching gegl:gaussian-blur which uses "RGB
+    float"), applies USM there, and converts back before merge.
     """
     amounts = (fine, medium, coarse)
 
