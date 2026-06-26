@@ -43,6 +43,7 @@ ENHANCE_FILTER_IDS = frozenset({
 CLAMP_FILTER_IDS = ENHANCE_FILTER_IDS | frozenset({
     "colour_matrix",
     "saturation_vibrance",
+    "merge_wavelet_detail",
 })
 
 
@@ -149,7 +150,7 @@ class MergeWaveletDetailDef(FilterDef):
 def _with_defaults(default_params: dict[str, Any]) -> dict[str, Any]:
     clamp_default = default_params.get(
         CLAMP_PARAM,
-        default_params.get(_LEGACY_CLAMP_PARAM, False),
+        default_params.get(_LEGACY_CLAMP_PARAM, True),
     )
     return {
         **default_params,
@@ -202,7 +203,7 @@ FILTERS: dict[str, FilterDef] = {
         id="merge_wavelet_detail",
         label="Merge Wavelet Detail",
         batch_enabled=False,
-        default_params={"n_secondary_scales": 3},
+        default_params=_with_defaults({"n_secondary_scales": 3}),
     ),
     # "oklab_luminance": OklabLuminanceDef(
     #     id="oklab_luminance",

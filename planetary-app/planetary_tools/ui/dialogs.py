@@ -219,7 +219,7 @@ class _FilterDialog(QWidget):
         self.clamp_low: QCheckBox | None = None
         if self.supports_clamp:
             self.clamp_channels = QCheckBox("Clamp to 100% when clipping")
-            self.clamp_channels.setChecked(False)
+            self.clamp_channels.setChecked(True)
             self.clamp_channels.setToolTip(
                 "Scale all channel levels proportionally so the brightest "
                 "channel value becomes 100% when any value exceeds 100%."
@@ -816,7 +816,7 @@ class MergeWaveletDetailDialog(_FilterDialog):
 
     filter_id = "merge_wavelet_detail"
     supports_presets = False
-    supports_clamp = False
+    supports_clamp = True
 
     def __init__(
         self,
