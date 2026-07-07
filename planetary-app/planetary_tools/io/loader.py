@@ -196,3 +196,28 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = 
             _write_imageio(path, out)
 
     _finalize_save(doc, path, depth)
+
+
+def save_channel(data: np.ndarray, path: str | Path, *, bit_depth: int) -> None:
+    """Save a single (H, W) linear channel as a greyscale image file."""
+    from planetary_tools.core.colour import linear_to_srgb
+
+    path = Path(path)
+    suffix = path.suffix.lower()
+    data = np.asarray(data, dtype=np.float32)
+
+    if suffix in _FLOAT_EXTENSIONS and bit_depth == 32:
+        tifffile.imwrite(path, data, photometric="minisblack")
+        return
+    if suffix in _FLOAT_EXTENSIONS and bit_depth == 16:
+        out = np.clip(data, 0.0, 1.0)
+        out = (out * 65535.0 + 0.5).astype(np.uint16)
+        tifffile.imwrite(path, out, photometric="minisblack")
+        return
+
+    srgb = np.clip(linear_to_srgb(data), 0.0, 1.0)
+    if suffix == ".png" and bit_depth >= 16:
+        write_png_gray16(path, (srgb * 65535.0 + 0.5).astype(np.uint16))
+    else:
+        out = (srgb * 255.0 + 0.5).astype(np.uint8)
+        _write_imageio(path, out)

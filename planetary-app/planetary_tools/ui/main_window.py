@@ -29,7 +29,12 @@ from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import UndoManager
 # from planetary_tools.filters import oklab_compose, oklab_decompose
 from planetary_tools.filters.registry import output_filter_stats
-from planetary_tools.io.loader import load_image, save_image, supported_extensions
+from planetary_tools.io.loader import (
+    load_image,
+    save_channel,
+    save_image,
+    supported_extensions,
+)
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.dialogs import (
@@ -202,6 +207,11 @@ class MainWindow(QMainWindow):
         self._levels_act.triggered.connect(self._run_levels)
         colours_menu.addAction(self._levels_act)
 
+        colours_menu.addSeparator()
+        self._rgb_decompose_act = QAction("RGB &Decompose to Files…", self)
+        self._rgb_decompose_act.triggered.connect(self._run_rgb_decompose)
+        colours_menu.addAction(self._rgb_decompose_act)
+
         # self._lum_act = QAction("OKLab &Luminance", self)
         # self._lum_act.triggered.connect(self._run_luminance)
         # colours_menu.addAction(self._lum_act)
@@ -250,7 +260,7 @@ class MainWindow(QMainWindow):
             self._sharpen_act, self._denoise_act, self._deconv_act,
             self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
-            self._levels_act,
+            self._levels_act, self._rgb_decompose_act,
             # self._lum_act, self._decompose_act,
         ):
             act.setEnabled(has_doc)
@@ -727,6 +737,39 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Levels", "This filter requires an RGB image.")
             return
         self._run_filter_dialog(LevelsDialog(self), "Levels")
+
+    def _run_rgb_decompose(self) -> None:
+        if self._document is None:
+            return
+        selected_filter = self._default_save_as_filter()
+        path, selected = QFileDialog.getSaveFileName(
+            self,
+            "RGB Decompose to Files",
+            "",
+            self._save_as_filters(),
+            selected_filter,
+            options=self._save_as_dialog_options(),
+        )
+        if not path:
+            return
+        if selected:
+            selected_filter = selected
+        if not Path(path).suffix:
+            if "png" in selected_filter.lower():
+                path += ".png"
+            elif "jpeg" in selected_filter.lower() or "jpg" in selected_filter.lower():
+                path += ".jpg"
+            elif "tiff" in selected_filter.lower() or "tif" in selected_filter.lower():
+                path += ".tif"
+        bit_depth = self._bit_depth_for_save(path, selected_filter)
+        base = Path(path)
+        try:
+            for name, idx in (("red", 0), ("green", 1), ("blue", 2)):
+                out_path = base.with_name(f"{base.stem}-{name}{base.suffix}")
+                save_channel(self._document.data[..., idx], out_path, bit_depth=bit_depth)
+            self._status.showMessage(f"Saved RGB channels to {base.parent}")
+        except Exception as exc:
+            QMessageBox.critical(self, "RGB Decompose failed", str(exc))
 
     # def _run_luminance(self) -> None:
     #     if self._document is None or self._document.is_grayscale:
