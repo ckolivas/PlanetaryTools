@@ -832,10 +832,26 @@ class MainWindow(QMainWindow):
                 path += ".tif"
         bit_depth = self._bit_depth_for_save(path, selected_filter)
         base = Path(path)
+        out_paths = {
+            name: base.with_name(f"{base.stem}-{name}{base.suffix}")
+            for name in ("red", "green", "blue")
+        }
+        existing = [str(p) for p in out_paths.values() if p.exists()]
+        if existing:
+            reply = QMessageBox.question(
+                self,
+                "RGB Decompose to Files",
+                "The following file(s) already exist and will be overwritten:\n\n"
+                + "\n".join(existing)
+                + "\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         try:
             for name, idx in (("red", 0), ("green", 1), ("blue", 2)):
-                out_path = base.with_name(f"{base.stem}-{name}{base.suffix}")
-                save_channel(self._document.data[..., idx], out_path, bit_depth=bit_depth)
+                save_channel(self._document.data[..., idx], out_paths[name], bit_depth=bit_depth)
             remember_save_path(base)
             self._status.showMessage(f"Saved RGB channels to {base.parent}")
         except Exception as exc:
