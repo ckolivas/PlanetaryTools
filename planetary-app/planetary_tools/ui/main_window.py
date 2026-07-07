@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from planetary_tools import __version__
+from planetary_tools.core.align import align_channel
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import UndoManager
@@ -63,6 +64,9 @@ from planetary_tools.ui.recent_files import (
 
 # Rec. 601 luma weights, used to derive a missing RGB channel from the other two.
 _LUMA_WEIGHTS = {"Red": 0.299, "Green": 0.587, "Blue": 0.114}
+
+# Preferred reference channel order when aligning compose-from-files channels.
+_ALIGN_PRIORITY = ("Green", "Red", "Blue")
 
 
 class MainWindow(QMainWindow):
@@ -861,6 +865,14 @@ class MainWindow(QMainWindow):
                 channels[name] = load_image(path).data[..., 0]
             if len({arr.shape for arr in channels.values()}) != 1:
                 raise ValueError("All channel images must have identical dimensions.")
+            if dlg.align_channels() and len(channels) > 1:
+                reference_name = next(
+                    name for name in _ALIGN_PRIORITY if name in channels
+                )
+                reference = channels[reference_name]
+                for name in list(channels.keys()):
+                    if name != reference_name:
+                        channels[name] = align_channel(reference, channels[name])
             if len(channels) == 2:
                 missing = ({"Red", "Green", "Blue"} - channels.keys()).pop()
                 name_a, name_b = channels.keys()
