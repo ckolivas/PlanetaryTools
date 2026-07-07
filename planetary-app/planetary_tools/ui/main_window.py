@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from planetary_tools import __version__
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import UndoManager
@@ -239,7 +240,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About Planetary Tools",
-            "Planetary Tools by Con Kolivas <kernel@kolivas.org>",
+            f"Planetary Tools {__version__}\nby Con Kolivas <kernel@kolivas.org>",
         )
 
     def _update_actions(self) -> None:
