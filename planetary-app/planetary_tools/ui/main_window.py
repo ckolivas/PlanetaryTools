@@ -59,8 +59,10 @@ from planetary_tools.ui.recent_files import (
     add_recent,
     last_open_directory,
     last_save_directory,
+    last_save_filter,
     list_recent,
     remember_open_path,
+    remember_save_filter,
     remember_save_path,
     remove_recent,
 )
@@ -406,6 +408,9 @@ class MainWindow(QMainWindow):
         )
 
     def _default_save_as_filter(self) -> str:
+        remembered = last_save_filter()
+        if remembered:
+            return remembered
         if self._document is None:
             return "PNG 16-bit (*.png)"
         if self._document.storage_bits <= 8:
@@ -524,6 +529,7 @@ class MainWindow(QMainWindow):
         try:
             self._write_document(path, bit_depth)
             remember_save_path(path)
+            remember_save_filter(selected_filter)
             return True
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", str(exc))
@@ -853,6 +859,7 @@ class MainWindow(QMainWindow):
             for name, idx in (("red", 0), ("green", 1), ("blue", 2)):
                 save_channel(self._document.data[..., idx], out_paths[name], bit_depth=bit_depth)
             remember_save_path(base)
+            remember_save_filter(selected_filter)
             self._status.showMessage(f"Saved RGB channels to {base.parent}")
         except Exception as exc:
             QMessageBox.critical(self, "RGB Decompose failed", str(exc))

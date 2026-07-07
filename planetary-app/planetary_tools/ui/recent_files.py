@@ -71,6 +71,17 @@ def remember_save_path(path: str | Path) -> None:
         _settings().setValue("lastSaveDir", str(directory))
 
 
+def last_save_filter() -> str | None:
+    """Return the file-type filter used for the last successful save, if any."""
+    raw = _settings().value("lastSaveFilter")
+    return str(raw) if raw else None
+
+
+def remember_save_filter(filter_str: str) -> None:
+    """Store the file-type filter used for a successful save."""
+    _settings().setValue("lastSaveFilter", filter_str)
+
+
 def add_recent(path: str | Path) -> None:
     """Record a successfully opened file at the front of the list."""
     resolved = _normalize(path)
