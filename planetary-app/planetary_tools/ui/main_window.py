@@ -58,7 +58,10 @@ from planetary_tools.ui.scale_dialog import ScaleImageDialog
 from planetary_tools.ui.recent_files import (
     add_recent,
     last_open_directory,
+    last_save_directory,
     list_recent,
+    remember_open_path,
+    remember_save_path,
     remove_recent,
 )
 
@@ -501,7 +504,7 @@ class MainWindow(QMainWindow):
         path, selected = QFileDialog.getSaveFileName(
             self,
             "Save Image As",
-            "",
+            last_save_directory(),
             self._save_as_filters(),
             selected_filter,
             options=self._save_as_dialog_options(),
@@ -520,6 +523,7 @@ class MainWindow(QMainWindow):
         bit_depth = self._bit_depth_for_save(path, selected_filter)
         try:
             self._write_document(path, bit_depth)
+            remember_save_path(path)
             return True
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", str(exc))
@@ -769,6 +773,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Load failed", str(exc))
             return
+        remember_open_path(path)
         self._run_filter_dialog(
             MergeWaveletDetailDialog(path, sec_doc.data, self),
             "Merge Wavelet Detail",
@@ -809,7 +814,7 @@ class MainWindow(QMainWindow):
         path, selected = QFileDialog.getSaveFileName(
             self,
             "RGB Decompose to Files",
-            "",
+            last_save_directory(),
             self._save_as_filters(),
             selected_filter,
             options=self._save_as_dialog_options(),
@@ -831,6 +836,7 @@ class MainWindow(QMainWindow):
             for name, idx in (("red", 0), ("green", 1), ("blue", 2)):
                 out_path = base.with_name(f"{base.stem}-{name}{base.suffix}")
                 save_channel(self._document.data[..., idx], out_path, bit_depth=bit_depth)
+            remember_save_path(base)
             self._status.showMessage(f"Saved RGB channels to {base.parent}")
         except Exception as exc:
             QMessageBox.critical(self, "RGB Decompose failed", str(exc))
@@ -853,6 +859,7 @@ class MainWindow(QMainWindow):
                 "Select either two or three channel images.",
             )
             return
+        remember_open_path(paths[0])
         paths = [Path(p) for p in paths]
         guesses = [detect_channel(p) for p in paths]
         dlg = RGBComposeDialog(paths, guesses, self)

@@ -53,6 +53,24 @@ def remember_open_path(path: str | Path) -> None:
         _settings().setValue("lastOpenDir", str(directory))
 
 
+def last_save_directory() -> str:
+    """Return the last directory used for Save As, or a sensible fallback."""
+    raw = _settings().value("lastSaveDir")
+    if raw:
+        directory = Path(str(raw)).expanduser()
+        if directory.is_dir():
+            return str(directory.resolve())
+    return str(Path.home())
+
+
+def remember_save_path(path: str | Path) -> None:
+    """Store the parent directory of a file saved successfully."""
+    resolved = Path(path).expanduser().resolve()
+    directory = resolved.parent
+    if directory.is_dir():
+        _settings().setValue("lastSaveDir", str(directory))
+
+
 def add_recent(path: str | Path) -> None:
     """Record a successfully opened file at the front of the list."""
     resolved = _normalize(path)

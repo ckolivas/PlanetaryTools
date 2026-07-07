@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 from planetary_tools.batch.pipeline import BatchResult, PipelineStep, collect_paths, run_batch
 from planetary_tools.filters.registry import FILTERS, batch_filters
 from planetary_tools.ui.dialogs import edit_filter_params
+from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 
 
 class _BatchWorker(QThread):
@@ -168,8 +169,11 @@ class BatchDialog(QDialog):
         self._refresh_step_list()
 
     def _pick_files(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "Select input images")
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select input images", last_open_directory()
+        )
         if paths:
+            remember_open_path(paths[0])
             self._input_files = [Path(p) for p in paths]
             self._input_folder = None
             self._input_label.setText(f"{len(paths)} file(s) selected")
