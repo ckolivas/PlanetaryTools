@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._zoom_combo)
 
         fit_act = QAction("Fit", self)
+        fit_act.setToolTip("Fit the image to the window.")
         fit_act.triggered.connect(self._canvas.zoom_to_fit)
         bar.addAction(fit_act)
 
@@ -129,67 +130,93 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         self._open_act = QAction("&Open…", self)
         self._open_act.setShortcut(QKeySequence.StandardKey.Open)
+        self._open_act.setToolTip("Open an image file for editing.")
         self._open_act.triggered.connect(self._open_file)
         file_menu.addAction(self._open_act)
 
         self._recent_menu = QMenu("Open &Recent", self)
+        self._recent_menu.setToolTipsVisible(True)
         self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
         file_menu.addMenu(self._recent_menu)
 
         self._save_act = QAction("&Save", self)
         self._save_act.setShortcut(QKeySequence.StandardKey.Save)
+        self._save_act.setToolTip("Save changes to the current file.")
         self._save_act.triggered.connect(self._save_file)
         file_menu.addAction(self._save_act)
 
         self._save_as_act = QAction("Save &As…", self)
         self._save_as_act.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self._save_as_act.setToolTip(
+            "Save the current image to a new file, choosing format and bit depth."
+        )
         self._save_as_act.triggered.connect(self._save_file_as)
         file_menu.addAction(self._save_as_act)
 
         file_menu.addSeparator()
         self._batch_act = QAction("&Batch Processing…", self)
+        self._batch_act.setToolTip(
+            "Apply one or more filters to every image in a folder."
+        )
         self._batch_act.triggered.connect(self._run_batch)
         file_menu.addAction(self._batch_act)
 
         file_menu.addSeparator()
         quit_act = QAction("&Quit", self)
         quit_act.setShortcut(QKeySequence.StandardKey.Quit)
+        quit_act.setToolTip("Close Planetary Tools.")
         quit_act.triggered.connect(self.close)
         file_menu.addAction(quit_act)
+        file_menu.setToolTipsVisible(True)
 
         edit_menu = self.menuBar().addMenu("&Edit")
         self._undo_act = QAction("&Undo", self)
         self._undo_act.setShortcut(QKeySequence.StandardKey.Undo)
+        self._undo_act.setToolTip("Undo the last change.")
         self._undo_act.triggered.connect(self._undo_action)
         edit_menu.addAction(self._undo_act)
 
         self._redo_act = QAction("&Redo", self)
         self._redo_act.setShortcut(QKeySequence.StandardKey.Redo)
+        self._redo_act.setToolTip("Redo the last undone change.")
         self._redo_act.triggered.connect(self._redo_action)
         edit_menu.addAction(self._redo_act)
 
         edit_menu.addSeparator()
         self._scale_act = QAction("&Scale Image…", self)
+        self._scale_act.setToolTip(
+            "Resize the image by percentage, width, or height."
+        )
         self._scale_act.triggered.connect(self._run_scale_image)
         edit_menu.addAction(self._scale_act)
+        edit_menu.setToolTipsVisible(True)
 
         enhance_menu = self.menuBar().addMenu("&Enhance")
         self._sharpen_act = QAction("Wavelet &Sharpen…", self)
+        self._sharpen_act.setToolTip(
+            "Sharpen fine detail using multi-scale wavelet decomposition."
+        )
         self._sharpen_act.triggered.connect(self._run_wavelet_sharpen)
         enhance_menu.addAction(self._sharpen_act)
 
         self._denoise_act = QAction("Wavelet &Denoise…", self)
+        self._denoise_act.setToolTip(
+            "Reduce noise using multi-scale wavelet decomposition."
+        )
         self._denoise_act.triggered.connect(self._run_wavelet_denoise)
         enhance_menu.addAction(self._denoise_act)
 
         self._deconv_act = QAction("Adaptive &Deconvolution…", self)
+        self._deconv_act.setToolTip(
+            "Sharpen detail using adaptive deconvolution, useful for final sharpening."
+        )
         self._deconv_act.triggered.connect(self._run_adaptive_deconv)
         enhance_menu.addAction(self._deconv_act)
 
         enhance_menu.addSeparator()
         self._merge_detail_act = QAction("&Merge Wavelet Detail…", self)
         self._merge_detail_act.setToolTip(
-            "Load an aligned higher resolution NIR image to merge its detail into a colour image."
+            "Load an aligned higher resolution (eg. NIR) image to merge its detail into a colour image."
         )
         self._merge_detail_act.triggered.connect(self._run_merge_wavelet_detail)
         enhance_menu.addAction(self._merge_detail_act)
@@ -197,29 +224,47 @@ class MainWindow(QMainWindow):
 
         colours_menu = self.menuBar().addMenu("&Colours")
         self._stretch_act = QAction("Stretch Contrast &OKLab", self)
+        self._stretch_act.setToolTip(
+            "Stretch contrast in OKLab lightness while preserving colour."
+        )
         self._stretch_act.triggered.connect(self._run_stretch)
         colours_menu.addAction(self._stretch_act)
 
         self._colour_matrix_act = QAction("Colour Correction &Matrix…", self)
+        self._colour_matrix_act.setToolTip(
+            "Apply a 3×3 colour correction matrix, with predefined camera matrices available."
+        )
         self._colour_matrix_act.triggered.connect(self._run_colour_matrix)
         colours_menu.addAction(self._colour_matrix_act)
 
         self._saturation_act = QAction("Saturation && &Vibrance…", self)
+        self._saturation_act.setToolTip(
+            "Adjust overall saturation and targeted vibrance."
+        )
         self._saturation_act.triggered.connect(self._run_saturation_vibrance)
         colours_menu.addAction(self._saturation_act)
 
         self._levels_act = QAction("&Levels…", self)
+        self._levels_act.setToolTip("Adjust per-channel black and white points.")
         self._levels_act.triggered.connect(self._run_levels)
         colours_menu.addAction(self._levels_act)
 
         colours_menu.addSeparator()
         self._rgb_decompose_act = QAction("RGB &Decompose to Files…", self)
+        self._rgb_decompose_act.setToolTip(
+            "Save the red, green, and blue channels of the current image as separate files.\n"
+            "The chosen filename will have -red, -green, and -blue appended before the extension."
+        )
         self._rgb_decompose_act.triggered.connect(self._run_rgb_decompose)
         colours_menu.addAction(self._rgb_decompose_act)
 
         self._rgb_compose_act = QAction("RGB &Compose from Files…", self)
+        self._rgb_compose_act.setToolTip(
+            "Combine 2 or 3 separate channel image files into a single colour image."
+        )
         self._rgb_compose_act.triggered.connect(self._run_rgb_compose)
         colours_menu.addAction(self._rgb_compose_act)
+        colours_menu.setToolTipsVisible(True)
 
         # self._lum_act = QAction("OKLab &Luminance", self)
         # self._lum_act.triggered.connect(self._run_luminance)
@@ -238,22 +283,28 @@ class MainWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("&View")
         zoom_in = QAction("Zoom &In", self)
         zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
+        zoom_in.setToolTip("Increase the zoom level.")
         zoom_in.triggered.connect(lambda: self._canvas.set_zoom(self._canvas.zoom * 1.25))
         view_menu.addAction(zoom_in)
 
         zoom_out = QAction("Zoom &Out", self)
         zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
+        zoom_out.setToolTip("Decrease the zoom level.")
         zoom_out.triggered.connect(lambda: self._canvas.set_zoom(self._canvas.zoom / 1.25))
         view_menu.addAction(zoom_out)
 
         actual = QAction("&Actual Size (100%)", self)
+        actual.setToolTip("Reset the zoom level to 100%.")
         actual.triggered.connect(lambda: self._canvas.set_zoom(1.0))
         view_menu.addAction(actual)
+        view_menu.setToolTipsVisible(True)
 
         help_menu = self.menuBar().addMenu("&Help")
         about_act = QAction("&About Planetary Tools", self)
+        about_act.setToolTip("Show version and author information.")
         about_act.triggered.connect(self._show_about)
         help_menu.addAction(about_act)
+        help_menu.setToolTipsVisible(True)
 
     def _show_about(self) -> None:
         QMessageBox.about(
