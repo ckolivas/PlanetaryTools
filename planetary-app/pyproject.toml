@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "planetary-app"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Standalone planetary imaging processing application"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,4 +27,7 @@ planetary-app = "planetary_tools.ui.main_window:run_app"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["planetary_tools*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "planetary_tools.__version__" }
 
