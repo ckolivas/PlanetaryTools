@@ -11,6 +11,7 @@ from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QDockWidget,
     QFileDialog,
     QLabel,
@@ -37,6 +38,7 @@ from planetary_tools.io.loader import (
 )
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
+from planetary_tools.ui.compose_dialog import RGBComposeDialog, detect_channel
 from planetary_tools.ui.dialogs import (
     FILTER_PANEL_WIDTH,
     AdaptiveDeconvDialog,
@@ -58,6 +60,9 @@ from planetary_tools.ui.recent_files import (
     list_recent,
     remove_recent,
 )
+
+# Rec. 601 luma weights, used to derive a missing RGB channel from the other two.
+_LUMA_WEIGHTS = {"Red": 0.299, "Green": 0.587, "Blue": 0.114}
 
 
 class MainWindow(QMainWindow):
@@ -211,6 +216,10 @@ class MainWindow(QMainWindow):
         self._rgb_decompose_act = QAction("RGB &Decompose to Files…", self)
         self._rgb_decompose_act.triggered.connect(self._run_rgb_decompose)
         colours_menu.addAction(self._rgb_decompose_act)
+
+        self._rgb_compose_act = QAction("RGB &Compose from Files…", self)
+        self._rgb_compose_act.triggered.connect(self._run_rgb_compose)
+        colours_menu.addAction(self._rgb_compose_act)
 
         # self._lum_act = QAction("OKLab &Luminance", self)
         # self._lum_act.triggered.connect(self._run_luminance)
@@ -770,6 +779,53 @@ class MainWindow(QMainWindow):
             self._status.showMessage(f"Saved RGB channels to {base.parent}")
         except Exception as exc:
             QMessageBox.critical(self, "RGB Decompose failed", str(exc))
+
+    def _run_rgb_compose(self) -> None:
+        if not self._confirm_unsaved_changes("before composing a new image"):
+            return
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select 2 or 3 channel images (Red, Green, Blue)",
+            last_open_directory(),
+            self._file_filter(),
+        )
+        if not paths:
+            return
+        if len(paths) not in (2, 3):
+            QMessageBox.warning(
+                self,
+                "RGB Compose from Files",
+                "Select either two or three channel images.",
+            )
+            return
+        paths = [Path(p) for p in paths]
+        guesses = [detect_channel(p) for p in paths]
+        dlg = RGBComposeDialog(paths, guesses, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        assignment = dlg.channel_assignment()
+        try:
+            channels: dict[str, np.ndarray] = {}
+            for name, path in assignment.items():
+                channels[name] = load_image(path).data[..., 0]
+            if len({arr.shape for arr in channels.values()}) != 1:
+                raise ValueError("All channel images must have identical dimensions.")
+            if len(channels) == 2:
+                missing = ({"Red", "Green", "Blue"} - channels.keys()).pop()
+                name_a, name_b = channels.keys()
+                w_a, w_b = _LUMA_WEIGHTS[name_a], _LUMA_WEIGHTS[name_b]
+                calculated = (
+                    w_a * channels[name_a] + w_b * channels[name_b]
+                ) / (w_a + w_b)
+                channels[missing] = calculated.astype(np.float32)
+            composed = np.stack(
+                [channels["Red"], channels["Green"], channels["Blue"]], axis=-1
+            ).astype(np.float32)
+            doc = ImageDocument(data=composed, is_grayscale=False, modified=True)
+            self._set_document(doc)
+            self._status.showMessage("Composed RGB image from files")
+        except Exception as exc:
+            QMessageBox.critical(self, "RGB Compose failed", str(exc))
 
     # def _run_luminance(self) -> None:
     #     if self._document is None or self._document.is_grayscale:
