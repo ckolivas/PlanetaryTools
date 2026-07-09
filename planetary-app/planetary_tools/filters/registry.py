@@ -180,7 +180,14 @@ FILTERS: dict[str, FilterDef] = {
     "wavelet_sharpen": WaveletSharpenDef(
         id="wavelet_sharpen",
         label="Wavelet Sharpen",
-        default_params=_with_defaults({"fine": 16.0, "medium": 8.0, "coarse": 1.0}),
+        default_params=_with_defaults({
+            "fine": 16.0,
+            "medium": 8.0,
+            "coarse": 1.0,
+            "auto": False,
+            "target_grain": 3.0,
+            "target_contrast": 15.0,
+        }),
     ),
     "wavelet_denoise": WaveletDenoiseDef(
         id="wavelet_denoise",

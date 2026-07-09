@@ -343,8 +343,10 @@ class _FilterDialog(QWidget):
 
     def set_input_brightness(self, data: np.ndarray, is_grayscale: bool) -> None:
         self._input_info = measure_brightness(data, is_grayscale)
+        self._input_data = np.asarray(data, dtype=np.float32)
+        self._input_is_grayscale = is_grayscale
         self._input_label.setText(self._input_info.format_line("Input — "))
-        self._histogram_source = np.asarray(data, dtype=np.float32)
+        self._histogram_source = self._input_data
         self._histogram_is_grayscale = is_grayscale
         self.update_histogram_display(data)
 
@@ -464,13 +466,139 @@ class WaveletSharpenDialog(_FilterDialog):
     supports_clamp = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        self._auto_running = False
         super().__init__("Wavelet Sharpen", parent)
 
     def _build_filter_params(self) -> None:
+        from planetary_tools.filters.wavelet_auto import auto_wavelet_sharpen_params
+
+        self._auto_wavelet_sharpen_params = auto_wavelet_sharpen_params
+
         fdef = FILTERS[self.filter_id]
         self.fine = self._add_double("Fine", fdef.default_params["fine"], 0.0, 300.0)
         self.medium = self._add_double("Medium", fdef.default_params["medium"], 0.0, 300.0)
         self.coarse = self._add_double("Coarse", fdef.default_params["coarse"], 0.0, 300.0)
+
+        auto_row = QWidget()
+        auto_layout = QHBoxLayout(auto_row)
+        auto_layout.setContentsMargins(0, 0, 0, 0)
+        self.auto = QCheckBox("Auto")
+        self.auto.setToolTip(
+            "Enable target grain/contrast controls. Click Calculate to search "
+            "fine/medium/coarse without exceeding either target."
+        )
+        self.auto.setChecked(False)
+        self.auto.toggled.connect(self._on_auto_toggled)
+        auto_layout.addWidget(self.auto)
+        self.auto_apply = QPushButton("Calculate")
+        self.auto_apply.setToolTip(
+            "Run the auto search with the current grain and contrast targets."
+        )
+        self.auto_apply.clicked.connect(self._run_auto_search)
+        auto_layout.addWidget(self.auto_apply)
+        auto_layout.addStretch(1)
+        self._form.addRow(auto_row)
+
+        self.target_grain = QDoubleSpinBox()
+        self.target_grain.setRange(0.0, 10.0)
+        self.target_grain.setDecimals(1)
+        self.target_grain.setSingleStep(0.1)
+        self.target_grain.setValue(float(fdef.default_params.get("target_grain", 3.0)))
+        self.target_grain.setToolTip("Maximum peak-normalized grain score to allow.")
+        self._form.addRow("Target grain", self.target_grain)
+
+        self.target_contrast = QDoubleSpinBox()
+        self.target_contrast.setRange(0.0, 100.0)
+        self.target_contrast.setDecimals(0)
+        self.target_contrast.setSingleStep(1.0)
+        self.target_contrast.setValue(
+            float(fdef.default_params.get("target_contrast", 15.0))
+        )
+        self.target_contrast.setToolTip(
+            "Target brightness increase (percent), matched without going over."
+        )
+        self._form.addRow("Target contrast", self.target_contrast)
+
+        self._sync_auto_enabled_state()
+
+    def _sync_auto_enabled_state(self) -> None:
+        auto_on = self.auto.isChecked()
+        running = self._auto_running
+        self.fine.setEnabled(not auto_on and not running)
+        self.medium.setEnabled(not auto_on and not running)
+        self.coarse.setEnabled(not auto_on and not running)
+        self.target_grain.setEnabled(auto_on and not running)
+        self.target_contrast.setEnabled(auto_on and not running)
+        self.auto.setEnabled(not running)
+        self.auto_apply.setEnabled(auto_on and not running)
+
+    def _on_auto_toggled(self, checked: bool) -> None:
+        self._sync_auto_enabled_state()
+        if checked:
+            self.fine.blockSignals(True)
+            self.medium.blockSignals(True)
+            self.coarse.blockSignals(True)
+            self.fine.setValue(0.0)
+            self.medium.setValue(0.0)
+            self.coarse.setValue(0.0)
+            self.fine.blockSignals(False)
+            self.medium.blockSignals(False)
+            self.coarse.blockSignals(False)
+            self.params_changed.emit()
+        else:
+            self.params_changed.emit()
+
+    def _run_auto_search(self) -> None:
+        if self._auto_running or not self.auto.isChecked():
+            return
+        data = getattr(self, "_input_data", None)
+        if data is None:
+            return
+        is_grayscale = bool(getattr(self, "_input_is_grayscale", False))
+
+        self._auto_running = True
+        self._sync_auto_enabled_state()
+        try:
+            from PyQt6.QtWidgets import QApplication
+
+            def progress(
+                fine: float,
+                medium: float,
+                coarse: float,
+                _grain: float,
+                _contrast: float,
+            ) -> None:
+                self.fine.blockSignals(True)
+                self.medium.blockSignals(True)
+                self.coarse.blockSignals(True)
+                self.fine.setValue(fine)
+                self.medium.setValue(medium)
+                self.coarse.setValue(coarse)
+                self.fine.blockSignals(False)
+                self.medium.blockSignals(False)
+                self.coarse.blockSignals(False)
+                QApplication.processEvents()
+
+            result = self._auto_wavelet_sharpen_params(
+                data,
+                is_grayscale,
+                target_grain=self.target_grain.value(),
+                target_contrast=self.target_contrast.value(),
+                progress=progress,
+            )
+            self.fine.blockSignals(True)
+            self.medium.blockSignals(True)
+            self.coarse.blockSignals(True)
+            self.fine.setValue(result.fine)
+            self.medium.setValue(result.medium)
+            self.coarse.setValue(result.coarse)
+            self.fine.blockSignals(False)
+            self.medium.blockSignals(False)
+            self.coarse.blockSignals(False)
+        finally:
+            self._auto_running = False
+            self._sync_auto_enabled_state()
+        self.params_changed.emit()
 
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
@@ -478,6 +606,9 @@ class WaveletSharpenDialog(_FilterDialog):
             "fine": self.fine.value(),
             "medium": self.medium.value(),
             "coarse": self.coarse.value(),
+            "auto": self.auto.isChecked(),
+            "target_grain": self.target_grain.value(),
+            "target_contrast": self.target_contrast.value(),
         })
         return p
 
@@ -486,12 +617,28 @@ class WaveletSharpenDialog(_FilterDialog):
         self.fine.blockSignals(True)
         self.medium.blockSignals(True)
         self.coarse.blockSignals(True)
+        self.auto.blockSignals(True)
+        self.target_grain.blockSignals(True)
+        self.target_contrast.blockSignals(True)
         self.fine.setValue(params.get("fine", self.fine.value()))
         self.medium.setValue(params.get("medium", self.medium.value()))
         self.coarse.setValue(params.get("coarse", self.coarse.value()))
+        # Auto is a session control: always open off so targets can be set
+        # before Apply (do not restore from Last/presets).
+        self.auto.setChecked(False)
+        self.target_grain.setValue(
+            float(params.get("target_grain", self.target_grain.value()))
+        )
+        self.target_contrast.setValue(
+            float(params.get("target_contrast", self.target_contrast.value()))
+        )
         self.fine.blockSignals(False)
         self.medium.blockSignals(False)
         self.coarse.blockSignals(False)
+        self.auto.blockSignals(False)
+        self.target_grain.blockSignals(False)
+        self.target_contrast.blockSignals(False)
+        self._sync_auto_enabled_state()
 
 
 class WaveletDenoiseDialog(_FilterDialog):
@@ -1013,6 +1160,33 @@ def edit_filter_params(
             spin.setValue(params.get(key, fdef.default_params[key]))
             form.addRow(key.capitalize(), spin)
             widgets[key] = spin
+        auto = QCheckBox("Auto")
+        auto.setChecked(bool(params.get("auto", fdef.default_params.get("auto", False))))
+        form.addRow(auto)
+        widgets["auto"] = auto
+        target_grain = QDoubleSpinBox()
+        target_grain.setRange(0.0, 10.0)
+        target_grain.setDecimals(1)
+        target_grain.setSingleStep(0.1)
+        target_grain.setValue(
+            float(params.get("target_grain", fdef.default_params.get("target_grain", 3.0)))
+        )
+        form.addRow("Target grain", target_grain)
+        widgets["target_grain"] = target_grain
+        target_contrast = QDoubleSpinBox()
+        target_contrast.setRange(0.0, 100.0)
+        target_contrast.setDecimals(0)
+        target_contrast.setSingleStep(1.0)
+        target_contrast.setValue(
+            float(
+                params.get(
+                    "target_contrast",
+                    fdef.default_params.get("target_contrast", 15.0),
+                )
+            )
+        )
+        form.addRow("Target contrast", target_contrast)
+        widgets["target_contrast"] = target_contrast
     elif filter_id == "wavelet_denoise":
         for key in ("fine", "medium", "coarse"):
             spin = QDoubleSpinBox()
