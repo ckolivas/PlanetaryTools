@@ -13,6 +13,7 @@ from planetary_tools.core.brightness import (
     brightness_increase_pct,
     measure_brightness,
 )
+from planetary_tools.core.grain import absolute_grain
 from planetary_tools.filters.adaptive_deconv import adaptive_deconvolution
 from planetary_tools.filters.colour_matrix import (
     IDENTITY_MATRIX,
@@ -51,6 +52,8 @@ CLAMP_FILTER_IDS = ENHANCE_FILTER_IDS | frozenset({
 class FilterOutputStats:
     brightness: BrightnessInfo
     brightness_increase_pct: float | None = None
+    # Absolute flat-region grain score of the pre-clip filter result.
+    grain_level: float | None = None
 
 
 @dataclass
@@ -299,16 +302,18 @@ def output_filter_stats(
     is_grayscale: bool,
     params: dict[str, Any] | None = None,
 ) -> FilterOutputStats:
-    """Pre-clip output levels and, for enhance filters, peak increase."""
+    """Pre-clip output levels and, for enhance filters, peak/grain metrics."""
     merged = _merge_params(FILTERS[filter_id], params)
     raw = run_filter_raw(filter_id, data, is_grayscale, merged)
     brightness = measure_brightness(raw, is_grayscale)
 
     increase: float | None = None
+    grain: float | None = None
     if _canonical_filter_id(filter_id) in ENHANCE_FILTER_IDS:
         increase = brightness_increase_pct(data, raw, is_grayscale)
+        grain = absolute_grain(raw, is_grayscale)
 
-    return FilterOutputStats(brightness, increase)
+    return FilterOutputStats(brightness, increase, grain)
 
 
 def apply_filter_with_stats(

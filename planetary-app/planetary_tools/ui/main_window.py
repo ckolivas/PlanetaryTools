@@ -709,7 +709,11 @@ class MainWindow(QMainWindow):
             self._document.is_grayscale,
             dlg.get_params(),
         )
-        dlg.update_output_brightness(stats.brightness, stats.brightness_increase_pct)
+        dlg.update_output_brightness(
+            stats.brightness,
+            stats.brightness_increase_pct,
+            stats.grain_level,
+        )
         preview_data = self._preview.display_data()
         if preview_data is not None:
             dlg.update_histogram_display(preview_data)

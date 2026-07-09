@@ -195,6 +195,7 @@ class _FilterDialog(QWidget):
         self._output_label = QLabel("Output —")
         self._output_label.setStyleSheet("font-weight: bold;")
         self._increase_label: QLabel | None = None
+        self._grain_label: QLabel | None = None
         if self.filter_id in ENHANCE_FILTER_IDS:
             self._increase_label = QLabel("Brightness increase —")
             self._increase_label.setStyleSheet("font-weight: bold;")
@@ -202,10 +203,22 @@ class _FilterDialog(QWidget):
                 "Peak channel increase from the filter result before "
                 "any clipping is applied."
             )
+            self._grain_label = QLabel("Grain —")
+            self._grain_label.setStyleSheet("font-weight: bold;")
+            self._grain_label.setToolTip(
+                "Fine-scale residual energy in low-contrast regions of the "
+                "subject (black sky/background excluded), divided by peak "
+                "luminance so contrast stretch does not inflate the score. "
+                "Measured on the filter result before any clipping. "
+                "Higher values mean more grain/noise. Scale is arbitrary "
+                "and can be tuned (GRAIN_DISPLAY_SCALE)."
+            )
         root.addWidget(self._input_label)
         root.addWidget(self._output_label)
         if self._increase_label is not None:
             root.addWidget(self._increase_label)
+        if self._grain_label is not None:
+            root.addWidget(self._grain_label)
 
         if self.supports_presets:
             root.addWidget(self._make_preset_row())
@@ -351,11 +364,14 @@ class _FilterDialog(QWidget):
         self,
         info: BrightnessInfo | None,
         increase_pct: float | None = None,
+        grain_level: float | None = None,
     ) -> None:
         if info is None:
             self._output_label.setText("Output — (preview off)")
             if self._increase_label is not None:
                 self._increase_label.setText("Brightness increase —")
+            if self._grain_label is not None:
+                self._grain_label.setText("Grain —")
             return
         self._output_label.setText(info.format_line("Output — "))
         if self._increase_label is not None:
@@ -365,6 +381,13 @@ class _FilterDialog(QWidget):
                 sign = "+" if increase_pct >= 0 else ""
                 self._increase_label.setText(
                     f"Brightness increase — {sign}{increase_pct:.1f}%  (before clipping)"
+                )
+        if self._grain_label is not None:
+            if grain_level is None:
+                self._grain_label.setText("Grain —")
+            else:
+                self._grain_label.setText(
+                    f"Grain — {grain_level:.2f}  (before clipping)"
                 )
 
     def _add_double(
