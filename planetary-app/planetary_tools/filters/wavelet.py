@@ -59,32 +59,41 @@ def wavelet_blur(channel: np.ndarray, radius: float) -> np.ndarray:
 
 def _to_perceptual(channel: np.ndarray) -> np.ndarray:
     """Document linear light → R'G'B' float (gegl:wavelet-blur working format)."""
-    return linear_to_srgb(channel).astype(np.float64)
+    # Do not clamp: preserve values already above 100% linear.
+    return linear_to_srgb(channel, clamp=False).astype(np.float64)
 
 
 def _from_perceptual(channel: np.ndarray) -> np.ndarray:
-    """R'G'B' float result → document linear light."""
-    return srgb_to_linear(np.clip(channel, 0.0, 1.0)).astype(np.float32)
+    """R'G'B' float result → document linear light (unclamped).
+
+    Highlight overshoot is left intact so optional post-process clamp and the
+    brightness-increase readout can see values above 100%.
+    """
+    return srgb_to_linear(channel, clamp=False).astype(np.float32)
 
 
 def _grain_extract(channel: np.ndarray, blurred: np.ndarray) -> np.ndarray:
-    """gimp:grain-extract-legacy with CLAMP(comp, 0, 1)."""
+    """Grain-extract (GIMP legacy formula) without clamping scale layers."""
     comp = (
         np.asarray(channel, dtype=np.float64)
         - np.asarray(blurred, dtype=np.float64)
         + _GRAIN_MIDPOINT
     )
-    return np.clip(comp, 0.0, 1.0).astype(np.float32)
+    return comp.astype(np.float32)
 
 
 def _grain_merge(base: np.ndarray, layer: np.ndarray) -> np.ndarray:
-    """gimp:grain-merge-legacy with CLAMP(comp, 0, 1)."""
+    """Grain-merge (GIMP legacy formula) without clamping the result.
+
+    Left open so the recomposed image can exceed 100% (highlight overshoot)
+    for the optional clamp post-process and brightness-increase readout.
+    """
     comp = (
         np.asarray(base, dtype=np.float64)
         + np.asarray(layer, dtype=np.float64)
         - _GRAIN_MIDPOINT
     )
-    return np.clip(comp, 0.0, 1.0).astype(np.float32)
+    return comp.astype(np.float32)
 
 
 def _wavelet_decompose(
@@ -114,17 +123,17 @@ def _unsharp_mask(layer: np.ndarray, std_dev: float, amount: float) -> np.ndarra
     """gegl:unsharp-mask with threshold 0: input + scale × (input − blur).
 
     GEGL's gegl:gaussian-blur prepares with "RGB float" (linear), so for
-    R'G'B' scale layers (from U16_NON_LINEAR images) the gaussian is computed
-    in linear light.  The USM arithmetic also runs in linear; the result is
-    clipped and converted back to R'G'B' before reconstruction.
+    R'G'B' scale layers the gaussian is computed in linear light.  The USM
+    arithmetic also runs in linear; results are not clipped so scale-layer
+    and recomposed overshoot are visible to the brightness readout.
     """
     if amount == 0.0:
         return np.asarray(layer, dtype=np.float32)
     layer_f32 = np.asarray(layer, dtype=np.float32)
-    layer_lin = srgb_to_linear(layer_f32).astype(np.float64)
+    layer_lin = srgb_to_linear(layer_f32, clamp=False).astype(np.float64)
     blurred = gaussian_filter(layer_lin, std_dev)
     usm_lin = layer_lin + amount * (layer_lin - blurred)
-    return linear_to_srgb(np.clip(usm_lin, 0.0, 1.0).astype(np.float32))
+    return linear_to_srgb(usm_lin, clamp=False)
 
 
 def _process_channels(
@@ -204,7 +213,7 @@ def merge_wavelet_detail(
         sec_lin = scale_image(sec_3ch, main_w, main_h)[..., 0]
 
     # Decompose secondary once; reuse its scales for every main channel
-    sec_perc = linear_to_srgb(sec_lin).astype(np.float64)
+    sec_perc = linear_to_srgb(sec_lin, clamp=False).astype(np.float64)
     sec_scales, _ = _wavelet_decompose(sec_perc)
 
     n = min(max(n_secondary_scales, 0), NUM_SCALES)

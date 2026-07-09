@@ -8,27 +8,57 @@ import numpy as np
 _SRGB_BREAK = 0.0031308
 
 
-def srgb_to_linear(value: np.ndarray) -> np.ndarray:
-    """Convert sRGB-encoded values in [0, 1] to linear light."""
+def srgb_to_linear(value: np.ndarray, *, clamp: bool = False) -> np.ndarray:
+    """Convert sRGB-encoded values to linear light.
+
+    By default values outside [0, 1] are allowed (odd/even extension of the
+    transfer) so intermediate filter results can report highlight overshoot.
+    Pass ``clamp=True`` to force the classic display range first.
+    """
     v = np.asarray(value, dtype=np.float64)
+    if clamp:
+        v = np.clip(v, 0.0, 1.0)
+        linear = np.where(
+            v <= 0.04045,
+            v / 12.92,
+            np.power((v + 0.055) / 1.055, 2.4),
+        )
+        return linear.astype(np.float32)
+
+    sign = np.sign(v)
+    av = np.abs(v)
     linear = np.where(
-        v <= 0.04045,
-        v / 12.92,
-        np.power((v + 0.055) / 1.055, 2.4),
+        av <= 0.04045,
+        av / 12.92,
+        np.power((av + 0.055) / 1.055, 2.4),
     )
-    return linear.astype(np.float32)
+    return (sign * linear).astype(np.float32)
 
 
-def linear_to_srgb(value: np.ndarray) -> np.ndarray:
-    """Convert linear light in [0, 1] to sRGB for display or 8-bit export."""
+def linear_to_srgb(value: np.ndarray, *, clamp: bool = True) -> np.ndarray:
+    """Convert linear light to sRGB-encoded values.
+
+    Default ``clamp=True`` matches display/export (values forced into [0, 1]).
+    Pass ``clamp=False`` to preserve overshoot/undershoot for processing.
+    """
     v = np.asarray(value, dtype=np.float64)
-    v = np.clip(v, 0.0, 1.0)
+    if clamp:
+        v = np.clip(v, 0.0, 1.0)
+        encoded = np.where(
+            v <= _SRGB_BREAK,
+            v * 12.92,
+            1.055 * np.power(v, 1.0 / 2.4) - 0.055,
+        )
+        return encoded.astype(np.float32)
+
+    sign = np.sign(v)
+    av = np.abs(v)
     encoded = np.where(
-        v <= _SRGB_BREAK,
-        v * 12.92,
-        1.055 * np.power(v, 1.0 / 2.4) - 0.055,
+        av <= _SRGB_BREAK,
+        av * 12.92,
+        1.055 * np.power(av, 1.0 / 2.4) - 0.055,
     )
-    return encoded.astype(np.float32)
+    return (sign * encoded).astype(np.float32)
 
 
 # OKLab matrices (Björn Ottosson, https://bottosson.github.io/posts/oklab/)
