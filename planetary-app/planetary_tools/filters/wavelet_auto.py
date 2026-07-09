@@ -121,9 +121,9 @@ def auto_wavelet_sharpen_params(
     1. Raises fine in steps of 4.0, then 1.0, then 0.1 until grain hits the
        target (stops early if contrast hits).
     2. If contrast remains low, raises medium in steps of 1.0 then 0.1; lowers
-       fine by 0.1 if grain overshoots.
+       fine if grain overshoots (step 1.0 while contrast < half target, else 0.1).
     3. If contrast remains low, raises coarse by 0.1; lowers fine then medium
-       by 0.1 if grain overshoots.
+       if grain overshoots (same adaptive step-down).
     """
     target_grain = max(0.0, float(target_grain))
     target_contrast = max(0.0, float(target_contrast))
@@ -131,7 +131,8 @@ def auto_wavelet_sharpen_params(
     fine_steps = _FINE_STEPS
     medium_steps = _MEDIUM_STEPS
     coarse_step = _COARSE_STEP
-    compensate_step = _STEP
+    compensate_fine_step = _STEP
+    compensate_coarse_step = _STEP * 10.0  # 1.0 when contrast is still low
 
     engine = _SharpenTrialEngine(data, is_grayscale)
 
@@ -153,6 +154,12 @@ def auto_wavelet_sharpen_params(
 
     def grain_reached(g: float) -> bool:
         return g >= target_grain - _EPS
+
+    def compensate_step_for(contrast: float) -> float:
+        """Larger steps down while contrast is under half the target."""
+        if contrast < 0.5 * target_contrast - _EPS:
+            return compensate_coarse_step
+        return compensate_fine_step
 
     # --- Phase 1: fine (4.0 → 1.0 → 0.1) ---
     for step in fine_steps:
@@ -178,7 +185,7 @@ def auto_wavelet_sharpen_params(
     if contrast_reached(c):
         return AutoSharpenResult(fine, medium, coarse, g, c)
 
-    # --- Phase 2: medium (1.0 → 0.1); compensate grain via fine @ 0.1 ---
+    # --- Phase 2: medium (1.0 → 0.1); compensate grain via fine ---
     for step in medium_steps:
         while medium + step <= max_amount + _EPS:
             trial_medium = _round_step(medium + step)
@@ -186,8 +193,15 @@ def auto_wavelet_sharpen_params(
             g, c = engine.metrics(trial_fine, trial_medium, coarse)
             if c > target_contrast + _EPS:
                 break
-            while g > target_grain + _EPS and trial_fine >= compensate_step - _EPS:
-                trial_fine = _round_step(trial_fine - compensate_step)
+            while g > target_grain + _EPS:
+                down = compensate_step_for(c)
+                if trial_fine < down - _EPS:
+                    # Prefer a full adaptive step; fall back to fine step if needed.
+                    if trial_fine >= compensate_fine_step - _EPS:
+                        down = compensate_fine_step
+                    else:
+                        break
+                trial_fine = _round_step(trial_fine - down)
                 g, c = engine.metrics(trial_fine, trial_medium, coarse)
                 if c > target_contrast + _EPS:
                     break
@@ -206,7 +220,7 @@ def auto_wavelet_sharpen_params(
     if contrast_reached(c):
         return AutoSharpenResult(fine, medium, coarse, g, c)
 
-    # --- Phase 3: coarse @ 0.1; compensate grain via fine then medium @ 0.1 ---
+    # --- Phase 3: coarse @ 0.1; compensate grain via fine then medium ---
     while coarse + coarse_step <= max_amount + _EPS:
         trial_coarse = _round_step(coarse + coarse_step)
         trial_fine = fine
@@ -215,10 +229,15 @@ def auto_wavelet_sharpen_params(
         if c > target_contrast + _EPS:
             break
         while g > target_grain + _EPS:
-            if trial_fine >= compensate_step - _EPS:
-                trial_fine = _round_step(trial_fine - compensate_step)
-            elif trial_medium >= compensate_step - _EPS:
-                trial_medium = _round_step(trial_medium - compensate_step)
+            down = compensate_step_for(c)
+            if trial_fine >= down - _EPS:
+                trial_fine = _round_step(trial_fine - down)
+            elif trial_fine >= compensate_fine_step - _EPS:
+                trial_fine = _round_step(trial_fine - compensate_fine_step)
+            elif trial_medium >= down - _EPS:
+                trial_medium = _round_step(trial_medium - down)
+            elif trial_medium >= compensate_fine_step - _EPS:
+                trial_medium = _round_step(trial_medium - compensate_fine_step)
             else:
                 break
             g, c = engine.metrics(trial_fine, trial_medium, trial_coarse)
