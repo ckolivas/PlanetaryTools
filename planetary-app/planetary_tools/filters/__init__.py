@@ -8,6 +8,7 @@ from planetary_tools.filters.levels import apply_levels
 from planetary_tools.filters.saturation import apply_saturation_vibrance
 from planetary_tools.filters.stretch import stretch_contrast_oklab
 from planetary_tools.filters.wavelet import wavelet_denoise, wavelet_sharpen
+from planetary_tools.filters.wiener_deconv import wiener_deconvolution
 
 __all__ = [
     "ENHANCE_FILTER_IDS",
@@ -24,4 +25,5 @@ __all__ = [
     "stretch_contrast_oklab",
     "wavelet_denoise",
     "wavelet_sharpen",
+    "wiener_deconvolution",
 ]

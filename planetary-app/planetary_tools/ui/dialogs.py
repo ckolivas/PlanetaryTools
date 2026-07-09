@@ -582,6 +582,62 @@ class AdaptiveDeconvDialog(_FilterDialog):
         self.oklab.blockSignals(False)
 
 
+class WienerDeconvDialog(_FilterDialog):
+    filter_id = "wiener_deconv"
+    supports_presets = True
+    supports_clamp = True
+
+    def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
+        self._is_grayscale = is_grayscale
+        super().__init__("Wiener Deconvolution", parent)
+
+    def _build_filter_params(self) -> None:
+        fdef = FILTERS[self.filter_id]
+        self.amount = self._add_double(
+            "Amount", fdef.default_params["amount"], 0.0, 200.0, step=0.1, decimals=1
+        )
+        self.adaptive = QCheckBox("Contrast Adaptive")
+        self.adaptive.setToolTip(
+            "Reduces the filter effect in areas of higher contrast "
+            "(opposite of adaptive deconvolution)."
+        )
+        self.adaptive.setChecked(fdef.default_params["adaptive"])
+        self.adaptive.toggled.connect(lambda _: self.params_changed.emit())
+        self._form.addRow(self.adaptive)
+        self.oklab = QCheckBox("OKLab luminance")
+        self.oklab.setToolTip(
+            "Filters on the luminance layer, reducing colour noise but "
+            "leaving chroma detail unchanged."
+        )
+        self.oklab.setChecked(fdef.default_params["oklab"] and not self._is_grayscale)
+        self.oklab.setEnabled(not self._is_grayscale)
+        self.oklab.toggled.connect(lambda _: self.params_changed.emit())
+        self._form.addRow(self.oklab)
+
+    def get_params(self) -> dict[str, Any]:
+        p = super().get_params()
+        p.update({
+            "amount": self.amount.value(),
+            "adaptive": self.adaptive.isChecked(),
+            "oklab": self.oklab.isChecked(),
+        })
+        return p
+
+    def set_params(self, params: dict[str, Any]) -> None:
+        super().set_params(params)
+        self.amount.blockSignals(True)
+        self.adaptive.blockSignals(True)
+        self.oklab.blockSignals(True)
+        self.amount.setValue(params.get("amount", self.amount.value()))
+        self.adaptive.setChecked(params.get("adaptive", self.adaptive.isChecked()))
+        self.oklab.setChecked(
+            params.get("oklab", self.oklab.isChecked()) and not self._is_grayscale
+        )
+        self.amount.blockSignals(False)
+        self.adaptive.blockSignals(False)
+        self.oklab.blockSignals(False)
+
+
 class StretchContrastDialog(_FilterDialog):
     """Stretch Contrast OKLab — preview only, no presets or clamp."""
 
@@ -982,6 +1038,31 @@ def edit_filter_params(
         oklab = QCheckBox("OKLab luminance")
         oklab.setToolTip(
             "Sharpens on luminance layer decreasing colour noise but lowers saturation."
+        )
+        oklab.setChecked(params.get("oklab", fdef.default_params["oklab"]) and not is_grayscale)
+        oklab.setEnabled(not is_grayscale)
+        form.addRow(oklab)
+        widgets["oklab"] = oklab
+    elif filter_id == "wiener_deconv":
+        amount = QDoubleSpinBox()
+        amount.setRange(0.0, 200.0)
+        amount.setDecimals(1)
+        amount.setSingleStep(0.1)
+        amount.setValue(params.get("amount", fdef.default_params["amount"]))
+        form.addRow("Amount", amount)
+        widgets["amount"] = amount
+        adaptive = QCheckBox("Contrast Adaptive")
+        adaptive.setToolTip(
+            "Reduces the filter effect in areas of higher contrast "
+            "(opposite of adaptive deconvolution)."
+        )
+        adaptive.setChecked(params.get("adaptive", fdef.default_params["adaptive"]))
+        form.addRow(adaptive)
+        widgets["adaptive"] = adaptive
+        oklab = QCheckBox("OKLab luminance")
+        oklab.setToolTip(
+            "Filters on the luminance layer, reducing colour noise but "
+            "leaving chroma detail unchanged."
         )
         oklab.setChecked(params.get("oklab", fdef.default_params["oklab"]) and not is_grayscale)
         oklab.setEnabled(not is_grayscale)

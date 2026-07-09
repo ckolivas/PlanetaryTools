@@ -25,6 +25,7 @@ from planetary_tools.filters.levels import apply_levels, default_levels_params
 from planetary_tools.filters.saturation import apply_saturation_vibrance
 from planetary_tools.filters.stretch import stretch_contrast_oklab
 from planetary_tools.filters.wavelet import merge_wavelet_detail, wavelet_denoise, wavelet_sharpen
+from planetary_tools.filters.wiener_deconv import wiener_deconvolution
 
 FilterFunc = Callable[[np.ndarray, bool], np.ndarray]
 
@@ -39,6 +40,7 @@ ENHANCE_FILTER_IDS = frozenset({
     "wavelet_sharpen",
     "wavelet_denoise",
     "adaptive_deconv",
+    "wiener_deconv",
 })
 
 CLAMP_FILTER_IDS = ENHANCE_FILTER_IDS | frozenset({
@@ -95,6 +97,18 @@ class AdaptiveDeconvDef(FilterDef):
     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
         oklab = params.get("oklab", True) and not is_grayscale
         return adaptive_deconvolution(
+            data, is_grayscale,
+            params.get("amount", 10.0),
+            params.get("adaptive", True),
+            oklab,
+        )
+
+
+@dataclass
+class WienerDeconvDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        oklab = params.get("oklab", True) and not is_grayscale
+        return wiener_deconvolution(
             data, is_grayscale,
             params.get("amount", 10.0),
             params.get("adaptive", True),
@@ -176,6 +190,13 @@ FILTERS: dict[str, FilterDef] = {
     "adaptive_deconv": AdaptiveDeconvDef(
         id="adaptive_deconv",
         label="Adaptive Deconvolution",
+        default_params=_with_defaults({"amount": 10.0, "adaptive": True, "oklab": True}),
+    ),
+    "wiener_deconv": WienerDeconvDef(
+        id="wiener_deconv",
+        label="Wiener Deconvolution",
+        # Kept for a future reimplementation; not listed in batch or the Enhance menu.
+        batch_enabled=False,
         default_params=_with_defaults({"amount": 10.0, "adaptive": True, "oklab": True}),
     ),
     "stretch_contrast": StretchContrastDef(

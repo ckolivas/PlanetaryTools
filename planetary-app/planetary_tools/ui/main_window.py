@@ -51,6 +51,7 @@ from planetary_tools.ui.dialogs import (
     StretchContrastDialog,
     WaveletDenoiseDialog,
     WaveletSharpenDialog,
+    WienerDeconvDialog,
     _FilterDialog,
 )
 from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
@@ -221,6 +222,17 @@ class MainWindow(QMainWindow):
         )
         self._deconv_act.triggered.connect(self._run_adaptive_deconv)
         enhance_menu.addAction(self._deconv_act)
+
+        # Wiener deconvolution is implemented but not exposed: weaker denoise
+        # than wavelet for typical planetary stacks. Re-enable when improved.
+        self._wiener_act = QAction("&Wiener Deconvolution…", self)
+        self._wiener_act.setToolTip(
+            "PSF deconvolution denoising. (Disabled — not as effective as wavelet denoise.)"
+        )
+        self._wiener_act.triggered.connect(self._run_wiener_deconv)
+        self._wiener_act.setEnabled(False)
+        self._wiener_act.setVisible(False)
+        enhance_menu.addAction(self._wiener_act)
 
         enhance_menu.addSeparator()
         self._merge_detail_act = QAction("&Merge Wavelet Detail…", self)
@@ -765,6 +777,14 @@ class MainWindow(QMainWindow):
         self._run_filter_dialog(
             AdaptiveDeconvDialog(self._document.is_grayscale, self),
             "Adaptive Deconvolution",
+        )
+
+    def _run_wiener_deconv(self) -> None:
+        if self._document is None:
+            return
+        self._run_filter_dialog(
+            WienerDeconvDialog(self._document.is_grayscale, self),
+            "Wiener Deconvolution",
         )
 
     def _run_merge_wavelet_detail(self) -> None:
