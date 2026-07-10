@@ -526,7 +526,7 @@ class WaveletSharpenDialog(_FilterDialog):
         self._form.addRow(auto_row)
 
         self.target_noise = QDoubleSpinBox()
-        self.target_noise.setRange(0.0, 10.0)
+        self.target_noise.setRange(0.0, 20.0)
         self.target_noise.setDecimals(1)
         self.target_noise.setSingleStep(0.1)
         self.target_noise.setValue(float(fdef.default_params.get("target_noise", 3.0)))
@@ -1205,7 +1205,7 @@ def edit_filter_params(
         form.addRow(auto)
         widgets["auto"] = auto
         target_noise = QDoubleSpinBox()
-        target_noise.setRange(0.0, 10.0)
+        target_noise.setRange(0.0, 20.0)
         target_noise.setDecimals(1)
         target_noise.setSingleStep(0.1)
         target_noise.setValue(
