@@ -1,13 +1,17 @@
 """Fine-scale grain / noise estimation for enhance-filter readouts.
 
-Grain is estimated as the MAD of a fine high-pass residual in low-structure
-regions of the *subject* (not the black sky). Near-black background is
-excluded first; among remaining pixels the lowest-contrast subset is used.
+Grain is estimated from the fine high-pass residual in low-structure regions
+of the *subject* (not the black sky):
+
+* **Bulk noise** — MAD of residual (robust to outliers)
+* **Sparse speckles** — excess of the 99th-percentile |residual| over what a
+  Gaussian with that MAD would produce (heavy tails after sharpening)
+* **Mid-scale speckles** — MAD of a band-pass residual (≈2–5 px), scaled so it
+  can raise the score when medium wavelet boost creates coarse salt
 
 Before measuring, the image is cropped to the subject bounding box (with a
-small pad) so wide fields with large empty margins score like tight crops of
-the same disk. Large subjects are then Lanczos-downsampled for speed — not
-pixel-strided, which aliases residual energy.
+small pad) so wide fields score like tight crops. Large subjects are
+Lanczos-downsampled for speed (not pixel-strided).
 """
 
 from __future__ import annotations
@@ -22,6 +26,9 @@ from planetary_tools.core.scale import scale_image
 _FLAT_QUANTILE = 0.35
 _LOCAL_WIN = 7
 _HP_SIGMA = 1.0
+# Band-pass for few-pixel / coarse speckles: blur(lo) − blur(hi).
+_BP_SIGMA_LO = 1.0
+_BP_SIGMA_HI = 3.0
 _MIN_SAMPLES = 64
 _MAX_SIDE = 512
 # Padding around the subject bbox as a fraction of bbox size (each side).
@@ -29,13 +36,17 @@ _BBOX_PAD_FRAC = 0.05
 _BBOX_PAD_MIN = 2
 
 # Ignore background below this fraction of the image's bright peak.
-# Planetary stacks are often mostly black sky, which would otherwise dominate
-# any "flat region" mask and force the grain reading to ~0.
 _SIGNAL_PEAK_FRACTION = 0.05
 _SIGNAL_ABS_FLOOR = 1e-4
 
-# Multiplies the raw MAD residual into a more readable absolute score.
-# Tweak after testing on real planetary stacks (higher → larger numbers).
+# For unit MAD of a Gaussian, |x| p99 ≈ 2.576/0.6745 ≈ 3.82 · MAD.
+_GAUSS_P99_OVER_MAD = 3.8
+# How strongly sparse fine-scale tails raise the score beyond MAD.
+_EXCESS_TAIL_WEIGHT = 0.25
+# Weight for mid-scale (band-pass) MAD relative to fine MAD.
+_BANDPASS_MAD_WEIGHT = 0.35
+
+# Multiplies the raw level into a more readable absolute score.
 GRAIN_DISPLAY_SCALE = 1000.0
 
 
@@ -95,9 +106,15 @@ def _local_std(lum: np.ndarray, size: int = _LOCAL_WIN) -> np.ndarray:
     return np.sqrt(var)
 
 
-def _fine_residual(lum: np.ndarray) -> np.ndarray:
-    blurred = gaussian_filter(lum, _HP_SIGMA, mode="reflect")
-    return lum - blurred
+def _highpass_residual(lum: np.ndarray, sigma: float) -> np.ndarray:
+    return lum - gaussian_filter(lum, sigma, mode="reflect")
+
+
+def _bandpass_residual(lum: np.ndarray, sigma_lo: float, sigma_hi: float) -> np.ndarray:
+    """Mid-scale residual (few-pixel speckles), blur(lo) − blur(hi)."""
+    lo = gaussian_filter(lum, sigma_lo, mode="reflect")
+    hi = gaussian_filter(lum, sigma_hi, mode="reflect")
+    return lo - hi
 
 
 def _mad(values: np.ndarray) -> float:
@@ -105,6 +122,12 @@ def _mad(values: np.ndarray) -> float:
         return 0.0
     med = float(np.median(values))
     return float(np.median(np.abs(values - med)))
+
+
+def _p99_abs(values: np.ndarray) -> float:
+    if values.size == 0:
+        return 0.0
+    return float(np.percentile(np.abs(values), 99.0))
 
 
 def _signal_mask(lum: np.ndarray) -> np.ndarray:
@@ -119,11 +142,9 @@ def _grain_sample_mask(lum: np.ndarray) -> np.ndarray:
     signal = _signal_mask(lum)
     n_signal = int(signal.sum())
     if n_signal < _MIN_SAMPLES:
-        # Degenerate image: fall back to whole frame.
         return np.ones(lum.shape, dtype=bool)
 
     local = _local_std(lum)
-    # Rank local contrast only among signal pixels.
     thr = float(np.quantile(local[signal], _FLAT_QUANTILE))
     mask = signal & (local <= thr)
     if int(mask.sum()) < _MIN_SAMPLES:
@@ -131,15 +152,35 @@ def _grain_sample_mask(lum: np.ndarray) -> np.ndarray:
     return mask
 
 
+def _hybrid_grain_level(lum: np.ndarray, peak: float) -> float | None:
+    """Peak-normalized hybrid grain from fine MAD, fine tails, and band-pass MAD."""
+    mask = _grain_sample_mask(lum)
+    fine = _highpass_residual(lum, _HP_SIGMA)[mask]
+    if fine.size < _MIN_SAMPLES:
+        return None
+
+    mad_fine = _mad(fine) / peak
+    p99_fine = _p99_abs(fine) / peak
+    # Sparse speckles: p99 grows much faster than MAD under sharpening.
+    excess_tail = max(0.0, p99_fine - _GAUSS_P99_OVER_MAD * mad_fine)
+    fine_score = mad_fine + _EXCESS_TAIL_WEIGHT * excess_tail
+
+    band = _bandpass_residual(lum, _BP_SIGMA_LO, _BP_SIGMA_HI)[mask]
+    mad_band = _mad(band) / peak
+    band_score = _BANDPASS_MAD_WEIGHT * mad_band
+
+    return max(fine_score, band_score)
+
+
 def flat_region_grain_level(
     data: np.ndarray,
     is_grayscale: bool,
 ) -> float | None:
-    """Peak-normalized MAD of fine residual in subject flat regions.
+    """Peak-normalized hybrid grain level in subject flat regions.
 
-    Returns MAD / peak luminance so a global contrast stretch (which scales
-    residual and peak together) does not change the grain score. ``None`` if
-    the sample is unusable or the peak is effectively zero.
+    Combines robust fine residual MAD with heavy-tail (p99) excess and a
+    mid-scale band-pass MAD term so coarse speckles after sharpening are not
+    under-reported. Stretch-invariant via / peak. ``None`` if unusable.
     """
     lum = _prepare_luminance(data, is_grayscale)
     if lum.size == 0:
@@ -147,17 +188,14 @@ def flat_region_grain_level(
     peak = float(np.max(lum))
     if peak < 1e-12:
         return None
-    samples = _fine_residual(lum)[_grain_sample_mask(lum)]
-    if samples.size < _MIN_SAMPLES:
-        return None
-    return _mad(samples) / peak
+    return _hybrid_grain_level(lum, peak)
 
 
 def absolute_grain(
     data: np.ndarray,
     is_grayscale: bool,
 ) -> float | None:
-    """Grain score for UI display (peak-normalized MAD × GRAIN_DISPLAY_SCALE)."""
+    """Grain score for UI display (hybrid level × GRAIN_DISPLAY_SCALE)."""
     level = flat_region_grain_level(data, is_grayscale)
     if level is None:
         return None

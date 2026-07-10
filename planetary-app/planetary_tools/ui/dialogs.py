@@ -206,12 +206,11 @@ class _FilterDialog(QWidget):
             self._grain_label = QLabel("Grain —")
             self._grain_label.setStyleSheet("font-weight: bold;")
             self._grain_label.setToolTip(
-                "Fine-scale residual energy in low-contrast regions of the "
-                "subject (black sky/background excluded), divided by peak "
-                "luminance so contrast stretch does not inflate the score. "
-                "Measured on the filter result before any clipping. "
-                "Higher values mean more grain/noise. Scale is arbitrary "
-                "and can be tuned (GRAIN_DISPLAY_SCALE)."
+                "Hybrid grain score on subject flats (sky excluded), peak-"
+                "normalized: fine residual MAD, plus heavy-tail (p99) excess "
+                "for sparse speckles, and mid-scale band-pass MAD for coarser "
+                "salt. Measured before clipping. Higher = more grain/speckle. "
+                "Scale is arbitrary (GRAIN_DISPLAY_SCALE)."
             )
         root.addWidget(self._input_label)
         root.addWidget(self._output_label)
