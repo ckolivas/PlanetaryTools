@@ -8,7 +8,11 @@ from typing import Callable
 import numpy as np
 
 from planetary_tools.core.brightness import brightness_increase_pct
-from planetary_tools.core.noise import absolute_noise, estimate_texture_scale
+from planetary_tools.core.noise import (
+    absolute_noise,
+    estimate_texture_scale,
+    is_chromatic,
+)
 from planetary_tools.filters.wavelet import (
     NUM_SCALES,
     _UNSHARP_STD,
@@ -45,11 +49,28 @@ def _round_step(value: float) -> float:
 class _SharpenTrialEngine:
     """Decompose once; cache unsharp results per (channel, scale, amount)."""
 
-    def __init__(self, data: np.ndarray, is_grayscale: bool) -> None:
+    def __init__(
+        self,
+        data: np.ndarray,
+        is_grayscale: bool,
+        *,
+        texture_scale: float | None = None,
+        chromatic: bool | None = None,
+    ) -> None:
         self.is_grayscale = is_grayscale
         self.src = np.asarray(data, dtype=np.float32)
-        # Fix noise residual probe scales to the unsharpened source PSF/texture.
-        self.texture_scale = estimate_texture_scale(self.src, is_grayscale)
+        # Fix noise residual probe scales to the unsharpened source PSF/texture
+        # (or a session-pinned scale from the document).
+        self.texture_scale = (
+            float(texture_scale)
+            if texture_scale is not None
+            else estimate_texture_scale(self.src, is_grayscale)
+        )
+        self.chromatic = (
+            bool(chromatic)
+            if chromatic is not None
+            else is_chromatic(self.src, is_grayscale)
+        )
         self._prepared: list[tuple[list[np.ndarray], np.ndarray]] = []
         if is_grayscale:
             ch = self.src if self.src.ndim == 2 else self.src[..., 0]
@@ -101,7 +122,10 @@ class _SharpenTrialEngine:
     def metrics(self, fine: float, medium: float, coarse: float) -> tuple[float, float]:
         out = self.apply(fine, medium, coarse)
         noise = absolute_noise(
-            out, self.is_grayscale, texture_scale=self.texture_scale
+            out,
+            self.is_grayscale,
+            texture_scale=self.texture_scale,
+            chromatic=self.chromatic,
         )
         contrast = brightness_increase_pct(self.src, out, self.is_grayscale)
         n = 0.0 if noise is None else float(noise)
@@ -117,6 +141,8 @@ def auto_wavelet_sharpen_params(
     *,
     max_amount: float = _MAX_AMOUNT,
     progress: Callable[[float, float, float, float, float], None] | None = None,
+    texture_scale: float | None = None,
+    chromatic: bool | None = None,
 ) -> AutoSharpenResult:
     """Search fine/medium/coarse to approach noise and contrast targets.
 
@@ -128,6 +154,9 @@ def auto_wavelet_sharpen_params(
        fine if noise overshoots (step 1.0 while contrast < half target, else 0.1).
     3. If contrast remains low, raises coarse by 0.1; lowers fine then medium
        if noise overshoots (same adaptive step-down).
+
+    Pass session-pinned ``texture_scale`` / ``chromatic`` (from the document at
+    load) so the search uses the same residual probes as the UI readout.
     """
     target_noise = max(0.0, float(target_noise))
     target_contrast = max(0.0, float(target_contrast))
@@ -138,7 +167,12 @@ def auto_wavelet_sharpen_params(
     compensate_fine_step = _STEP
     compensate_coarse_step = _STEP * 10.0  # 1.0 when contrast is still low
 
-    engine = _SharpenTrialEngine(data, is_grayscale)
+    engine = _SharpenTrialEngine(
+        data,
+        is_grayscale,
+        texture_scale=texture_scale,
+        chromatic=chromatic,
+    )
 
     fine = 0.0
     medium = 0.0
@@ -265,11 +299,22 @@ def verify_auto_params(
     fine: float,
     medium: float,
     coarse: float,
+    *,
+    texture_scale: float | None = None,
+    chromatic: bool | None = None,
 ) -> tuple[float, float]:
     """Return (noise, contrast%) for the given amounts on full data."""
     out = wavelet_sharpen(data, is_grayscale, fine, medium, coarse)
-    texture_scale = estimate_texture_scale(data, is_grayscale)
-    noise = absolute_noise(out, is_grayscale, texture_scale=texture_scale)
+    if texture_scale is None:
+        texture_scale = estimate_texture_scale(data, is_grayscale)
+    if chromatic is None:
+        chromatic = is_chromatic(data, is_grayscale)
+    noise = absolute_noise(
+        out,
+        is_grayscale,
+        texture_scale=texture_scale,
+        chromatic=chromatic,
+    )
     contrast = brightness_increase_pct(data, out, is_grayscale)
     return (
         0.0 if noise is None else float(noise),

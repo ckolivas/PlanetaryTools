@@ -13,7 +13,11 @@ from planetary_tools.core.brightness import (
     brightness_increase_pct,
     measure_brightness,
 )
-from planetary_tools.core.noise import absolute_noise, estimate_texture_scale
+from planetary_tools.core.noise import (
+    absolute_noise,
+    estimate_texture_scale,
+    is_chromatic,
+)
 from planetary_tools.filters.adaptive_deconv import adaptive_deconvolution
 from planetary_tools.filters.colour_matrix import (
     IDENTITY_MATRIX,
@@ -56,6 +60,9 @@ class FilterOutputStats:
     brightness_increase_pct: float | None = None
     # Absolute flat-region noise score of the pre-clip filter result.
     noise_level: float | None = None
+    # Absolute noise of the unfiltered input (same scale/probes as noise_level).
+    # Matches across enhance dialogs for a given document.
+    source_noise_level: float | None = None
 
 
 @dataclass
@@ -329,12 +336,19 @@ def output_filter_stats(
     data: np.ndarray,
     is_grayscale: bool,
     params: dict[str, Any] | None = None,
+    *,
+    texture_scale: float | None = None,
+    chromatic: bool | None = None,
 ) -> FilterOutputStats:
     """Pre-clip output levels and, for enhance filters, peak/noise metrics.
 
-    Noise residual scales are fixed from the *input* image (source PSF/texture)
-    so the readout matches auto search and does not drop when the sharpened
-    result re-estimates a slightly different texture scale.
+    Noise residual scales and chromatic mode should be the *session* source
+    context (pinned on the document at load). Pass them explicitly so a
+    sharpened document still scores with the original stack's PSF probes —
+    otherwise re-estimating texture on the sharpened result drops the score
+    (e.g. auto 2.99 → deconv 2.70 on crop.png).
+
+    When omitted, both are estimated from ``data`` (batch / tests).
     """
     merged = _merge_params(FILTERS[filter_id], params)
     raw = run_filter_raw(filter_id, data, is_grayscale, merged)
@@ -342,12 +356,39 @@ def output_filter_stats(
 
     increase: float | None = None
     noise: float | None = None
+    source_noise: float | None = None
     if _canonical_filter_id(filter_id) in ENHANCE_FILTER_IDS:
         increase = brightness_increase_pct(data, raw, is_grayscale)
-        texture_scale = estimate_texture_scale(data, is_grayscale)
-        noise = absolute_noise(raw, is_grayscale, texture_scale=texture_scale)
+        if texture_scale is None:
+            texture_scale = estimate_texture_scale(data, is_grayscale)
+        if chromatic is None:
+            chromatic = is_chromatic(data, is_grayscale)
+        source_noise = absolute_noise(
+            data,
+            is_grayscale,
+            texture_scale=texture_scale,
+            chromatic=chromatic,
+        )
+        # Near-identity filters (e.g. all amounts 0): report source noise
+        # exactly so enhance dialogs agree on the same document despite tiny
+        # wavelet/deconv floating-point round-trip differences.
+        raw_f = np.asarray(raw, dtype=np.float64)
+        src_f = np.asarray(data, dtype=np.float64)
+        if (
+            source_noise is not None
+            and raw_f.shape == src_f.shape
+            and float(np.max(np.abs(raw_f - src_f))) < 1e-5
+        ):
+            noise = source_noise
+        else:
+            noise = absolute_noise(
+                raw,
+                is_grayscale,
+                texture_scale=texture_scale,
+                chromatic=chromatic,
+            )
 
-    return FilterOutputStats(brightness, increase, noise)
+    return FilterOutputStats(brightness, increase, noise, source_noise)
 
 
 def apply_filter_with_stats(

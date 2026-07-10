@@ -208,9 +208,13 @@ class _FilterDialog(QWidget):
             self._noise_label.setToolTip(
                 "Hybrid noise score on subject flats (sky excluded), peak-"
                 "normalized. Residual filter sizes track an estimated texture/"
-                "PSF scale of the image (softer stacks look for coarser "
-                "structure). Combines fine MAD, heavy-tail (p99) excess, and "
-                "band-pass MAD. Before clipping. Higher = more noise/speckle."
+                "PSF scale of the *source* image (softer stacks look for "
+                "coarser structure). Combines fine MAD, heavy-tail (p99) "
+                "excess, and band-pass MAD. Before clipping. Higher = more "
+                "noise/speckle.\n\n"
+                "Shows source → result when the filter changes the score. "
+                "Source noise is the same in wavelet sharpen, denoise, and "
+                "adaptive deconvolution for a given image."
             )
         root.addWidget(self._input_label)
         root.addWidget(self._output_label)
@@ -340,10 +344,21 @@ class _FilterDialog(QWidget):
         self._presets["Last"] = self.get_params()
         save_presets(self.filter_id, self._presets)
 
-    def set_input_brightness(self, data: np.ndarray, is_grayscale: bool) -> None:
+    def set_input_brightness(
+        self,
+        data: np.ndarray,
+        is_grayscale: bool,
+        *,
+        noise_texture_scale: float | None = None,
+        noise_chromatic: bool | None = None,
+    ) -> None:
         self._input_info = measure_brightness(data, is_grayscale)
         self._input_data = np.asarray(data, dtype=np.float32)
         self._input_is_grayscale = is_grayscale
+        # Session-pinned noise context (from document at load). Survives filter
+        # applies so absolute noise stays comparable across enhance dialogs.
+        self._noise_texture_scale = noise_texture_scale
+        self._noise_chromatic = noise_chromatic
         self._input_label.setText(self._input_info.format_line("Input — "))
         self._histogram_source = self._input_data
         self._histogram_is_grayscale = is_grayscale
@@ -366,6 +381,7 @@ class _FilterDialog(QWidget):
         info: BrightnessInfo | None,
         increase_pct: float | None = None,
         noise_level: float | None = None,
+        source_noise_level: float | None = None,
     ) -> None:
         if info is None:
             self._output_label.setText("Output — (preview off)")
@@ -384,11 +400,22 @@ class _FilterDialog(QWidget):
                     f"Brightness increase — {sign}{increase_pct:.1f}%  (before clipping)"
                 )
         if self._noise_label is not None:
-            if noise_level is None:
+            if noise_level is None and source_noise_level is None:
                 self._noise_label.setText("Noise —")
-            else:
+            elif (
+                source_noise_level is not None
+                and noise_level is not None
+                and abs(source_noise_level - noise_level) >= 0.005
+            ):
+                # Source is identical across enhance dialogs; result tracks params.
                 self._noise_label.setText(
-                    f"Noise — {noise_level:.2f}  (before clipping)"
+                    f"Noise — {source_noise_level:.2f} → {noise_level:.2f}"
+                    f"  (before clipping)"
+                )
+            else:
+                shown = noise_level if noise_level is not None else source_noise_level
+                self._noise_label.setText(
+                    f"Noise — {shown:.2f}  (before clipping)"
                 )
 
     def _add_double(
@@ -584,6 +611,8 @@ class WaveletSharpenDialog(_FilterDialog):
                 target_noise=self.target_noise.value(),
                 target_contrast=self.target_contrast.value(),
                 progress=progress,
+                texture_scale=getattr(self, "_noise_texture_scale", None),
+                chromatic=getattr(self, "_noise_chromatic", None),
             )
             self.fine.blockSignals(True)
             self.medium.blockSignals(True)
@@ -1005,8 +1034,20 @@ class LevelsDialog(_FilterDialog):
         self._load_channel_into_spins(self._editing_channel)
         self._notify_params_changed(immediate=True)
 
-    def set_input_brightness(self, data: np.ndarray, is_grayscale: bool) -> None:
-        super().set_input_brightness(data, is_grayscale)
+    def set_input_brightness(
+        self,
+        data: np.ndarray,
+        is_grayscale: bool,
+        *,
+        noise_texture_scale: float | None = None,
+        noise_chromatic: bool | None = None,
+    ) -> None:
+        super().set_input_brightness(
+            data,
+            is_grayscale,
+            noise_texture_scale=noise_texture_scale,
+            noise_chromatic=noise_chromatic,
+        )
         self._input_data = np.asarray(data, dtype=np.float32)
         self._is_grayscale = is_grayscale
 

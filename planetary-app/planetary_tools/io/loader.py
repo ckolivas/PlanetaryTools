@@ -120,13 +120,17 @@ def load_image(path: str | Path) -> ImageDocument:
 
     arr = _load_array(path)
     data, grayscale, storage_bits = _normalize_array(arr, path)
-    return ImageDocument(
+    doc = ImageDocument(
         data=data,
         path=path,
         is_grayscale=grayscale,
         modified=False,
         storage_bits=storage_bits,
     )
+    # Pin noise residual probes to the loaded stack so later enhance applies
+    # do not re-estimate texture scale and change the absolute noise score.
+    doc.pin_noise_context()
+    return doc
 
 
 def _effective_bit_depth(doc: ImageDocument, path: Path, bit_depth: int | None) -> int:

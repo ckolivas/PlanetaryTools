@@ -28,11 +28,15 @@ from planetary_tools.core.scale import scale_image
 
 # Fraction of lowest local-contrast *signal* pixels treated as flat.
 _FLAT_QUANTILE = 0.35
+# Tighter flats for colour images (chrominance edges inflate residual tails).
+_FLAT_QUANTILE_COLOR = 0.20
 _LOCAL_WIN = 7
 _MIN_SAMPLES = 64
 _MAX_SIDE = 512
 _BBOX_PAD_FRAC = 0.05
 _BBOX_PAD_MIN = 2
+# Median (max−min)/max on bright pixels above this ⇒ treat as colour.
+_CHROMA_SAT_THRESHOLD = 0.02
 
 _SIGNAL_PEAK_FRACTION = 0.05
 _SIGNAL_ABS_FLOOR = 1e-4
@@ -63,13 +67,16 @@ _TAIL_RATIO_BOOST = 0.55
 # Texture scale above this is treated as a soft / large-PSF source (blue≈4.3;
 # good/poor≈3.9). Soft sources get mid-scale salt weighted much more heavily.
 _TEXTURE_SOFT_REF = 4.15
-_TEXTURE_SOFT_BOOST = 0.50  # multiplies fine-score for soft sources
-_BANDPASS_MAD_WEIGHT = 0.18  # light band MAD for normal (sharp) sources
-# Soft-source band-pass: catch coarse wavelet salt that fine residual misses.
+_TEXTURE_SOFT_BOOST = 0.50  # multiplies fine-score for soft mono sources
+_BANDPASS_MAD_WEIGHT = 0.18  # light band MAD for normal (sharp) mono sources
+_BANDPASS_MAD_WEIGHT_COLOR = 0.10  # colour: avoid scoring chroma structure
+# Soft mono band-pass: catch coarse wavelet salt that fine residual misses.
 _SOFT_BAND_MAD_WEIGHT = 0.20
 _SOFT_BAND_MAD_FROM_S = 0.90  # extra × max(0, s − soft_ref)
 _SOFT_BAND_EXCESS_WEIGHT = 0.25
 _SOFT_BAND_EXCESS_FROM_S = 1.20
+# Colour: channel-wise sharpen injects L residual; keep MAD-focused scoring.
+_COLOR_EXCESS_TAIL_WEIGHT = 0.10
 
 NOISE_DISPLAY_SCALE = 1000.0
 
@@ -149,17 +156,39 @@ def _signal_mask(lum: np.ndarray) -> np.ndarray:
     return lum >= floor
 
 
-def _noise_sample_mask(lum: np.ndarray) -> np.ndarray:
+def _noise_sample_mask(
+    lum: np.ndarray,
+    *,
+    flat_quantile: float = _FLAT_QUANTILE,
+) -> np.ndarray:
     signal = _signal_mask(lum)
     n_signal = int(signal.sum())
     if n_signal < _MIN_SAMPLES:
         return np.ones(lum.shape, dtype=bool)
     local = _local_std(lum)
-    thr = float(np.quantile(local[signal], _FLAT_QUANTILE))
+    thr = float(np.quantile(local[signal], flat_quantile))
     mask = signal & (local <= thr)
     if int(mask.sum()) < _MIN_SAMPLES:
         return signal
     return mask
+
+
+def is_chromatic(data: np.ndarray, is_grayscale: bool) -> bool:
+    """True when the image has meaningful colour (not grey RGB or mono)."""
+    if is_grayscale:
+        return False
+    arr = np.asarray(data, dtype=np.float64)
+    if arr.ndim < 3 or arr.shape[-1] < 3:
+        return False
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    mx = np.maximum(np.maximum(r, g), b)
+    mn = np.minimum(np.minimum(r, g), b)
+    peak = float(mx.max())
+    mask = mx > 0.05 * max(peak, 1e-12)
+    if int(mask.sum()) < _MIN_SAMPLES:
+        return False
+    sat = (mx - mn) / (mx + 1e-8)
+    return float(np.median(sat[mask])) > _CHROMA_SAT_THRESHOLD
 
 
 def estimate_texture_scale(
@@ -211,9 +240,12 @@ def _hybrid_noise_level(
     lum: np.ndarray,
     peak: float,
     texture_scale: float,
+    *,
+    chromatic: bool = False,
 ) -> float | None:
     hp, bp_lo, bp_hi = _scales_from_texture(texture_scale)
-    mask = _noise_sample_mask(lum)
+    flat_q = _FLAT_QUANTILE_COLOR if chromatic else _FLAT_QUANTILE
+    mask = _noise_sample_mask(lum, flat_quantile=flat_q)
     fine = (lum - gaussian_filter(lum, hp, mode="reflect"))[mask]
     if fine.size < _MIN_SAMPLES:
         return None
@@ -221,16 +253,22 @@ def _hybrid_noise_level(
     mad_fine = _mad(fine) / peak
     p99_fine = _p99_abs(fine) / peak
     excess_tail = max(0.0, p99_fine - _GAUSS_P99_OVER_MAD * mad_fine)
-    fine_score = mad_fine + _EXCESS_TAIL_WEIGHT * excess_tail
 
-    # Heavy-tailed residual (high p99/MAD): coarse speckles after sharpening a
-    # soft stack — MAD alone under-reports these (blue.png failure mode).
-    tail_ratio = p99_fine / (mad_fine + 1e-18)
-    fine_score *= 1.0 + _TAIL_RATIO_BOOST * max(0.0, tail_ratio - _TAIL_RATIO_REF)
-
-    soft = max(0.0, float(texture_scale) - _TEXTURE_SOFT_REF)
-    # Soft / large-PSF sources get a mild permanent boost on the fine score.
-    fine_score *= 1.0 + _TEXTURE_SOFT_BOOST * soft
+    if chromatic:
+        # Colour: channel-wise sharpen injects L residual; heavy-tail boosts
+        # over-score good colour stacks. Prefer bulk MAD with mild excess.
+        fine_score = mad_fine + _COLOR_EXCESS_TAIL_WEIGHT * excess_tail
+        soft = 0.0
+    else:
+        fine_score = mad_fine + _EXCESS_TAIL_WEIGHT * excess_tail
+        # Heavy-tailed residual (high p99/MAD): soft mono stacks that explode
+        # into salt when sharpened (blue.png).
+        tail_ratio = p99_fine / (mad_fine + 1e-18)
+        fine_score *= 1.0 + _TAIL_RATIO_BOOST * max(
+            0.0, tail_ratio - _TAIL_RATIO_REF
+        )
+        soft = max(0.0, float(texture_scale) - _TEXTURE_SOFT_REF)
+        fine_score *= 1.0 + _TEXTURE_SOFT_BOOST * soft
 
     band = (
         gaussian_filter(lum, bp_lo, mode="reflect")
@@ -240,15 +278,16 @@ def _hybrid_noise_level(
     p99_band = _p99_abs(band) / peak
     band_excess = max(0.0, p99_band - _GAUSS_P99_OVER_MAD * mad_band)
 
-    if soft > 0.0:
-        # Soft stacks: mid-scale salt (esp. after medium/coarse wavelet) must
-        # dominate — this is what looks "coarsely speckled" on blue.png.
+    if chromatic:
+        band_score = _BANDPASS_MAD_WEIGHT_COLOR * mad_band
+    elif soft > 0.0:
+        # Soft mono: mid-scale salt after medium/coarse wavelet.
         band_score = (
             (_SOFT_BAND_MAD_WEIGHT + _SOFT_BAND_MAD_FROM_S * soft) * mad_band
-            + (_SOFT_BAND_EXCESS_WEIGHT + _SOFT_BAND_EXCESS_FROM_S * soft) * band_excess
+            + (_SOFT_BAND_EXCESS_WEIGHT + _SOFT_BAND_EXCESS_FROM_S * soft)
+            * band_excess
         )
     else:
-        # Sharp sources: light band MAD only (avoid scoring real structure).
         band_score = _BANDPASS_MAD_WEIGHT * mad_band
 
     return max(fine_score, band_score)
@@ -259,12 +298,16 @@ def flat_region_noise_level(
     is_grayscale: bool,
     *,
     texture_scale: float | None = None,
+    chromatic: bool | None = None,
 ) -> float | None:
     """Peak-normalized hybrid noise level in subject flat regions.
 
     If ``texture_scale`` is omitted it is estimated from ``data``. Pass a
     scale estimated from the *unsharpened source* when scoring sharpened
     trials (e.g. auto search) so residual probes stay matched to the PSF.
+
+    Colour images use a calmer score (MAD-focused) so good RGB stacks are not
+    treated as noisier than good monochrome of similar quality.
     """
     lum = _prepare_luminance(data, is_grayscale)
     if lum.size == 0:
@@ -274,7 +317,11 @@ def flat_region_noise_level(
         return None
     if texture_scale is None:
         texture_scale = _estimate_texture_scale_from_lum(lum)
-    return _hybrid_noise_level(lum, peak, texture_scale)
+    if chromatic is None:
+        chromatic = is_chromatic(data, is_grayscale)
+    return _hybrid_noise_level(
+        lum, peak, texture_scale, chromatic=chromatic
+    )
 
 
 def absolute_noise(
@@ -282,10 +329,14 @@ def absolute_noise(
     is_grayscale: bool,
     *,
     texture_scale: float | None = None,
+    chromatic: bool | None = None,
 ) -> float | None:
     """Noise score for UI display (hybrid level × NOISE_DISPLAY_SCALE)."""
     level = flat_region_noise_level(
-        data, is_grayscale, texture_scale=texture_scale
+        data,
+        is_grayscale,
+        texture_scale=texture_scale,
+        chromatic=chromatic,
     )
     if level is None:
         return None

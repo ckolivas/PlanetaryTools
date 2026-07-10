@@ -640,7 +640,13 @@ class MainWindow(QMainWindow):
             self._filter_dock.setWindowTitle(label)
             self._filter_dock.show()
 
-            dlg.set_input_brightness(self._document.data, self._document.is_grayscale)
+            tex, chroma = self._document.noise_context()
+            dlg.set_input_brightness(
+                self._document.data,
+                self._document.is_grayscale,
+                noise_texture_scale=tex,
+                noise_chromatic=chroma,
+            )
 
             self._preview.start(self._document.data, self._document.is_grayscale)
             self._preview.set_filter_func(dlg.build_filter_func())
@@ -715,16 +721,20 @@ class MainWindow(QMainWindow):
         original = self._preview.original_data()
         if original is None:
             return
+        tex, chroma = self._document.noise_context()
         stats = output_filter_stats(
             dlg.filter_id,
             original,
             self._document.is_grayscale,
             dlg.get_params(),
+            texture_scale=tex,
+            chromatic=chroma,
         )
         dlg.update_output_brightness(
             stats.brightness,
             stats.brightness_increase_pct,
             stats.noise_level,
+            stats.source_noise_level,
         )
         preview_data = self._preview.display_data()
         if preview_data is not None:
@@ -939,6 +949,7 @@ class MainWindow(QMainWindow):
                 [channels["Red"], channels["Green"], channels["Blue"]], axis=-1
             ).astype(np.float32)
             doc = ImageDocument(data=composed, is_grayscale=False, modified=True)
+            doc.pin_noise_context()
             self._set_document(doc)
             self._status.showMessage("Composed RGB image from files")
         except Exception as exc:
