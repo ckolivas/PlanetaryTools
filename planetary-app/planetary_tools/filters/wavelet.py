@@ -12,8 +12,9 @@ NUM_SCALES = 3
 _WAVELET_RADII = (1.0, 2.0, 4.0)
 # GIMP unsharp-mask on scale layers uses std-dev 16.
 _UNSHARP_STD = 16.0
-# Grain extract / merge midpoint in R'G'B' float (GEGL non-legacy).
-_GRAIN_MIDPOINT = 0.5
+# Detail extract / merge midpoint in R'G'B' float (GEGL non-legacy
+# grain-extract / grain-merge formula).
+_DETAIL_MIDPOINT = 0.5
 
 
 def _wavelet_blur_1d_horizontal(channel: np.ndarray, radius: float) -> np.ndarray:
@@ -72,18 +73,18 @@ def _from_perceptual(channel: np.ndarray) -> np.ndarray:
     return srgb_to_linear(channel, clamp=False).astype(np.float32)
 
 
-def _grain_extract(channel: np.ndarray, blurred: np.ndarray) -> np.ndarray:
-    """Grain-extract (GIMP legacy formula) without clamping scale layers."""
+def _detail_extract(channel: np.ndarray, blurred: np.ndarray) -> np.ndarray:
+    """Detail extract (GIMP grain-extract formula) without clamping scale layers."""
     comp = (
         np.asarray(channel, dtype=np.float64)
         - np.asarray(blurred, dtype=np.float64)
-        + _GRAIN_MIDPOINT
+        + _DETAIL_MIDPOINT
     )
     return comp.astype(np.float32)
 
 
-def _grain_merge(base: np.ndarray, layer: np.ndarray) -> np.ndarray:
-    """Grain-merge (GIMP legacy formula) without clamping the result.
+def _detail_merge(base: np.ndarray, layer: np.ndarray) -> np.ndarray:
+    """Detail merge (GIMP grain-merge formula) without clamping the result.
 
     Left open so the recomposed image can exceed 100% (highlight overshoot)
     for the optional clamp post-process and brightness-increase readout.
@@ -91,7 +92,7 @@ def _grain_merge(base: np.ndarray, layer: np.ndarray) -> np.ndarray:
     comp = (
         np.asarray(base, dtype=np.float64)
         + np.asarray(layer, dtype=np.float64)
-        - _GRAIN_MIDPOINT
+        - _DETAIL_MIDPOINT
     )
     return comp.astype(np.float32)
 
@@ -100,22 +101,22 @@ def _wavelet_decompose(
     channel: np.ndarray,
     n_scales: int = NUM_SCALES,
 ) -> tuple[list[np.ndarray], np.ndarray]:
-    """plug-in-wavelet-decompose in R'G'B' float (grain-extract scales)."""
+    """plug-in-wavelet-decompose in R'G'B' float (detail-extract scales)."""
     scales: list[np.ndarray] = []
     current = np.asarray(channel, dtype=np.float64)
     for i in range(n_scales):
         radius = _WAVELET_RADII[i] if i < len(_WAVELET_RADII) else 2.0 ** i
         blurred = wavelet_blur(current, radius).astype(np.float64)
-        scales.append(_grain_extract(current, blurred))
+        scales.append(_detail_extract(current, blurred))
         current = blurred
     return scales, current.astype(np.float32)
 
 
 def _merge_wavelet(scales: list[np.ndarray], residual: np.ndarray) -> np.ndarray:
-    """Recompose with grain merge coarse → fine (GIMP layer-stack order)."""
+    """Recompose with detail merge coarse → fine (GIMP layer-stack order)."""
     out = np.asarray(residual, dtype=np.float32)
     for scale in reversed(scales):
-        out = _grain_merge(out, scale)
+        out = _detail_merge(out, scale)
     return out
 
 

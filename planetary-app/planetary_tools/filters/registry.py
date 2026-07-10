@@ -13,7 +13,7 @@ from planetary_tools.core.brightness import (
     brightness_increase_pct,
     measure_brightness,
 )
-from planetary_tools.core.grain import absolute_grain
+from planetary_tools.core.noise import absolute_noise, estimate_texture_scale
 from planetary_tools.filters.adaptive_deconv import adaptive_deconvolution
 from planetary_tools.filters.colour_matrix import (
     IDENTITY_MATRIX,
@@ -54,8 +54,8 @@ CLAMP_FILTER_IDS = ENHANCE_FILTER_IDS | frozenset({
 class FilterOutputStats:
     brightness: BrightnessInfo
     brightness_increase_pct: float | None = None
-    # Absolute flat-region grain score of the pre-clip filter result.
-    grain_level: float | None = None
+    # Absolute flat-region noise score of the pre-clip filter result.
+    noise_level: float | None = None
 
 
 @dataclass
@@ -185,7 +185,7 @@ FILTERS: dict[str, FilterDef] = {
             "medium": 8.0,
             "coarse": 1.0,
             "auto": False,
-            "target_grain": 3.0,
+            "target_noise": 3.0,
             "target_contrast": 15.0,
         }),
     ),
@@ -330,18 +330,24 @@ def output_filter_stats(
     is_grayscale: bool,
     params: dict[str, Any] | None = None,
 ) -> FilterOutputStats:
-    """Pre-clip output levels and, for enhance filters, peak/grain metrics."""
+    """Pre-clip output levels and, for enhance filters, peak/noise metrics.
+
+    Noise residual scales are fixed from the *input* image (source PSF/texture)
+    so the readout matches auto search and does not drop when the sharpened
+    result re-estimates a slightly different texture scale.
+    """
     merged = _merge_params(FILTERS[filter_id], params)
     raw = run_filter_raw(filter_id, data, is_grayscale, merged)
     brightness = measure_brightness(raw, is_grayscale)
 
     increase: float | None = None
-    grain: float | None = None
+    noise: float | None = None
     if _canonical_filter_id(filter_id) in ENHANCE_FILTER_IDS:
         increase = brightness_increase_pct(data, raw, is_grayscale)
-        grain = absolute_grain(raw, is_grayscale)
+        texture_scale = estimate_texture_scale(data, is_grayscale)
+        noise = absolute_noise(raw, is_grayscale, texture_scale=texture_scale)
 
-    return FilterOutputStats(brightness, increase, grain)
+    return FilterOutputStats(brightness, increase, noise)
 
 
 def apply_filter_with_stats(

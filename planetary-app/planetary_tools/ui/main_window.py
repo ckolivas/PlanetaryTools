@@ -724,7 +724,7 @@ class MainWindow(QMainWindow):
         dlg.update_output_brightness(
             stats.brightness,
             stats.brightness_increase_pct,
-            stats.grain_level,
+            stats.noise_level,
         )
         preview_data = self._preview.display_data()
         if preview_data is not None:

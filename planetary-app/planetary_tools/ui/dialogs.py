@@ -195,7 +195,7 @@ class _FilterDialog(QWidget):
         self._output_label = QLabel("Output —")
         self._output_label.setStyleSheet("font-weight: bold;")
         self._increase_label: QLabel | None = None
-        self._grain_label: QLabel | None = None
+        self._noise_label: QLabel | None = None
         if self.filter_id in ENHANCE_FILTER_IDS:
             self._increase_label = QLabel("Brightness increase —")
             self._increase_label.setStyleSheet("font-weight: bold;")
@@ -203,21 +203,21 @@ class _FilterDialog(QWidget):
                 "Peak channel increase from the filter result before "
                 "any clipping is applied."
             )
-            self._grain_label = QLabel("Grain —")
-            self._grain_label.setStyleSheet("font-weight: bold;")
-            self._grain_label.setToolTip(
-                "Hybrid grain score on subject flats (sky excluded), peak-"
-                "normalized: fine residual MAD, plus heavy-tail (p99) excess "
-                "for sparse speckles, and mid-scale band-pass MAD for coarser "
-                "salt. Measured before clipping. Higher = more grain/speckle. "
-                "Scale is arbitrary (GRAIN_DISPLAY_SCALE)."
+            self._noise_label = QLabel("Noise —")
+            self._noise_label.setStyleSheet("font-weight: bold;")
+            self._noise_label.setToolTip(
+                "Hybrid noise score on subject flats (sky excluded), peak-"
+                "normalized. Residual filter sizes track an estimated texture/"
+                "PSF scale of the image (softer stacks look for coarser "
+                "structure). Combines fine MAD, heavy-tail (p99) excess, and "
+                "band-pass MAD. Before clipping. Higher = more noise/speckle."
             )
         root.addWidget(self._input_label)
         root.addWidget(self._output_label)
         if self._increase_label is not None:
             root.addWidget(self._increase_label)
-        if self._grain_label is not None:
-            root.addWidget(self._grain_label)
+        if self._noise_label is not None:
+            root.addWidget(self._noise_label)
 
         if self.supports_presets:
             root.addWidget(self._make_preset_row())
@@ -365,14 +365,14 @@ class _FilterDialog(QWidget):
         self,
         info: BrightnessInfo | None,
         increase_pct: float | None = None,
-        grain_level: float | None = None,
+        noise_level: float | None = None,
     ) -> None:
         if info is None:
             self._output_label.setText("Output — (preview off)")
             if self._increase_label is not None:
                 self._increase_label.setText("Brightness increase —")
-            if self._grain_label is not None:
-                self._grain_label.setText("Grain —")
+            if self._noise_label is not None:
+                self._noise_label.setText("Noise —")
             return
         self._output_label.setText(info.format_line("Output — "))
         if self._increase_label is not None:
@@ -383,12 +383,12 @@ class _FilterDialog(QWidget):
                 self._increase_label.setText(
                     f"Brightness increase — {sign}{increase_pct:.1f}%  (before clipping)"
                 )
-        if self._grain_label is not None:
-            if grain_level is None:
-                self._grain_label.setText("Grain —")
+        if self._noise_label is not None:
+            if noise_level is None:
+                self._noise_label.setText("Noise —")
             else:
-                self._grain_label.setText(
-                    f"Grain — {grain_level:.2f}  (before clipping)"
+                self._noise_label.setText(
+                    f"Noise — {noise_level:.2f}  (before clipping)"
                 )
 
     def _add_double(
@@ -483,7 +483,7 @@ class WaveletSharpenDialog(_FilterDialog):
         auto_layout.setContentsMargins(0, 0, 0, 0)
         self.auto = QCheckBox("Auto")
         self.auto.setToolTip(
-            "Enable target grain/contrast controls. Click Calculate to search "
+            "Enable target noise/contrast controls. Click Calculate to search "
             "fine/medium/coarse without exceeding either target."
         )
         self.auto.setChecked(False)
@@ -491,20 +491,20 @@ class WaveletSharpenDialog(_FilterDialog):
         auto_layout.addWidget(self.auto)
         self.auto_apply = QPushButton("Calculate")
         self.auto_apply.setToolTip(
-            "Run the auto search with the current grain and contrast targets."
+            "Run the auto search with the current noise and contrast targets."
         )
         self.auto_apply.clicked.connect(self._run_auto_search)
         auto_layout.addWidget(self.auto_apply)
         auto_layout.addStretch(1)
         self._form.addRow(auto_row)
 
-        self.target_grain = QDoubleSpinBox()
-        self.target_grain.setRange(0.0, 10.0)
-        self.target_grain.setDecimals(1)
-        self.target_grain.setSingleStep(0.1)
-        self.target_grain.setValue(float(fdef.default_params.get("target_grain", 3.0)))
-        self.target_grain.setToolTip("Maximum peak-normalized grain score to allow.")
-        self._form.addRow("Target grain", self.target_grain)
+        self.target_noise = QDoubleSpinBox()
+        self.target_noise.setRange(0.0, 10.0)
+        self.target_noise.setDecimals(1)
+        self.target_noise.setSingleStep(0.1)
+        self.target_noise.setValue(float(fdef.default_params.get("target_noise", 3.0)))
+        self.target_noise.setToolTip("Maximum peak-normalized noise score to allow.")
+        self._form.addRow("Target noise", self.target_noise)
 
         self.target_contrast = QDoubleSpinBox()
         self.target_contrast.setRange(0.0, 100.0)
@@ -526,7 +526,7 @@ class WaveletSharpenDialog(_FilterDialog):
         self.fine.setEnabled(not auto_on and not running)
         self.medium.setEnabled(not auto_on and not running)
         self.coarse.setEnabled(not auto_on and not running)
-        self.target_grain.setEnabled(auto_on and not running)
+        self.target_noise.setEnabled(auto_on and not running)
         self.target_contrast.setEnabled(auto_on and not running)
         self.auto.setEnabled(not running)
         self.auto_apply.setEnabled(auto_on and not running)
@@ -564,7 +564,7 @@ class WaveletSharpenDialog(_FilterDialog):
                 fine: float,
                 medium: float,
                 coarse: float,
-                _grain: float,
+                _noise: float,
                 _contrast: float,
             ) -> None:
                 self.fine.blockSignals(True)
@@ -581,7 +581,7 @@ class WaveletSharpenDialog(_FilterDialog):
             result = self._auto_wavelet_sharpen_params(
                 data,
                 is_grayscale,
-                target_grain=self.target_grain.value(),
+                target_noise=self.target_noise.value(),
                 target_contrast=self.target_contrast.value(),
                 progress=progress,
             )
@@ -606,7 +606,7 @@ class WaveletSharpenDialog(_FilterDialog):
             "medium": self.medium.value(),
             "coarse": self.coarse.value(),
             "auto": self.auto.isChecked(),
-            "target_grain": self.target_grain.value(),
+            "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
         })
         return p
@@ -617,16 +617,16 @@ class WaveletSharpenDialog(_FilterDialog):
         self.medium.blockSignals(True)
         self.coarse.blockSignals(True)
         self.auto.blockSignals(True)
-        self.target_grain.blockSignals(True)
+        self.target_noise.blockSignals(True)
         self.target_contrast.blockSignals(True)
         self.fine.setValue(params.get("fine", self.fine.value()))
         self.medium.setValue(params.get("medium", self.medium.value()))
         self.coarse.setValue(params.get("coarse", self.coarse.value()))
         # Auto is a session control: always open off so targets can be set
-        # before Apply (do not restore from Last/presets).
+        # before Calculate (do not restore from Last/presets).
         self.auto.setChecked(False)
-        self.target_grain.setValue(
-            float(params.get("target_grain", self.target_grain.value()))
+        self.target_noise.setValue(
+            float(params.get("target_noise", self.target_noise.value()))
         )
         self.target_contrast.setValue(
             float(params.get("target_contrast", self.target_contrast.value()))
@@ -635,7 +635,7 @@ class WaveletSharpenDialog(_FilterDialog):
         self.medium.blockSignals(False)
         self.coarse.blockSignals(False)
         self.auto.blockSignals(False)
-        self.target_grain.blockSignals(False)
+        self.target_noise.blockSignals(False)
         self.target_contrast.blockSignals(False)
         self._sync_auto_enabled_state()
 
@@ -1163,15 +1163,15 @@ def edit_filter_params(
         auto.setChecked(bool(params.get("auto", fdef.default_params.get("auto", False))))
         form.addRow(auto)
         widgets["auto"] = auto
-        target_grain = QDoubleSpinBox()
-        target_grain.setRange(0.0, 10.0)
-        target_grain.setDecimals(1)
-        target_grain.setSingleStep(0.1)
-        target_grain.setValue(
-            float(params.get("target_grain", fdef.default_params.get("target_grain", 3.0)))
+        target_noise = QDoubleSpinBox()
+        target_noise.setRange(0.0, 10.0)
+        target_noise.setDecimals(1)
+        target_noise.setSingleStep(0.1)
+        target_noise.setValue(
+            float(params.get("target_noise", fdef.default_params.get("target_noise", 3.0)))
         )
-        form.addRow("Target grain", target_grain)
-        widgets["target_grain"] = target_grain
+        form.addRow("Target noise", target_noise)
+        widgets["target_noise"] = target_noise
         target_contrast = QDoubleSpinBox()
         target_contrast.setRange(0.0, 100.0)
         target_contrast.setDecimals(0)
