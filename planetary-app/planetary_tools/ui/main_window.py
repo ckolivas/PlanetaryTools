@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import QEventLoop, Qt
+from PyQt6.QtCore import QEventLoop, Qt, QTimer
 from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -1071,6 +1072,19 @@ class MainWindow(QMainWindow):
         )
 
 
+def _close_splash() -> None:
+    """Dismiss the PyInstaller startup splash screen, if one is showing."""
+    # The bootloader only sets this when a splash screen is active; importing
+    # pyi_splash without it prints a spurious traceback to stderr.
+    if "_PYI_SPLASH_IPC" not in os.environ:
+        return
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except Exception:
+        pass
+
+
 def run_app(argv: list[str] | None = None) -> int:
     argv = argv or sys.argv
     app = QApplication(argv)
@@ -1078,6 +1092,7 @@ def run_app(argv: list[str] | None = None) -> int:
     app.setOrganizationName("PlanetaryTools")
     window = MainWindow()
     window.show()
+    QTimer.singleShot(0, _close_splash)
     if len(argv) > 1 and not argv[1].startswith("-"):
         window._open_path(argv[1])
     return app.exec()

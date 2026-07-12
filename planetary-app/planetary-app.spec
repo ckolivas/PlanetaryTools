@@ -1,4 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+
 from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 datas = []
@@ -22,9 +24,22 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# Bootloader-level splash screen shown while the onefile archive extracts and
+# Python starts up. Requires Tcl/Tk at build time, so only enabled on Windows
+# where startup is slowest; dismissed in run.py via pyi_splash.
+splash = None
+if sys.platform == 'win32':
+    splash = Splash(
+        'splash.png',
+        binaries=a.binaries,
+        datas=a.datas,
+        always_on_top=False,
+    )
+
 exe = EXE(
     pyz,
     a.scripts,
+    *([splash, splash.binaries] if splash else []),
     a.binaries,
     a.datas,
     [],
