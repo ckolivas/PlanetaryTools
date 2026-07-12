@@ -191,7 +191,6 @@ FILTERS: dict[str, FilterDef] = {
             "fine": 16.0,
             "medium": 8.0,
             "coarse": 1.0,
-            "auto": False,
             "target_noise": 3.0,
             "target_contrast": 15.0,
         }),

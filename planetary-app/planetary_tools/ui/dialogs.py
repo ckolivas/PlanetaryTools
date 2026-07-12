@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QSpinBox,
     QStyle,
@@ -526,17 +527,10 @@ class WaveletSharpenDialog(_FilterDialog):
         auto_row = QWidget()
         auto_layout = QHBoxLayout(auto_row)
         auto_layout.setContentsMargins(0, 0, 0, 0)
-        self.auto = QCheckBox("Auto")
-        self.auto.setToolTip(
-            "Enable target noise/contrast controls. Click Calculate to search "
-            "fine/medium/coarse without exceeding either target."
-        )
-        self.auto.setChecked(False)
-        self.auto.toggled.connect(self._on_auto_toggled)
-        auto_layout.addWidget(self.auto)
-        self.auto_apply = QPushButton("Calculate")
+        self.auto_apply = QPushButton("Auto")
         self.auto_apply.setToolTip(
-            "Run the auto search with the current noise and contrast targets."
+            "Search fine/medium/coarse to meet the target noise and contrast "
+            "without exceeding either."
         )
         self.auto_apply.clicked.connect(self._run_auto_search)
         auto_layout.addWidget(self.auto_apply)
@@ -563,66 +557,48 @@ class WaveletSharpenDialog(_FilterDialog):
         )
         self._form.addRow("Target contrast", self.target_contrast)
 
-        self._sync_auto_enabled_state()
-
-    def _sync_auto_enabled_state(self) -> None:
-        auto_on = self.auto.isChecked()
-        running = self._auto_running
-        self.fine.setEnabled(not auto_on and not running)
-        self.medium.setEnabled(not auto_on and not running)
-        self.coarse.setEnabled(not auto_on and not running)
-        self.target_noise.setEnabled(auto_on and not running)
-        self.target_contrast.setEnabled(auto_on and not running)
-        self.auto.setEnabled(not running)
-        self.auto_apply.setEnabled(auto_on and not running)
-
-    def _on_auto_toggled(self, checked: bool) -> None:
-        self._sync_auto_enabled_state()
-        if checked:
-            self.fine.blockSignals(True)
-            self.medium.blockSignals(True)
-            self.coarse.blockSignals(True)
-            self.fine.setValue(0.0)
-            self.medium.setValue(0.0)
-            self.coarse.setValue(0.0)
-            self.fine.blockSignals(False)
-            self.medium.blockSignals(False)
-            self.coarse.blockSignals(False)
-            self.params_changed.emit()
-        else:
-            self.params_changed.emit()
+    def _set_amount_spins(self, fine: float, medium: float, coarse: float) -> None:
+        for spin, value in ((self.fine, fine), (self.medium, medium), (self.coarse, coarse)):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
 
     def _run_auto_search(self) -> None:
-        if self._auto_running or not self.auto.isChecked():
+        if self._auto_running:
             return
         data = getattr(self, "_input_data", None)
         if data is None:
             return
         is_grayscale = bool(getattr(self, "_input_is_grayscale", False))
 
+        prior = (self.fine.value(), self.medium.value(), self.coarse.value())
+
+        progress_dlg = QProgressDialog("Calculating…", "Cancel", 0, 0, self)
+        progress_dlg.setWindowTitle("Auto Wavelet Sharpen")
+        progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dlg.setMinimumDuration(0)
+        progress_dlg.show()
+
+        class _Cancelled(Exception):
+            pass
+
+        from PyQt6.QtWidgets import QApplication
+
+        def progress(
+            fine: float,
+            medium: float,
+            coarse: float,
+            _noise: float,
+            _contrast: float,
+        ) -> None:
+            self._set_amount_spins(fine, medium, coarse)
+            QApplication.processEvents()
+            if progress_dlg.wasCanceled():
+                raise _Cancelled
+
         self._auto_running = True
-        self._sync_auto_enabled_state()
+        self.auto_apply.setEnabled(False)
         try:
-            from PyQt6.QtWidgets import QApplication
-
-            def progress(
-                fine: float,
-                medium: float,
-                coarse: float,
-                _noise: float,
-                _contrast: float,
-            ) -> None:
-                self.fine.blockSignals(True)
-                self.medium.blockSignals(True)
-                self.coarse.blockSignals(True)
-                self.fine.setValue(fine)
-                self.medium.setValue(medium)
-                self.coarse.setValue(coarse)
-                self.fine.blockSignals(False)
-                self.medium.blockSignals(False)
-                self.coarse.blockSignals(False)
-                QApplication.processEvents()
-
             result = self._auto_wavelet_sharpen_params(
                 data,
                 is_grayscale,
@@ -632,18 +608,13 @@ class WaveletSharpenDialog(_FilterDialog):
                 texture_scale=getattr(self, "_noise_texture_scale", None),
                 chromatic=getattr(self, "_noise_chromatic", None),
             )
-            self.fine.blockSignals(True)
-            self.medium.blockSignals(True)
-            self.coarse.blockSignals(True)
-            self.fine.setValue(result.fine)
-            self.medium.setValue(result.medium)
-            self.coarse.setValue(result.coarse)
-            self.fine.blockSignals(False)
-            self.medium.blockSignals(False)
-            self.coarse.blockSignals(False)
+            self._set_amount_spins(result.fine, result.medium, result.coarse)
+        except _Cancelled:
+            self._set_amount_spins(*prior)
         finally:
             self._auto_running = False
-            self._sync_auto_enabled_state()
+            self.auto_apply.setEnabled(True)
+            progress_dlg.close()
         self.params_changed.emit()
 
     def get_params(self) -> dict[str, Any]:
@@ -652,7 +623,6 @@ class WaveletSharpenDialog(_FilterDialog):
             "fine": self.fine.value(),
             "medium": self.medium.value(),
             "coarse": self.coarse.value(),
-            "auto": self.auto.isChecked(),
             "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
         })
@@ -663,15 +633,11 @@ class WaveletSharpenDialog(_FilterDialog):
         self.fine.blockSignals(True)
         self.medium.blockSignals(True)
         self.coarse.blockSignals(True)
-        self.auto.blockSignals(True)
         self.target_noise.blockSignals(True)
         self.target_contrast.blockSignals(True)
         self.fine.setValue(params.get("fine", self.fine.value()))
         self.medium.setValue(params.get("medium", self.medium.value()))
         self.coarse.setValue(params.get("coarse", self.coarse.value()))
-        # Auto is a session control: always open off so targets can be set
-        # before Calculate (do not restore from Last/presets).
-        self.auto.setChecked(False)
         self.target_noise.setValue(
             float(params.get("target_noise", self.target_noise.value()))
         )
@@ -681,10 +647,8 @@ class WaveletSharpenDialog(_FilterDialog):
         self.fine.blockSignals(False)
         self.medium.blockSignals(False)
         self.coarse.blockSignals(False)
-        self.auto.blockSignals(False)
         self.target_noise.blockSignals(False)
         self.target_contrast.blockSignals(False)
-        self._sync_auto_enabled_state()
 
 
 class WaveletDenoiseDialog(_FilterDialog):
@@ -1216,10 +1180,6 @@ def edit_filter_params(
             spin.setValue(params.get(key, fdef.default_params[key]))
             form.addRow(key.capitalize(), spin)
             widgets[key] = spin
-        auto = QCheckBox("Auto")
-        auto.setChecked(bool(params.get("auto", fdef.default_params.get("auto", False))))
-        form.addRow(auto)
-        widgets["auto"] = auto
         target_noise = QDoubleSpinBox()
         target_noise.setRange(0.0, 20.0)
         target_noise.setDecimals(1)
