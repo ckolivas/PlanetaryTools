@@ -73,6 +73,10 @@ _LEVEL_CHANNEL_LABELS = {
 _LEVEL_PCT_SPIN_WIDTH = 102
 FILTER_PANEL_WIDTH = 330
 
+# Preset combo entry shown once any parameter is edited by hand; selecting a
+# real preset (including the previous one) re-applies it.
+_PRESET_NONE = "(None)"
+
 
 def _make_level_pct_spin(
     default_pct: float,
@@ -182,6 +186,10 @@ class _FilterDialog(QWidget):
         super().__init__(parent)
         self._title = title
         self._input_info: BrightnessInfo | None = None
+        # True while params_changed is emitted by something that is not a
+        # hand edit (applying a preset, toggling preview), so the preset
+        # combo is not switched to (None).
+        self._suppress_preset_dirty = False
 
         root = QVBoxLayout(self)
 
@@ -267,7 +275,9 @@ class _FilterDialog(QWidget):
         self.preview = QCheckBox("Preview on canvas")
         self.preview.setChecked(True)
         self.preview.toggled.connect(self.preview_toggled.emit)
-        self.preview.toggled.connect(lambda _: self.params_changed.emit())
+        # Preview visibility is not a preset parameter — don't let its
+        # params_changed emission flip the preset combo to (None).
+        self.preview.toggled.connect(lambda _: self._emit_params_changed_quietly())
         self._form.addRow(self.preview)
 
         buttons = QDialogButtonBox(
@@ -283,6 +293,7 @@ class _FilterDialog(QWidget):
             self._populate_preset_combo()
             self._set_combo_to("Last")
             self.set_params(self._presets["Last"])
+            self.params_changed.connect(self._mark_preset_dirty)
 
         # Minimum, not fixed: with large fonts the content can need more
         # room, and the dock is sized to the dialog's hint when shown.
@@ -316,9 +327,26 @@ class _FilterDialog(QWidget):
     def _populate_preset_combo(self) -> None:
         self._preset_combo.blockSignals(True)
         self._preset_combo.clear()
+        self._preset_combo.addItem(_PRESET_NONE)
         for name in sorted(self._presets.keys()):
             self._preset_combo.addItem(name)
         self._preset_combo.blockSignals(False)
+
+    def _emit_params_changed_quietly(self) -> None:
+        self._suppress_preset_dirty = True
+        try:
+            self.params_changed.emit()
+        finally:
+            self._suppress_preset_dirty = False
+
+    def _mark_preset_dirty(self) -> None:
+        """Switch the combo to (None) when params are edited by hand."""
+        if self._suppress_preset_dirty:
+            return
+        if self._preset_combo.currentText() != _PRESET_NONE:
+            self._preset_combo.blockSignals(True)
+            self._set_combo_to(_PRESET_NONE)
+            self._preset_combo.blockSignals(False)
 
     def _set_combo_to(self, name: str) -> None:
         idx = self._preset_combo.findText(name)
@@ -327,15 +355,19 @@ class _FilterDialog(QWidget):
 
     def _on_preset_selected(self, name: str) -> None:
         if name and name in self._presets:
-            self.set_params(self._presets[name])
-            self.params_changed.emit()
+            self._suppress_preset_dirty = True
+            try:
+                self.set_params(self._presets[name])
+                self.params_changed.emit()
+            finally:
+                self._suppress_preset_dirty = False
 
     def _save_preset(self) -> None:
         name, ok = QInputDialog.getText(self, "Save Preset As", "Preset name:")
         if not ok or not name.strip():
             return
         name = name.strip()
-        if name in reserved_preset_names(self.filter_id):
+        if name == _PRESET_NONE or name in reserved_preset_names(self.filter_id):
             QMessageBox.warning(self, "Save Preset", f'"{name}" is a reserved preset name.')
             return
         is_new = name not in self._presets
