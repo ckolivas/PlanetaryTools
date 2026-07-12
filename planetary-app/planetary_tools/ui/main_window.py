@@ -639,9 +639,47 @@ class MainWindow(QMainWindow):
             self._filter_accepted = False
             self._filter_loop.quit()
 
+    def _resolve_active_filter_dialog(self, new_label: str) -> bool:
+        """Ask whether to apply or cancel the open filter before switching.
+
+        Returns True if the open dialog was closed (applied or cancelled)
+        and the new one should be opened, False to keep the current dialog.
+        """
+        active = self._active_filter_dlg
+        if active is None or self._filter_loop is None:
+            return False
+        current = self._filter_dock.windowTitle()
+        box = QMessageBox(self)
+        box.setWindowTitle("Filter in progress")
+        box.setText(f"{current} is still open.")
+        box.setInformativeText(
+            f"Apply its settings or cancel it before switching to {new_label}?"
+        )
+        apply_btn = box.addButton("Apply", QMessageBox.ButtonRole.AcceptRole)
+        cancel_filter_btn = box.addButton(
+            f"Cancel {current}", QMessageBox.ButtonRole.DestructiveRole
+        )
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(apply_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is apply_btn:
+            active._accept()
+            return True
+        if clicked is cancel_filter_btn:
+            active._reject()
+            return True
+        return False
+
     def _run_filter_dialog(self, dlg: _FilterDialog, label: str) -> None:
         """Show filter controls in the dock with optional live canvas preview."""
-        if self._document is None or self._filter_dialog_open:
+        if self._document is None:
+            return
+        if self._filter_dialog_open:
+            if self._resolve_active_filter_dialog(label):
+                # Reopen once the current dialog's nested loop has unwound
+                # and its apply/cancel has been committed.
+                QTimer.singleShot(0, lambda: self._run_filter_dialog(dlg, label))
             return
 
         self._filter_dialog_open = True
