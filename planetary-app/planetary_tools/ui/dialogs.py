@@ -1116,7 +1116,8 @@ class ColourMatrixDialog(_FilterDialog):
             matrix,
             on_change=lambda: self.params_changed.emit(),
         )
-        self._form.addRow(QLabel("Matrix (linear RGB):"), panel)
+        self._form.addRow(QLabel("Matrix (linear RGB):"))
+        self._form.addRow(panel)
 
         reset_btn = QPushButton("Reset to identity")
         reset_btn.clicked.connect(self._reset_identity)
@@ -1263,7 +1264,8 @@ def edit_filter_params(
     elif filter_id == "colour_matrix":
         matrix = params.get("matrix", fdef.default_params["matrix"])
         panel, matrix_widgets = _make_matrix_grid(matrix)
-        form.addRow(QLabel("Matrix (linear RGB):"), panel)
+        form.addRow(QLabel("Matrix (linear RGB):"))
+        form.addRow(panel)
         widgets["matrix"] = matrix_widgets
     elif filter_id == "saturation_vibrance":
         for key, label in (("saturation", "Saturation"), ("vibrance", "Vibrance")):
