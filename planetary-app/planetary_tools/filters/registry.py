@@ -85,6 +85,7 @@ class WaveletSharpenDef(FilterDef):
             params.get("fine", 16.0),
             params.get("medium", 8.0),
             params.get("coarse", 1.0),
+            params.get("chunky", 0.0),
         )
 
 
@@ -191,6 +192,7 @@ FILTERS: dict[str, FilterDef] = {
             "fine": 16.0,
             "medium": 8.0,
             "coarse": 1.0,
+            "chunky": 0.0,
             "target_noise": 3.0,
             "target_contrast": 15.0,
         }),

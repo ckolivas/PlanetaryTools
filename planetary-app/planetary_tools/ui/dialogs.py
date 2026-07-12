@@ -555,6 +555,7 @@ class WaveletSharpenDialog(_FilterDialog):
         self.fine = self._add_double("Fine", fdef.default_params["fine"], 0.0, 300.0)
         self.medium = self._add_double("Medium", fdef.default_params["medium"], 0.0, 300.0)
         self.coarse = self._add_double("Coarse", fdef.default_params["coarse"], 0.0, 300.0)
+        self.chunky = self._add_double("Chunky", fdef.default_params["chunky"], 0.0, 300.0)
 
         auto_row = QWidget()
         auto_layout = QHBoxLayout(auto_row)
@@ -589,8 +590,16 @@ class WaveletSharpenDialog(_FilterDialog):
         )
         self._form.addRow("Target contrast", self.target_contrast)
 
-    def _set_amount_spins(self, fine: float, medium: float, coarse: float) -> None:
-        for spin, value in ((self.fine, fine), (self.medium, medium), (self.coarse, coarse)):
+    def _set_amount_spins(
+        self, fine: float, medium: float, coarse: float, chunky: float
+    ) -> None:
+        spins = (
+            (self.fine, fine),
+            (self.medium, medium),
+            (self.coarse, coarse),
+            (self.chunky, chunky),
+        )
+        for spin, value in spins:
             spin.blockSignals(True)
             spin.setValue(value)
             spin.blockSignals(False)
@@ -603,7 +612,12 @@ class WaveletSharpenDialog(_FilterDialog):
             return
         is_grayscale = bool(getattr(self, "_input_is_grayscale", False))
 
-        prior = (self.fine.value(), self.medium.value(), self.coarse.value())
+        prior = (
+            self.fine.value(),
+            self.medium.value(),
+            self.coarse.value(),
+            self.chunky.value(),
+        )
 
         progress_dlg = QProgressDialog("Calculating…", "Cancel", 0, 0, self)
         progress_dlg.setWindowTitle("Auto Wavelet Sharpen")
@@ -620,10 +634,11 @@ class WaveletSharpenDialog(_FilterDialog):
             fine: float,
             medium: float,
             coarse: float,
+            chunky: float,
             _noise: float,
             _contrast: float,
         ) -> None:
-            self._set_amount_spins(fine, medium, coarse)
+            self._set_amount_spins(fine, medium, coarse, chunky)
             QApplication.processEvents()
             if progress_dlg.wasCanceled():
                 raise _Cancelled
@@ -640,7 +655,9 @@ class WaveletSharpenDialog(_FilterDialog):
                 texture_scale=getattr(self, "_noise_texture_scale", None),
                 chromatic=getattr(self, "_noise_chromatic", None),
             )
-            self._set_amount_spins(result.fine, result.medium, result.coarse)
+            self._set_amount_spins(
+                result.fine, result.medium, result.coarse, result.chunky
+            )
         except _Cancelled:
             self._set_amount_spins(*prior)
         finally:
@@ -655,6 +672,7 @@ class WaveletSharpenDialog(_FilterDialog):
             "fine": self.fine.value(),
             "medium": self.medium.value(),
             "coarse": self.coarse.value(),
+            "chunky": self.chunky.value(),
             "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
         })
@@ -662,25 +680,25 @@ class WaveletSharpenDialog(_FilterDialog):
 
     def set_params(self, params: dict[str, Any]) -> None:
         super().set_params(params)
-        self.fine.blockSignals(True)
-        self.medium.blockSignals(True)
-        self.coarse.blockSignals(True)
-        self.target_noise.blockSignals(True)
-        self.target_contrast.blockSignals(True)
+        spins = (
+            self.fine, self.medium, self.coarse, self.chunky,
+            self.target_noise, self.target_contrast,
+        )
+        for spin in spins:
+            spin.blockSignals(True)
         self.fine.setValue(params.get("fine", self.fine.value()))
         self.medium.setValue(params.get("medium", self.medium.value()))
         self.coarse.setValue(params.get("coarse", self.coarse.value()))
+        # Older presets predate the chunky scale: treat missing as 0.
+        self.chunky.setValue(params.get("chunky", 0.0))
         self.target_noise.setValue(
             float(params.get("target_noise", self.target_noise.value()))
         )
         self.target_contrast.setValue(
             float(params.get("target_contrast", self.target_contrast.value()))
         )
-        self.fine.blockSignals(False)
-        self.medium.blockSignals(False)
-        self.coarse.blockSignals(False)
-        self.target_noise.blockSignals(False)
-        self.target_contrast.blockSignals(False)
+        for spin in spins:
+            spin.blockSignals(False)
 
 
 class WaveletDenoiseDialog(_FilterDialog):
@@ -1235,7 +1253,7 @@ def edit_filter_params(
     widgets: dict[str, Any] = {}
 
     if filter_id == "wavelet_sharpen":
-        for key in ("fine", "medium", "coarse"):
+        for key in ("fine", "medium", "coarse", "chunky"):
             spin = QDoubleSpinBox()
             spin.setRange(0.0, 300.0)
             spin.setValue(params.get(key, fdef.default_params[key]))

@@ -14,7 +14,7 @@ from planetary_tools.core.noise import (
     is_chromatic,
 )
 from planetary_tools.filters.wavelet import (
-    NUM_SCALES,
+    SHARPEN_SCALES,
     _UNSHARP_STD,
     _from_perceptual,
     _merge_wavelet,
@@ -37,6 +37,7 @@ class AutoSharpenResult:
     fine: float
     medium: float
     coarse: float
+    chunky: float
     noise: float
     contrast_pct: float
 
@@ -75,12 +76,12 @@ class _SharpenTrialEngine:
         if is_grayscale:
             ch = self.src if self.src.ndim == 2 else self.src[..., 0]
             work = _to_perceptual(ch)
-            scales, residual = _wavelet_decompose(work)
+            scales, residual = _wavelet_decompose(work, SHARPEN_SCALES)
             self._prepared.append((scales, residual))
         else:
             for c in range(3):
                 work = _to_perceptual(self.src[..., c])
-                scales, residual = _wavelet_decompose(work)
+                scales, residual = _wavelet_decompose(work, SHARPEN_SCALES)
                 self._prepared.append((scales, residual))
         # (channel_index, scale_index, amount_key) -> sharpened scale layer
         self._usm_cache: dict[tuple[int, int, int], np.ndarray] = {}
@@ -106,21 +107,25 @@ class _SharpenTrialEngine:
         self._usm_cache[key] = out
         return out
 
-    def apply(self, fine: float, medium: float, coarse: float) -> np.ndarray:
-        amounts = (fine, medium, coarse)
+    def apply(
+        self, fine: float, medium: float, coarse: float, chunky: float = 0.0
+    ) -> np.ndarray:
+        amounts = (fine, medium, coarse, chunky)
         channels: list[np.ndarray] = []
         for ch_i, (_scales, residual) in enumerate(self._prepared):
             sharpened = [
                 self._sharpened_scale(ch_i, s_i, amounts[s_i])
-                for s_i in range(NUM_SCALES)
+                for s_i in range(SHARPEN_SCALES)
             ]
             channels.append(_from_perceptual(_merge_wavelet(sharpened, residual)))
         if self.is_grayscale:
             return channels[0]
         return np.stack(channels, axis=-1)
 
-    def metrics(self, fine: float, medium: float, coarse: float) -> tuple[float, float]:
-        out = self.apply(fine, medium, coarse)
+    def metrics(
+        self, fine: float, medium: float, coarse: float, chunky: float = 0.0
+    ) -> tuple[float, float]:
+        out = self.apply(fine, medium, coarse, chunky)
         noise = absolute_noise(
             out,
             self.is_grayscale,
@@ -140,13 +145,13 @@ def auto_wavelet_sharpen_params(
     target_contrast: float = 15.0,
     *,
     max_amount: float = _MAX_AMOUNT,
-    progress: Callable[[float, float, float, float, float], None] | None = None,
+    progress: Callable[[float, float, float, float, float, float], None] | None = None,
     texture_scale: float | None = None,
     chromatic: bool | None = None,
 ) -> AutoSharpenResult:
-    """Search fine/medium/coarse to approach noise and contrast targets.
+    """Search fine/medium/coarse/chunky to approach noise and contrast targets.
 
-    Never exceeds ``target_noise`` or ``target_contrast``. Starts at 0/0/0 and:
+    Never exceeds ``target_noise`` or ``target_contrast``. Starts at 0/0/0/0 and:
 
     1. Raises fine in steps of 4.0, then 1.0, then 0.1 until noise hits the
        target (stops early if contrast hits).
@@ -154,6 +159,8 @@ def auto_wavelet_sharpen_params(
        fine if noise overshoots (step 1.0 while contrast < half target, else 0.1).
     3. If contrast remains low, raises coarse by 0.1; lowers fine then medium
        if noise overshoots (same adaptive step-down).
+    4. If contrast still remains low, raises chunky by 0.1; lowers fine,
+       medium, then coarse if noise overshoots (same adaptive step-down).
 
     Pass session-pinned ``texture_scale`` / ``chromatic`` (from the document at
     load) so the search uses the same residual probes as the UI readout.
@@ -164,6 +171,7 @@ def auto_wavelet_sharpen_params(
     fine_steps = _FINE_STEPS
     medium_steps = _MEDIUM_STEPS
     coarse_step = _COARSE_STEP
+    chunky_step = _COARSE_STEP
     compensate_fine_step = _STEP
     compensate_coarse_step = _STEP * 10.0  # 1.0 when contrast is still low
 
@@ -177,11 +185,12 @@ def auto_wavelet_sharpen_params(
     fine = 0.0
     medium = 0.0
     coarse = 0.0
+    chunky = 0.0
 
     def report() -> tuple[float, float]:
-        n, c = engine.metrics(fine, medium, coarse)
+        n, c = engine.metrics(fine, medium, coarse, chunky)
         if progress is not None:
-            progress(fine, medium, coarse, n, c)
+            progress(fine, medium, coarse, chunky, n, c)
         return n, c
 
     def would_exceed(n: float, c: float) -> bool:
@@ -203,32 +212,32 @@ def auto_wavelet_sharpen_params(
     for step in fine_steps:
         while fine + step <= max_amount + _EPS:
             trial = _round_step(fine + step)
-            n, c = engine.metrics(trial, medium, coarse)
+            n, c = engine.metrics(trial, medium, coarse, chunky)
             if would_exceed(n, c):
                 break
             fine = trial
             if progress is not None:
-                progress(fine, medium, coarse, n, c)
+                progress(fine, medium, coarse, chunky, n, c)
             if contrast_reached(c):
-                return AutoSharpenResult(fine, medium, coarse, n, c)
+                return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
             if noise_reached(n):
                 break
         n, c = report()
         if contrast_reached(c) or noise_reached(n):
             if contrast_reached(c):
-                return AutoSharpenResult(fine, medium, coarse, n, c)
+                return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
             break
 
     n, c = report()
     if contrast_reached(c):
-        return AutoSharpenResult(fine, medium, coarse, n, c)
+        return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
 
     # --- Phase 2: medium (1.0 → 0.1); compensate noise via fine ---
     for step in medium_steps:
         while medium + step <= max_amount + _EPS:
             trial_medium = _round_step(medium + step)
             trial_fine = fine
-            n, c = engine.metrics(trial_fine, trial_medium, coarse)
+            n, c = engine.metrics(trial_fine, trial_medium, coarse, chunky)
             if c > target_contrast + _EPS:
                 break
             while n > target_noise + _EPS:
@@ -240,30 +249,30 @@ def auto_wavelet_sharpen_params(
                     else:
                         break
                 trial_fine = _round_step(trial_fine - down)
-                n, c = engine.metrics(trial_fine, trial_medium, coarse)
+                n, c = engine.metrics(trial_fine, trial_medium, coarse, chunky)
                 if c > target_contrast + _EPS:
                     break
             if would_exceed(n, c):
                 break
             fine, medium = trial_fine, trial_medium
             if progress is not None:
-                progress(fine, medium, coarse, n, c)
+                progress(fine, medium, coarse, chunky, n, c)
             if contrast_reached(c):
-                return AutoSharpenResult(fine, medium, coarse, n, c)
+                return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
         n, c = report()
         if contrast_reached(c):
-            return AutoSharpenResult(fine, medium, coarse, n, c)
+            return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
 
     n, c = report()
     if contrast_reached(c):
-        return AutoSharpenResult(fine, medium, coarse, n, c)
+        return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
 
     # --- Phase 3: coarse @ 0.1; compensate noise via fine then medium ---
     while coarse + coarse_step <= max_amount + _EPS:
         trial_coarse = _round_step(coarse + coarse_step)
         trial_fine = fine
         trial_medium = medium
-        n, c = engine.metrics(trial_fine, trial_medium, trial_coarse)
+        n, c = engine.metrics(trial_fine, trial_medium, trial_coarse, chunky)
         if c > target_contrast + _EPS:
             break
         while n > target_noise + _EPS:
@@ -278,19 +287,61 @@ def auto_wavelet_sharpen_params(
                 trial_medium = _round_step(trial_medium - compensate_fine_step)
             else:
                 break
-            n, c = engine.metrics(trial_fine, trial_medium, trial_coarse)
+            n, c = engine.metrics(trial_fine, trial_medium, trial_coarse, chunky)
             if c > target_contrast + _EPS:
                 break
         if would_exceed(n, c):
             break
         fine, medium, coarse = trial_fine, trial_medium, trial_coarse
         if progress is not None:
-            progress(fine, medium, coarse, n, c)
+            progress(fine, medium, coarse, chunky, n, c)
         if contrast_reached(c):
-            return AutoSharpenResult(fine, medium, coarse, n, c)
+            return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
 
     n, c = report()
-    return AutoSharpenResult(fine, medium, coarse, n, c)
+    if contrast_reached(c):
+        return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
+
+    # --- Phase 4: chunky @ 0.1; compensate noise via fine, medium, coarse ---
+    while chunky + chunky_step <= max_amount + _EPS:
+        trial_chunky = _round_step(chunky + chunky_step)
+        trial_fine = fine
+        trial_medium = medium
+        trial_coarse = coarse
+        n, c = engine.metrics(trial_fine, trial_medium, trial_coarse, trial_chunky)
+        if c > target_contrast + _EPS:
+            break
+        while n > target_noise + _EPS:
+            down = compensate_step_for(c)
+            if trial_fine >= down - _EPS:
+                trial_fine = _round_step(trial_fine - down)
+            elif trial_fine >= compensate_fine_step - _EPS:
+                trial_fine = _round_step(trial_fine - compensate_fine_step)
+            elif trial_medium >= down - _EPS:
+                trial_medium = _round_step(trial_medium - down)
+            elif trial_medium >= compensate_fine_step - _EPS:
+                trial_medium = _round_step(trial_medium - compensate_fine_step)
+            elif trial_coarse >= down - _EPS:
+                trial_coarse = _round_step(trial_coarse - down)
+            elif trial_coarse >= compensate_fine_step - _EPS:
+                trial_coarse = _round_step(trial_coarse - compensate_fine_step)
+            else:
+                break
+            n, c = engine.metrics(trial_fine, trial_medium, trial_coarse, trial_chunky)
+            if c > target_contrast + _EPS:
+                break
+        if would_exceed(n, c):
+            break
+        fine, medium, coarse, chunky = (
+            trial_fine, trial_medium, trial_coarse, trial_chunky,
+        )
+        if progress is not None:
+            progress(fine, medium, coarse, chunky, n, c)
+        if contrast_reached(c):
+            return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
+
+    n, c = report()
+    return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
 
 
 def verify_auto_params(
@@ -299,12 +350,13 @@ def verify_auto_params(
     fine: float,
     medium: float,
     coarse: float,
+    chunky: float = 0.0,
     *,
     texture_scale: float | None = None,
     chromatic: bool | None = None,
 ) -> tuple[float, float]:
     """Return (noise, contrast%) for the given amounts on full data."""
-    out = wavelet_sharpen(data, is_grayscale, fine, medium, coarse)
+    out = wavelet_sharpen(data, is_grayscale, fine, medium, coarse, chunky)
     if texture_scale is None:
         texture_scale = estimate_texture_scale(data, is_grayscale)
     if chromatic is None:

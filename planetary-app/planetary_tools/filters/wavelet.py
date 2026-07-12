@@ -8,8 +8,10 @@ from scipy.ndimage import gaussian_filter
 from planetary_tools.core.colour import linear_to_srgb, srgb_to_linear
 
 NUM_SCALES = 3
-# GIMP wavelet-decompose: wavelet-blur radius 2**scale_index → 1, 2, 4.
-_WAVELET_RADII = (1.0, 2.0, 4.0)
+# Sharpen decomposes one level further (fine/medium/coarse/chunky).
+SHARPEN_SCALES = 4
+# GIMP wavelet-decompose: wavelet-blur radius 2**scale_index → 1, 2, 4, 8.
+_WAVELET_RADII = (1.0, 2.0, 4.0, 8.0)
 # GIMP unsharp-mask on scale layers uses std-dev 16.
 _UNSHARP_STD = 16.0
 # Detail extract / merge midpoint in R'G'B' float (GEGL non-legacy
@@ -158,6 +160,7 @@ def wavelet_sharpen(
     fine: float = 16.0,
     medium: float = 8.0,
     coarse: float = 1.0,
+    chunky: float = 0.0,
 ) -> np.ndarray:
     """Wavelet sharpen matching GIMP plug-in-wavelet-sharpen.
 
@@ -166,11 +169,11 @@ def wavelet_sharpen(
     layer to linear light (matching gegl:gaussian-blur which uses "RGB
     float"), applies USM there, and converts back before merge.
     """
-    amounts = (fine, medium, coarse)
+    amounts = (fine, medium, coarse, chunky)
 
     def sharpen_channel(ch: np.ndarray) -> np.ndarray:
         work = _to_perceptual(ch)
-        scales, residual = _wavelet_decompose(work)
+        scales, residual = _wavelet_decompose(work, SHARPEN_SCALES)
         sharpened = [
             _unsharp_mask(scale, _UNSHARP_STD, amounts[i])
             for i, scale in enumerate(scales)
