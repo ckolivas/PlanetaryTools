@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(bar)
 
         self._zoom_combo = QComboBox()
+        self._custom_zoom_idx: int | None = None
         for z in ZOOM_LEVELS:
             self._zoom_combo.addItem(f"{int(z * 100)}%", z)
         self._zoom_combo.setCurrentText("100%")
@@ -380,11 +381,22 @@ class MainWindow(QMainWindow):
 
     def _sync_zoom_combo(self, zoom: float) -> None:
         pct = f"{int(round(zoom * 100))}%"
+        self._zoom_combo.blockSignals(True)
+        if self._custom_zoom_idx is not None:
+            self._zoom_combo.removeItem(self._custom_zoom_idx)
+            self._custom_zoom_idx = None
         idx = self._zoom_combo.findText(pct)
-        if idx >= 0:
-            self._zoom_combo.blockSignals(True)
-            self._zoom_combo.setCurrentIndex(idx)
-            self._zoom_combo.blockSignals(False)
+        if idx < 0:
+            # Non-preset zoom (Fit, Ctrl+wheel): show it as a temporary
+            # entry inserted in sorted position.
+            idx = next(
+                (i for i in range(self._zoom_combo.count()) if self._zoom_combo.itemData(i) > zoom),
+                self._zoom_combo.count(),
+            )
+            self._zoom_combo.insertItem(idx, pct, zoom)
+            self._custom_zoom_idx = idx
+        self._zoom_combo.setCurrentIndex(idx)
+        self._zoom_combo.blockSignals(False)
 
     def _on_zoom_combo(self, index: int) -> None:
         if index < 0:
