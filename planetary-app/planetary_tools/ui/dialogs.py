@@ -838,9 +838,37 @@ class StretchContrastDialog(_FilterDialog):
         super().__init__("Stretch Contrast OKLab", parent)
 
     def _build_filter_params(self) -> None:
-        self.set_help_text(
-            "Stretches OKLab luminance to the full range using proportional RGB scaling."
+        fdef = FILTERS[self.filter_id]
+        self.amount = QDoubleSpinBox()
+        self.amount.setRange(0.0, 100.0)
+        self.amount.setDecimals(0)
+        self.amount.setSingleStep(1.0)
+        self.amount.setSuffix(" %")
+        self.amount.setValue(float(fdef.default_params.get("amount", 100.0)))
+        self.amount.setToolTip(
+            "Peak level to stretch to. 100% stretches luminance to the full "
+            "range; lower values stretch or contract the image to that peak; "
+            "0% is black."
         )
+        self.amount.valueChanged.connect(lambda _: self.params_changed.emit())
+        self._form.addRow("Stretch to", self.amount)
+
+        self.set_help_text(
+            "Stretches OKLab luminance using proportional RGB scaling so the "
+            "peak lands at the chosen level: 100% is the full range; lower "
+            "values contract the image to that peak."
+        )
+
+    def get_params(self) -> dict[str, Any]:
+        p = super().get_params()
+        p["amount"] = self.amount.value()
+        return p
+
+    def set_params(self, params: dict[str, Any]) -> None:
+        super().set_params(params)
+        self.amount.blockSignals(True)
+        self.amount.setValue(float(params.get("amount", 100.0)))
+        self.amount.blockSignals(False)
 
 
 class SaturationVibranceDialog(_FilterDialog):
@@ -1292,7 +1320,16 @@ def edit_filter_params(
         form.addRow(oklab)
         widgets["oklab"] = oklab
     elif filter_id == "stretch_contrast":
-        layout.addWidget(QLabel("No parameters — stretch is applied automatically."))
+        amount = QDoubleSpinBox()
+        amount.setRange(0.0, 100.0)
+        amount.setDecimals(0)
+        amount.setSingleStep(1.0)
+        amount.setSuffix(" %")
+        amount.setValue(
+            float(params.get("amount", fdef.default_params.get("amount", 100.0)))
+        )
+        form.addRow("Stretch to", amount)
+        widgets["amount"] = amount
     elif filter_id == "colour_matrix":
         matrix = params.get("matrix", fdef.default_params["matrix"])
         panel, matrix_widgets = _make_matrix_grid(matrix)

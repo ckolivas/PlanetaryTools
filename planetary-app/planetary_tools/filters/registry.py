@@ -126,7 +126,7 @@ class WienerDeconvDef(FilterDef):
 @dataclass
 class StretchContrastDef(FilterDef):
     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
-        return stretch_contrast_oklab(data)
+        return stretch_contrast_oklab(data, params.get("amount", 100.0))
 
 
 @dataclass
@@ -216,7 +216,7 @@ FILTERS: dict[str, FilterDef] = {
         id="stretch_contrast",
         label="Stretch Contrast OKLab",
         requires_rgb=True,
-        default_params={},
+        default_params={"amount": 100.0},
     ),
     "colour_matrix": ColourMatrixDef(
         id="colour_matrix",
