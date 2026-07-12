@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -216,7 +217,13 @@ class _FilterDialog(QWidget):
                 "Source noise is the same in wavelet sharpen, denoise, and "
                 "adaptive deconvolution for a given image."
             )
-        root.addWidget(self._input_label)
+        self._help_icon = QLabel()
+        self._help_icon.hide()
+        input_row = QHBoxLayout()
+        input_row.addWidget(self._input_label)
+        input_row.addStretch(1)
+        input_row.addWidget(self._help_icon)
+        root.addLayout(input_row)
         root.addWidget(self._output_label)
         if self._increase_label is not None:
             root.addWidget(self._increase_label)
@@ -276,7 +283,18 @@ class _FilterDialog(QWidget):
             self._set_combo_to("Last")
             self.set_params(self._presets["Last"])
 
-        self.setFixedWidth(FILTER_PANEL_WIDTH)
+        # Minimum, not fixed: with large fonts the content can need more
+        # room, and the dock is sized to the dialog's hint when shown.
+        self.setMinimumWidth(FILTER_PANEL_WIDTH)
+
+    def set_help_text(self, text: str) -> None:
+        """Show a question-mark icon whose hover tooltip holds the help text."""
+        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxQuestion)
+        size = self.fontMetrics().height()
+        self._help_icon.setPixmap(icon.pixmap(size, size))
+        # Rich text makes the tooltip word-wrap instead of one long line.
+        self._help_icon.setToolTip(f"<qt>{text}</qt>")
+        self._help_icon.show()
 
     def _make_preset_row(self) -> QWidget:
         row = QWidget()
@@ -824,9 +842,9 @@ class StretchContrastDialog(_FilterDialog):
         super().__init__("Stretch Contrast OKLab", parent)
 
     def _build_filter_params(self) -> None:
-        self._form.addRow(QLabel(
+        self.set_help_text(
             "Stretches OKLab luminance to the full range using proportional RGB scaling."
-        ))
+        )
 
 
 class SaturationVibranceDialog(_FilterDialog):
@@ -862,9 +880,9 @@ class SaturationVibranceDialog(_FilterDialog):
             "1.00 = 100% vibrance (no change). Boosts low-chroma areas more than "
             "already-saturated colours."
         )
-        self._form.addRow(QLabel(
+        self.set_help_text(
             "Adjusts chroma in OKLab. 1.00 on each control leaves the image unchanged."
-        ))
+        )
 
         reset_btn = QPushButton("Reset")
         reset_btn.setToolTip("Reset saturation and vibrance to 1.00 (no change).")
@@ -963,12 +981,10 @@ class LevelsDialog(_FilterDialog):
         layout.addWidget(reset_all)
         self._form.addRow(row)
 
-        note = QLabel(
+        self.set_help_text(
             "Luminance uses OKLab. RGB matches GIMP perceptual gamma "
             "(sRGB-encoded); output is applied before input."
         )
-        note.setWordWrap(True)
-        self._form.addRow(note)
         self._load_channel_into_spins(self._current_channel())
 
     def _current_channel(self) -> str:
@@ -1187,7 +1203,7 @@ def edit_filter_params(
         | Qt.WindowType.WindowCloseButtonHint
     )
     dlg.setModal(False)
-    dlg.setFixedWidth(FILTER_PANEL_WIDTH)
+    dlg.setMinimumWidth(FILTER_PANEL_WIDTH)
     layout = QVBoxLayout(dlg)
     form = QFormLayout()
     layout.addLayout(form)

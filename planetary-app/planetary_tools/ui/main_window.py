@@ -106,7 +106,6 @@ class MainWindow(QMainWindow):
         self._filter_host_layout.setContentsMargins(8, 8, 8, 8)
         self._filter_dock.setWidget(self._filter_host)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._filter_dock)
-        self._filter_dock.setFixedWidth(FILTER_PANEL_WIDTH)
         self._filter_dock.hide()
         self._filter_loop: QEventLoop | None = None
         self._filter_accepted = False
@@ -651,6 +650,11 @@ class MainWindow(QMainWindow):
             self._clear_filter_panel()
             self._filter_host_layout.addWidget(dlg)
             self._filter_dock.setWindowTitle(label)
+            # Size the dock to this dialog's rendered content so nothing is
+            # clipped regardless of font metrics.
+            margins = self._filter_host_layout.contentsMargins()
+            width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
+            self._filter_dock.setFixedWidth(width + margins.left() + margins.right())
             self._filter_dock.show()
 
             tex, chroma = self._document.noise_context()
