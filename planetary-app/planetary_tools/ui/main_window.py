@@ -363,6 +363,9 @@ class MainWindow(QMainWindow):
     def _on_preview_busy(self, busy: bool) -> None:
         if busy:
             self._status.showMessage("Updating preview…")
+        elif self._status.currentMessage() == "Updating preview…":
+            # Clear only our own message so failure/save texts survive.
+            self._status.clearMessage()
 
     def _on_preview_failed(self, message: str) -> None:
         self._status.showMessage(f"Preview failed: {message}")
