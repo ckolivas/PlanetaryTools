@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from PyQt6.QtCore import QEventLoop, Qt, QTimer
@@ -495,6 +496,11 @@ class MainWindow(QMainWindow):
             )
 
     def _open_path(self, path: str | Path, *, confirm_unsaved: bool = True) -> bool:
+        if self._guard_filter_dialog(
+            "Open Image",
+            lambda: self._open_path(path, confirm_unsaved=confirm_unsaved),
+        ):
+            return False
         if confirm_unsaved and not self._confirm_unsaved_changes(
             "before opening another file"
         ):
@@ -517,6 +523,8 @@ class MainWindow(QMainWindow):
         self._open_path(path)
 
     def _open_file(self) -> None:
+        if self._guard_filter_dialog("Open Image", self._open_file):
+            return
         if not self._confirm_unsaved_changes("before opening another file"):
             return
         path, _ = QFileDialog.getOpenFileName(
@@ -579,6 +587,8 @@ class MainWindow(QMainWindow):
     def _save_file(self) -> None:
         if self._document is None:
             return
+        if self._guard_filter_dialog("Save", self._save_file):
+            return
         if self._document.path is None:
             self._try_save_document_as()
             return
@@ -590,6 +600,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Save failed", str(exc))
 
     def _save_file_as(self) -> None:
+        if self._guard_filter_dialog("Save As", self._save_file_as):
+            return
         self._try_save_document_as()
 
     def _confirm_unsaved_changes(self, action: str) -> bool:
@@ -656,7 +668,7 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("Filter in progress")
         box.setText(f"{current} is still open.")
         box.setInformativeText(
-            f"Apply its settings or cancel it before switching to {new_label}?"
+            f"Apply its settings or cancel it before continuing to {new_label}?"
         )
         apply_btn = box.addButton("Apply", QMessageBox.ButtonRole.AcceptRole)
         cancel_filter_btn = box.addButton(
@@ -674,15 +686,27 @@ class MainWindow(QMainWindow):
             return True
         return False
 
+    def _guard_filter_dialog(self, label: str, retry: Callable[[], None]) -> bool:
+        """Resolve an open filter dock before running another action.
+
+        Returns True when the caller must return immediately: either the
+        user kept the dialog open, or it was applied/cancelled and ``retry``
+        is rescheduled to run after the dialog's nested event loop has
+        unwound and committed its result.
+        """
+        if not self._filter_dialog_open:
+            return False
+        if self._resolve_active_filter_dialog(label):
+            QTimer.singleShot(0, retry)
+        return True
+
     def _run_filter_dialog(self, dlg: _FilterDialog, label: str) -> None:
         """Show filter controls in the dock with optional live canvas preview."""
         if self._document is None:
             return
-        if self._filter_dialog_open:
-            if self._resolve_active_filter_dialog(label):
-                # Reopen once the current dialog's nested loop has unwound
-                # and its apply/cancel has been committed.
-                QTimer.singleShot(0, lambda: self._run_filter_dialog(dlg, label))
+        if self._guard_filter_dialog(
+            label, lambda: self._run_filter_dialog(dlg, label)
+        ):
             return
 
         self._filter_dialog_open = True
@@ -858,6 +882,10 @@ class MainWindow(QMainWindow):
     def _run_merge_wavelet_detail(self) -> None:
         if self._document is None:
             return
+        if self._guard_filter_dialog(
+            "Merge Wavelet Detail", self._run_merge_wavelet_detail
+        ):
+            return
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Load secondary image for wavelet detail merge",
@@ -908,6 +936,10 @@ class MainWindow(QMainWindow):
     def _run_rgb_decompose(self) -> None:
         if self._document is None:
             return
+        if self._guard_filter_dialog(
+            "RGB Decompose to Files", self._run_rgb_decompose
+        ):
+            return
         selected_filter = self._default_save_as_filter()
         path, selected = QFileDialog.getSaveFileName(
             self,
@@ -957,6 +989,10 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "RGB Decompose failed", str(exc))
 
     def _run_rgb_compose(self) -> None:
+        if self._guard_filter_dialog(
+            "RGB Compose from Files", self._run_rgb_compose
+        ):
+            return
         if not self._confirm_unsaved_changes("before composing a new image"):
             return
         paths, _ = QFileDialog.getOpenFileNames(
@@ -1023,6 +1059,8 @@ class MainWindow(QMainWindow):
     #     )
 
     def _run_batch(self) -> None:
+        if self._guard_filter_dialog("Batch Processing", self._run_batch):
+            return
         dlg = BatchDialog(self)
         dlg.exec()
 
@@ -1066,6 +1104,8 @@ class MainWindow(QMainWindow):
     def _undo_action(self) -> None:
         if self._document is None:
             return
+        if self._guard_filter_dialog("Undo", self._undo_action):
+            return
         result = self._undo.stack.undo(
             self._document.data,
             self._document.is_grayscale,
@@ -1082,6 +1122,8 @@ class MainWindow(QMainWindow):
     def _redo_action(self) -> None:
         if self._document is None:
             return
+        if self._guard_filter_dialog("Redo", self._redo_action):
+            return
         result = self._undo.stack.redo(
             self._document.data,
             self._document.is_grayscale,
@@ -1097,6 +1139,8 @@ class MainWindow(QMainWindow):
 
     def _run_scale_image(self) -> None:
         if self._document is None:
+            return
+        if self._guard_filter_dialog("Scale Image", self._run_scale_image):
             return
         dlg = ScaleImageDialog(
             self._document.width,
