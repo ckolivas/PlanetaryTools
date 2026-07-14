@@ -26,7 +26,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from planetary_tools.batch.pipeline import BatchResult, PipelineStep, collect_paths, run_batch
+from planetary_tools.batch.pipeline import (
+    BatchResult,
+    PipelineStep,
+    collect_paths,
+    existing_output_paths,
+    planned_output_paths,
+    run_batch,
+)
 from planetary_tools.core.presets import ensure_builtin_presets
 from planetary_tools.filters.registry import FILTERS, batch_filters
 from planetary_tools.ui.dialogs import edit_filter_params
@@ -318,20 +325,49 @@ class BatchDialog(QDialog):
             return
         output_dir = Path(out_text)
 
+        suffix = self._suffix.text().strip() or "_processed"
+        preserve_tree = self._preserve_tree.isChecked()
+        input_root = self._input_folder if preserve_tree else None
+
+        planned = planned_output_paths(
+            paths,
+            output_dir,
+            suffix=suffix,
+            preserve_tree=preserve_tree,
+            input_root=input_root,
+        )
+        existing = existing_output_paths(planned)
+        if existing:
+            sample = "\n".join(str(p) for p in existing[:12])
+            if len(existing) > 12:
+                sample += f"\n… and {len(existing) - 12} more"
+            reply = QMessageBox.warning(
+                self,
+                "Overwrite existing files?",
+                (
+                    f"{len(existing)} of {len(planned)} output file(s) already exist:\n\n"
+                    f"{sample}\n\n"
+                    "Overwrite them?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         self._run_btn.setEnabled(False)
         self._progress.setVisible(True)
         self._progress.setMaximum(len(paths))
         self._progress.setValue(0)
         self._status.setText("Starting…")
 
-        input_root = self._input_folder if self._preserve_tree.isChecked() else None
         self._worker = _BatchWorker(
             paths,
             output_dir,
             list(self._steps),
-            self._suffix.text().strip() or "_processed",
+            suffix,
             self._bit_depth.currentData(),
-            self._preserve_tree.isChecked(),
+            preserve_tree,
             input_root,
         )
         self._worker.progress.connect(self._on_progress)

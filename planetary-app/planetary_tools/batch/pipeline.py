@@ -112,6 +112,47 @@ def apply_pipeline(
     return out
 
 
+def output_path_for(
+    in_path: Path,
+    output_dir: Path,
+    *,
+    suffix: str = "_processed",
+    preserve_tree: bool = False,
+    input_root: Path | None = None,
+) -> Path:
+    """Return the destination path for one input (same rules as ``run_batch``)."""
+    if preserve_tree and input_root is not None:
+        rel = in_path.relative_to(input_root)
+        return output_dir / rel.parent / f"{rel.stem}{suffix}{rel.suffix}"
+    return output_dir / f"{in_path.stem}{suffix}{in_path.suffix}"
+
+
+def planned_output_paths(
+    input_paths: list[Path],
+    output_dir: Path,
+    *,
+    suffix: str = "_processed",
+    preserve_tree: bool = False,
+    input_root: Path | None = None,
+) -> list[Path]:
+    """Output paths for every input, in the same order as ``input_paths``."""
+    return [
+        output_path_for(
+            p,
+            output_dir,
+            suffix=suffix,
+            preserve_tree=preserve_tree,
+            input_root=input_root,
+        )
+        for p in input_paths
+    ]
+
+
+def existing_output_paths(paths: list[Path]) -> list[Path]:
+    """Return the subset of ``paths`` that already exist as files."""
+    return [p for p in paths if p.is_file()]
+
+
 def run_batch(
     input_paths: list[Path],
     output_dir: Path,
@@ -139,12 +180,14 @@ def run_batch(
             processed = apply_pipeline(doc.data, doc.is_grayscale, steps)
             doc.set_data(processed)
 
-            if preserve_tree and input_root is not None:
-                rel = in_path.relative_to(input_root)
-                out_path = output_dir / rel.parent / f"{rel.stem}{suffix}{rel.suffix}"
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-            else:
-                out_path = output_dir / f"{in_path.stem}{suffix}{in_path.suffix}"
+            out_path = output_path_for(
+                in_path,
+                output_dir,
+                suffix=suffix,
+                preserve_tree=preserve_tree,
+                input_root=input_root,
+            )
+            out_path.parent.mkdir(parents=True, exist_ok=True)
 
             save_image(doc, out_path, bit_depth=bit_depth)
             result.processed += 1
