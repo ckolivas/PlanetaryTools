@@ -1287,6 +1287,62 @@ class MergeWaveletDetailDialog(_FilterDialog):
         return p
 
 
+class ExtractComponentDialog(_FilterDialog):
+    """Extract one colour component as a greyscale image."""
+
+    filter_id = ""
+    supports_presets = False
+    supports_clamp = False
+    # Result is always greyscale (2-D plane after apply).
+    result_is_grayscale = True
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Extract Component", parent)
+
+    def _build_filter_params(self) -> None:
+        from planetary_tools.filters.extract_component import (
+            COMPONENT_LABELS,
+            COMPONENT_ORDER,
+        )
+
+        self.component = QComboBox()
+        for key in COMPONENT_ORDER:
+            self.component.addItem(COMPONENT_LABELS[key], key)
+        self.component.setToolTip(
+            "Component to extract as greyscale. CMY use the mean of the two "
+            "primaries that form that secondary (Cyan = (G+B)/2, "
+            "Magenta = (R+B)/2, Yellow = (R+G)/2)."
+        )
+        self.component.currentIndexChanged.connect(lambda _: self.params_changed.emit())
+        self._form.addRow("Component", self.component)
+
+    def get_params(self) -> dict[str, Any]:
+        p = super().get_params()
+        p["component"] = str(self.component.currentData() or "luminance")
+        return p
+
+    def set_params(self, params: dict[str, Any]) -> None:
+        super().set_params(params)
+        key = str(params.get("component", "luminance"))
+        idx = self.component.findData(key)
+        if idx < 0:
+            idx = 0
+        self.component.blockSignals(True)
+        self.component.setCurrentIndex(idx)
+        self.component.blockSignals(False)
+
+    def build_filter_func(self) -> FilterFunc:
+        from planetary_tools.filters.extract_component import extract_component
+
+        component = str(self.component.currentData() or "luminance")
+
+        def func(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
+            # RGB triple for preview/canvas; apply path collapses to 2-D greyscale.
+            return extract_component(data, is_grayscale, component, as_rgb=True)
+
+        return func
+
+
 class ColourMatrixDialog(_FilterDialog):
     """3×3 colour correction matrix with preset save/load."""
 

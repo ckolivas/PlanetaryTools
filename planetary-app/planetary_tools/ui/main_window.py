@@ -46,6 +46,7 @@ from planetary_tools.ui.dialogs import (
     FILTER_PANEL_WIDTH,
     AdaptiveDeconvDialog,
     ColourMatrixDialog,
+    ExtractComponentDialog,
     LevelsDialog,
     MergeWaveletDetailDialog,
     # InstantFilterDialog,
@@ -272,6 +273,13 @@ class MainWindow(QMainWindow):
         self._levels_act.triggered.connect(self._run_levels)
         colours_menu.addAction(self._levels_act)
 
+        self._extract_component_act = QAction("E&xtract Component…", self)
+        self._extract_component_act.setToolTip(
+            "Extract BT.709 or OKLab luminance, RGB mean, RGB, or CMY as a greyscale image."
+        )
+        self._extract_component_act.triggered.connect(self._run_extract_component)
+        colours_menu.addAction(self._extract_component_act)
+
         colours_menu.addSeparator()
         self._rgb_decompose_act = QAction("RGB &Decompose to Files…", self)
         self._rgb_decompose_act.setToolTip(
@@ -343,7 +351,7 @@ class MainWindow(QMainWindow):
             self._sharpen_act, self._denoise_act, self._deconv_act,
             self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
-            self._levels_act, self._rgb_decompose_act,
+            self._levels_act, self._extract_component_act, self._rgb_decompose_act,
             # self._lum_act, self._decompose_act,
         ):
             act.setEnabled(has_doc)
@@ -779,7 +787,10 @@ class MainWindow(QMainWindow):
                     dlg.save_last_preset()
                 result = self._preview.finish(apply=True)
                 if result is not None:
-                    self._commit_filter(label, result)
+                    as_gray = bool(getattr(dlg, "result_is_grayscale", False))
+                    if as_gray and result.ndim == 3:
+                        result = result[..., 0]
+                    self._commit_filter(label, result, grayscale=as_gray or None)
                 else:
                     self._preview.finish(apply=False)
                     self._canvas.refresh()
@@ -830,7 +841,13 @@ class MainWindow(QMainWindow):
             self._preview.set_filter_func(sender.build_filter_func())
         self._preview.schedule_update()
 
-    def _commit_filter(self, label: str, result: np.ndarray) -> None:
+    def _commit_filter(
+        self,
+        label: str,
+        result: np.ndarray,
+        *,
+        grayscale: bool | None = None,
+    ) -> None:
         if self._document is None:
             return
         self._undo.record(
@@ -839,11 +856,21 @@ class MainWindow(QMainWindow):
             label,
         )
         try:
-            self._document.set_data(result)
+            self._document.set_data(result, grayscale=grayscale)
+            if grayscale:
+                # New mono source — re-pin noise probes to this plane.
+                self._document.pin_noise_context()
             self._canvas.refresh()
             self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
             self._status.showMessage(f"Applied {label}")
             self._update_undo_actions()
+            self._update_actions()
+            # Status line colour mode
+            self._status.showMessage(
+                f"Applied {label}  "
+                f"({self._document.width}×{self._document.height}  "
+                f"{'Greyscale' if self._document.is_grayscale else 'RGB'})"
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Filter failed", str(exc))
             restored = self._undo.stack.undo(
@@ -852,8 +879,8 @@ class MainWindow(QMainWindow):
                 "",
             )
             if restored:
-                data, grayscale = restored
-                self._document.set_data(data, grayscale=grayscale)
+                data, gray = restored
+                self._document.set_data(data, grayscale=gray)
                 self._canvas.refresh()
             self._update_undo_actions()
 
@@ -932,6 +959,18 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Levels", "This filter requires an RGB image.")
             return
         self._run_filter_dialog(LevelsDialog(self), "Levels")
+
+    def _run_extract_component(self) -> None:
+        if self._document is None:
+            return
+        if self._document.is_grayscale:
+            QMessageBox.information(
+                self,
+                "Extract Component",
+                "The current image is already greyscale.",
+            )
+            return
+        self._run_filter_dialog(ExtractComponentDialog(self), "Extract Component")
 
     def _run_rgb_decompose(self) -> None:
         if self._document is None:
