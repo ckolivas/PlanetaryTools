@@ -27,12 +27,16 @@ from PyQt6.QtWidgets import (
 )
 
 from planetary_tools.batch.pipeline import (
+    WORKFLOW_EXTENSION,
     BatchResult,
+    BatchWorkflow,
     PipelineStep,
     collect_paths,
     existing_output_paths,
+    load_workflow,
     planned_output_paths,
     run_batch,
+    save_workflow,
 )
 from planetary_tools.core.presets import ensure_builtin_presets
 from planetary_tools.filters.registry import FILTERS, batch_filters
@@ -153,6 +157,22 @@ class BatchDialog(QDialog):
         step_btns.addWidget(up_btn)
         step_btns.addWidget(down_btn)
         pipe_layout.addLayout(step_btns)
+
+        wf_row = QHBoxLayout()
+        save_wf_btn = QPushButton("Save workflow…")
+        save_wf_btn.setToolTip(
+            "Save the filter pipeline and output options to a reusable workflow file."
+        )
+        save_wf_btn.clicked.connect(self._save_workflow)
+        load_wf_btn = QPushButton("Load workflow…")
+        load_wf_btn.setToolTip(
+            "Load a previously saved batch workflow (pipeline and output options)."
+        )
+        load_wf_btn.clicked.connect(self._load_workflow)
+        wf_row.addWidget(save_wf_btn)
+        wf_row.addWidget(load_wf_btn)
+        wf_row.addStretch(1)
+        pipe_layout.addLayout(wf_row)
         root.addWidget(pipe_group)
 
         self._refresh_preset_combo()
@@ -304,6 +324,115 @@ class BatchDialog(QDialog):
             self._steps[idx], self._steps[new_idx] = self._steps[new_idx], self._steps[idx]
             self._refresh_step_list()
             self._step_list.setCurrentRow(new_idx)
+
+    def _current_workflow(self) -> BatchWorkflow:
+        bit = self._bit_depth.currentData()
+        return BatchWorkflow(
+            steps=[
+                PipelineStep(
+                    filter_id=s.filter_id,
+                    params=deepcopy(s.params),
+                    preset_name=s.preset_name,
+                )
+                for s in self._steps
+            ],
+            suffix=self._suffix.text().strip() or "_processed",
+            bit_depth=int(bit) if bit is not None else 32,
+            preserve_tree=self._preserve_tree.isChecked(),
+            recursive=self._recursive.isChecked(),
+            output_dir=self._output_dir.text().strip(),
+        )
+
+    def _apply_workflow(self, workflow: BatchWorkflow) -> None:
+        self._steps = [
+            PipelineStep(
+                filter_id=s.filter_id,
+                params=deepcopy(s.params),
+                preset_name=s.preset_name,
+            )
+            for s in workflow.steps
+        ]
+        self._suffix.setText(workflow.suffix or "_processed")
+        idx = self._bit_depth.findData(int(workflow.bit_depth))
+        if idx >= 0:
+            self._bit_depth.setCurrentIndex(idx)
+        self._preserve_tree.setChecked(bool(workflow.preserve_tree))
+        self._recursive.setChecked(bool(workflow.recursive))
+        if workflow.output_dir:
+            self._output_dir.setText(workflow.output_dir)
+        self._refresh_step_list()
+
+    def _workflow_file_filter(self) -> str:
+        ext = WORKFLOW_EXTENSION.lstrip(".")
+        return f"Batch workflows (*.{ext});;All Files (*)"
+
+    def _save_workflow(self) -> None:
+        if not self._steps:
+            QMessageBox.warning(
+                self,
+                "Save workflow",
+                "Add at least one filter step before saving a workflow.",
+            )
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save batch workflow",
+            last_open_directory(),
+            self._workflow_file_filter(),
+        )
+        if not path:
+            return
+        try:
+            save_workflow(path, self._current_workflow())
+            out = Path(path)
+            if out.suffix.lower() != WORKFLOW_EXTENSION:
+                out = out.with_suffix(WORKFLOW_EXTENSION)
+            remember_open_path(str(out))
+            self._status.setText(f"Saved workflow to {out.name}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save workflow failed", str(exc))
+
+    def _load_workflow(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load batch workflow",
+            last_open_directory(),
+            self._workflow_file_filter(),
+        )
+        if not path:
+            return
+        try:
+            workflow, warnings = load_workflow(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load workflow failed", str(exc))
+            return
+        if not workflow.steps:
+            QMessageBox.warning(
+                self,
+                "Load workflow",
+                "The workflow file contains no usable filter steps.",
+            )
+            return
+        if self._steps:
+            reply = QMessageBox.question(
+                self,
+                "Load workflow",
+                "Replace the current pipeline with the loaded workflow?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self._apply_workflow(workflow)
+        remember_open_path(path)
+        msg = f"Loaded workflow ({len(workflow.steps)} step(s))"
+        self._status.setText(msg)
+        if warnings:
+            QMessageBox.warning(
+                self,
+                "Load workflow",
+                msg + " with warnings:\n\n" + "\n".join(warnings),
+            )
 
     def _run_batch(self) -> None:
         if not self._steps:

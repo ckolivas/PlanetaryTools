@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -13,6 +15,11 @@ from planetary_tools.filters.registry import FILTERS, apply_filter
 from planetary_tools.io.loader import load_image, save_image, supported_extensions
 
 _PROGRESS = Callable[[int, int, str], None]  # current, total, message
+
+WORKFLOW_KIND = "planetary-tools-batch-workflow"
+WORKFLOW_VERSION = 1
+# JSON file extension for saved batch workflows.
+WORKFLOW_EXTENSION = ".ptbatch"
 
 
 @dataclass
@@ -37,10 +44,146 @@ class PipelineStep:
 
 
 @dataclass
+class BatchWorkflow:
+    """Serializable batch pipeline plus related output options."""
+
+    steps: list[PipelineStep] = field(default_factory=list)
+    suffix: str = "_processed"
+    bit_depth: int = 32
+    preserve_tree: bool = False
+    recursive: bool = False
+    output_dir: str = ""
+
+
+@dataclass
 class BatchResult:
     processed: int = 0
     skipped: int = 0
     failed: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert params to JSON-serialisable forms (numpy scalars → Python)."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    # bool is a subclass of int — must be checked first.
+    if isinstance(value, (np.bool_, bool)):
+        return bool(value)
+    if isinstance(value, (np.floating, float)):
+        return float(value)
+    if isinstance(value, (np.integer, int)):
+        return int(value)
+    if value is None or isinstance(value, str):
+        return value
+    # Drop non-serialisable blobs (e.g. secondary image arrays).
+    raise TypeError(f"Cannot serialise workflow value of type {type(value)!r}")
+
+
+def workflow_to_dict(workflow: BatchWorkflow) -> dict[str, Any]:
+    steps_out: list[dict[str, Any]] = []
+    for step in workflow.steps:
+        entry: dict[str, Any] = {
+            "filter_id": step.filter_id,
+            "params": _json_safe(step.params),
+        }
+        if step.preset_name:
+            entry["preset_name"] = step.preset_name
+        steps_out.append(entry)
+    return {
+        "kind": WORKFLOW_KIND,
+        "version": WORKFLOW_VERSION,
+        "suffix": workflow.suffix,
+        "bit_depth": int(workflow.bit_depth),
+        "preserve_tree": bool(workflow.preserve_tree),
+        "recursive": bool(workflow.recursive),
+        "output_dir": str(workflow.output_dir or ""),
+        "steps": steps_out,
+    }
+
+
+def workflow_from_dict(data: dict[str, Any]) -> tuple[BatchWorkflow, list[str]]:
+    """Parse a workflow dict. Returns (workflow, warning messages)."""
+    warnings: list[str] = []
+    if not isinstance(data, dict):
+        raise ValueError("Workflow file must contain a JSON object.")
+    kind = data.get("kind")
+    if kind is not None and kind != WORKFLOW_KIND:
+        warnings.append(f"Unexpected workflow kind {kind!r}; loading steps anyway.")
+    version = data.get("version", 1)
+    if version != WORKFLOW_VERSION:
+        warnings.append(
+            f"Workflow version {version} differs from supported "
+            f"{WORKFLOW_VERSION}; attempting load."
+        )
+
+    raw_steps = data.get("steps")
+    if not isinstance(raw_steps, list):
+        raise ValueError("Workflow is missing a 'steps' array.")
+
+    steps: list[PipelineStep] = []
+    for i, raw in enumerate(raw_steps):
+        if not isinstance(raw, dict):
+            warnings.append(f"Step {i + 1}: skipped (not an object).")
+            continue
+        fid = raw.get("filter_id")
+        if not isinstance(fid, str) or fid not in FILTERS:
+            warnings.append(f"Step {i + 1}: unknown filter {fid!r}; skipped.")
+            continue
+        fdef = FILTERS[fid]
+        if not fdef.batch_enabled:
+            warnings.append(
+                f"Step {i + 1}: filter {fdef.label!r} is not available in batch; skipped."
+            )
+            continue
+        params_raw = raw.get("params") or {}
+        if not isinstance(params_raw, dict):
+            warnings.append(f"Step {i + 1}: invalid params; using defaults.")
+            params_raw = {}
+        try:
+            params = {**fdef.default_params, **_json_safe(params_raw)}
+        except TypeError:
+            warnings.append(f"Step {i + 1}: non-serialisable params; using defaults.")
+            params = deepcopy(fdef.default_params)
+        preset_name = raw.get("preset_name")
+        if preset_name is not None:
+            preset_name = str(preset_name)
+        steps.append(
+            PipelineStep(filter_id=fid, params=params, preset_name=preset_name)
+        )
+
+    bit_depth = int(data.get("bit_depth", 32))
+    if bit_depth not in (8, 16, 32):
+        warnings.append(f"Invalid bit_depth {bit_depth}; using 32.")
+        bit_depth = 32
+
+    workflow = BatchWorkflow(
+        steps=steps,
+        suffix=str(data.get("suffix", "_processed") or "_processed"),
+        bit_depth=bit_depth,
+        preserve_tree=bool(data.get("preserve_tree", False)),
+        recursive=bool(data.get("recursive", False)),
+        output_dir=str(data.get("output_dir", "") or ""),
+    )
+    return workflow, warnings
+
+
+def save_workflow(path: str | Path, workflow: BatchWorkflow) -> None:
+    path = Path(path)
+    if path.suffix.lower() != WORKFLOW_EXTENSION:
+        path = path.with_suffix(WORKFLOW_EXTENSION)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(workflow_to_dict(workflow), f, indent=2)
+        f.write("\n")
+
+
+def load_workflow(path: str | Path) -> tuple[BatchWorkflow, list[str]]:
+    path = Path(path)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return workflow_from_dict(data)
 
 
 def _image_paths(folder: Path, recursive: bool) -> list[Path]:
