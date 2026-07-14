@@ -205,7 +205,13 @@ FILTERS: dict[str, FilterDef] = {
     "adaptive_deconv": AdaptiveDeconvDef(
         id="adaptive_deconv",
         label="Adaptive Deconvolution",
-        default_params=_with_defaults({"amount": 10.0, "adaptive": True, "oklab": True}),
+        default_params=_with_defaults({
+            "amount": 10.0,
+            "adaptive": True,
+            "oklab": True,
+            "target_noise": 3.5,
+            "target_contrast": 15.0,
+        }),
     ),
     "wiener_deconv": WienerDeconvDef(
         id="wiener_deconv",

@@ -744,12 +744,19 @@ class AdaptiveDeconvDialog(_FilterDialog):
 
     def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
         self._is_grayscale = is_grayscale
+        self._auto_running = False
         super().__init__("Adaptive Deconvolution", parent)
 
     def _build_filter_params(self) -> None:
+        from planetary_tools.filters.adaptive_deconv_auto import (
+            auto_adaptive_deconv_params,
+        )
+
+        self._auto_adaptive_deconv_params = auto_adaptive_deconv_params
+
         fdef = FILTERS[self.filter_id]
         self.amount = self._add_double(
-            "Amount", fdef.default_params["amount"], 0.0, 200.0, step=0.1, decimals=1
+            "Amount", fdef.default_params["amount"], 0.0, 100.0, step=0.1, decimals=1
         )
         self.adaptive = QCheckBox("Contrast Adaptive")
         self.adaptive.setToolTip(
@@ -767,12 +774,101 @@ class AdaptiveDeconvDialog(_FilterDialog):
         self.oklab.toggled.connect(lambda _: self.params_changed.emit())
         self._form.addRow(self.oklab)
 
+        auto_row = QWidget()
+        auto_layout = QHBoxLayout(auto_row)
+        auto_layout.setContentsMargins(0, 0, 0, 0)
+        self.auto_apply = QPushButton("Auto")
+        self.auto_apply.setToolTip(
+            "Binary-search amount to meet the target noise and contrast "
+            "without exceeding either."
+        )
+        self.auto_apply.clicked.connect(self._run_auto_search)
+        auto_layout.addWidget(self.auto_apply)
+        auto_layout.addStretch(1)
+        self._form.addRow(auto_row)
+
+        self.target_noise = QDoubleSpinBox()
+        self.target_noise.setRange(0.0, 20.0)
+        self.target_noise.setDecimals(1)
+        self.target_noise.setSingleStep(0.1)
+        self.target_noise.setValue(float(fdef.default_params.get("target_noise", 3.5)))
+        self.target_noise.setToolTip("Maximum peak-normalized noise score to allow.")
+        self._form.addRow("Target noise", self.target_noise)
+
+        self.target_contrast = QDoubleSpinBox()
+        self.target_contrast.setRange(0.0, 100.0)
+        self.target_contrast.setDecimals(0)
+        self.target_contrast.setSingleStep(1.0)
+        self.target_contrast.setValue(
+            float(fdef.default_params.get("target_contrast", 15.0))
+        )
+        self.target_contrast.setToolTip(
+            "Target brightness increase (percent), matched without going over."
+        )
+        self._form.addRow("Target contrast", self.target_contrast)
+
+    def _set_amount_spin(self, amount: float) -> None:
+        self.amount.blockSignals(True)
+        self.amount.setValue(amount)
+        self.amount.blockSignals(False)
+
+    def _run_auto_search(self) -> None:
+        if self._auto_running:
+            return
+        data = getattr(self, "_input_data", None)
+        if data is None:
+            return
+        is_grayscale = bool(getattr(self, "_input_is_grayscale", False))
+        prior = self.amount.value()
+
+        progress_dlg = QProgressDialog("Calculating…", "Cancel", 0, 0, self)
+        progress_dlg.setWindowTitle("Auto Adaptive Deconvolution")
+        progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dlg.setMinimumDuration(0)
+        progress_dlg.show()
+
+        class _Cancelled(Exception):
+            pass
+
+        from PyQt6.QtWidgets import QApplication
+
+        def progress(amount: float, _noise: float, _contrast: float) -> None:
+            self._set_amount_spin(amount)
+            QApplication.processEvents()
+            if progress_dlg.wasCanceled():
+                raise _Cancelled
+
+        self._auto_running = True
+        self.auto_apply.setEnabled(False)
+        try:
+            result = self._auto_adaptive_deconv_params(
+                data,
+                is_grayscale,
+                target_noise=self.target_noise.value(),
+                target_contrast=self.target_contrast.value(),
+                adaptive=self.adaptive.isChecked(),
+                oklab=self.oklab.isChecked(),
+                progress=progress,
+                texture_scale=getattr(self, "_noise_texture_scale", None),
+                chromatic=getattr(self, "_noise_chromatic", None),
+            )
+            self._set_amount_spin(result.amount)
+        except _Cancelled:
+            self._set_amount_spin(prior)
+        finally:
+            self._auto_running = False
+            self.auto_apply.setEnabled(True)
+            progress_dlg.close()
+        self.params_changed.emit()
+
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
         p.update({
             "amount": self.amount.value(),
             "adaptive": self.adaptive.isChecked(),
             "oklab": self.oklab.isChecked(),
+            "target_noise": self.target_noise.value(),
+            "target_contrast": self.target_contrast.value(),
         })
         return p
 
@@ -781,12 +877,24 @@ class AdaptiveDeconvDialog(_FilterDialog):
         self.amount.blockSignals(True)
         self.adaptive.blockSignals(True)
         self.oklab.blockSignals(True)
+        self.target_noise.blockSignals(True)
+        self.target_contrast.blockSignals(True)
         self.amount.setValue(params.get("amount", self.amount.value()))
         self.adaptive.setChecked(params.get("adaptive", self.adaptive.isChecked()))
-        self.oklab.setChecked(params.get("oklab", self.oklab.isChecked()) and not self._is_grayscale)
+        self.oklab.setChecked(
+            params.get("oklab", self.oklab.isChecked()) and not self._is_grayscale
+        )
+        self.target_noise.setValue(
+            float(params.get("target_noise", self.target_noise.value()))
+        )
+        self.target_contrast.setValue(
+            float(params.get("target_contrast", self.target_contrast.value()))
+        )
         self.amount.blockSignals(False)
         self.adaptive.blockSignals(False)
         self.oklab.blockSignals(False)
+        self.target_noise.blockSignals(False)
+        self.target_contrast.blockSignals(False)
 
 
 class WienerDeconvDialog(_FilterDialog):
@@ -1293,7 +1401,7 @@ def edit_filter_params(
             widgets[key] = spin
     elif filter_id == "adaptive_deconv":
         amount = QDoubleSpinBox()
-        amount.setRange(0.0, 200.0)
+        amount.setRange(0.0, 100.0)
         amount.setDecimals(1)
         amount.setSingleStep(0.1)
         amount.setValue(params.get("amount", fdef.default_params["amount"]))
@@ -1314,6 +1422,29 @@ def edit_filter_params(
         oklab.setEnabled(not is_grayscale)
         form.addRow(oklab)
         widgets["oklab"] = oklab
+        target_noise = QDoubleSpinBox()
+        target_noise.setRange(0.0, 20.0)
+        target_noise.setDecimals(1)
+        target_noise.setSingleStep(0.1)
+        target_noise.setValue(
+            float(params.get("target_noise", fdef.default_params.get("target_noise", 3.5)))
+        )
+        form.addRow("Target noise", target_noise)
+        widgets["target_noise"] = target_noise
+        target_contrast = QDoubleSpinBox()
+        target_contrast.setRange(0.0, 100.0)
+        target_contrast.setDecimals(0)
+        target_contrast.setSingleStep(1.0)
+        target_contrast.setValue(
+            float(
+                params.get(
+                    "target_contrast",
+                    fdef.default_params.get("target_contrast", 15.0),
+                )
+            )
+        )
+        form.addRow("Target contrast", target_contrast)
+        widgets["target_contrast"] = target_contrast
     elif filter_id == "wiener_deconv":
         amount = QDoubleSpinBox()
         amount.setRange(0.0, 200.0)
