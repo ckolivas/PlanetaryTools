@@ -26,8 +26,13 @@ class PipelineStep:
     def label(self) -> str:
         from planetary_tools.filters.registry import FILTERS
         base = FILTERS[self.filter_id].label
+        parts: list[str] = []
         if self.preset_name:
-            return f"{base} — {self.preset_name}"
+            parts.append(self.preset_name)
+        if self.params.get("auto"):
+            parts.append("Auto")
+        if parts:
+            return f"{base} — {', '.join(parts)}"
         return base
 
 
@@ -48,6 +53,49 @@ def _image_paths(folder: Path, recursive: bool) -> list[Path]:
     return paths
 
 
+def _resolve_auto_params(
+    filter_id: str,
+    data: np.ndarray,
+    is_grayscale: bool,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """If auto is enabled, search per-image amounts and merge into params."""
+    merged = dict(params)
+    if not merged.get("auto"):
+        return merged
+
+    if filter_id == "wavelet_sharpen":
+        from planetary_tools.filters.wavelet_auto import auto_wavelet_sharpen_params
+
+        result = auto_wavelet_sharpen_params(
+            data,
+            is_grayscale,
+            target_noise=float(merged.get("target_noise", 3.0)),
+            target_contrast=float(merged.get("target_contrast", 15.0)),
+        )
+        merged.update({
+            "fine": result.fine,
+            "medium": result.medium,
+            "coarse": result.coarse,
+            "chunky": result.chunky,
+        })
+    elif filter_id == "adaptive_deconv":
+        from planetary_tools.filters.adaptive_deconv_auto import (
+            auto_adaptive_deconv_params,
+        )
+
+        result = auto_adaptive_deconv_params(
+            data,
+            is_grayscale,
+            target_noise=float(merged.get("target_noise", 3.5)),
+            target_contrast=float(merged.get("target_contrast", 15.0)),
+            adaptive=bool(merged.get("adaptive", True)),
+            oklab=bool(merged.get("oklab", True)),
+        )
+        merged["amount"] = result.amount
+    return merged
+
+
 def apply_pipeline(
     data: np.ndarray,
     is_grayscale: bool,
@@ -57,6 +105,7 @@ def apply_pipeline(
     gray = is_grayscale
     for step in steps:
         merged = {**FILTERS[step.filter_id].default_params, **step.params}
+        merged = _resolve_auto_params(step.filter_id, out, gray, merged)
         out = apply_filter(step.filter_id, out, gray, merged)
         # if step.filter_id == "oklab_luminance":
         #     gray = False

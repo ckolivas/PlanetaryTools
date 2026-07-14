@@ -1359,7 +1359,7 @@ def _apply_params_to_batch_widgets(
             widgets["_levels_reload"]()
 
     for key, widget in widgets.items():
-        if key.startswith("_levels"):
+        if key.startswith("_") or key.startswith("_levels"):
             continue
         if key not in merged:
             continue
@@ -1374,6 +1374,11 @@ def _apply_params_to_batch_widgets(
             widget.blockSignals(True)
             widget.setChecked(bool(value))
             widget.blockSignals(False)
+
+    # Refresh auto/manual enable state after loading a preset.
+    sync_auto = widgets.get("_sync_auto")
+    if callable(sync_auto) and "auto" in widgets:
+        sync_auto(bool(widgets["auto"].isChecked()))
 
 
 def edit_filter_params(
@@ -1432,9 +1437,17 @@ def edit_filter_params(
         for key in ("fine", "medium", "coarse", "chunky"):
             spin = QDoubleSpinBox()
             spin.setRange(0.0, 300.0)
-            spin.setValue(params.get(key, fdef.default_params[key]))
+            spin.setValue(params.get(key, fdef.default_params.get(key, 0.0)))
             form.addRow(key.capitalize(), spin)
             widgets[key] = spin
+        auto_box = QCheckBox("Auto")
+        auto_box.setToolTip(
+            "Per image, search fine/medium/coarse/chunky to meet the noise and "
+            "contrast targets without exceeding either. Manual amounts are ignored."
+        )
+        auto_box.setChecked(bool(params.get("auto", fdef.default_params.get("auto", False))))
+        form.addRow(auto_box)
+        widgets["auto"] = auto_box
         target_noise = QDoubleSpinBox()
         target_noise.setRange(0.0, 20.0)
         target_noise.setDecimals(1)
@@ -1458,6 +1471,17 @@ def edit_filter_params(
         )
         form.addRow("Target contrast", target_contrast)
         widgets["target_contrast"] = target_contrast
+
+        def _sync_wavelet_auto(checked: bool) -> None:
+            for key in ("fine", "medium", "coarse", "chunky"):
+                widgets[key].setEnabled(not checked)
+            widgets["target_noise"].setEnabled(checked)
+            widgets["target_contrast"].setEnabled(checked)
+            preset_combo.setEnabled(not checked)
+
+        auto_box.toggled.connect(_sync_wavelet_auto)
+        _sync_wavelet_auto(auto_box.isChecked())
+        widgets["_sync_auto"] = _sync_wavelet_auto
     elif filter_id == "wavelet_denoise":
         for key in ("fine", "medium", "coarse"):
             spin = QDoubleSpinBox()
@@ -1488,6 +1512,14 @@ def edit_filter_params(
         oklab.setEnabled(not is_grayscale)
         form.addRow(oklab)
         widgets["oklab"] = oklab
+        auto_box = QCheckBox("Auto")
+        auto_box.setToolTip(
+            "Per image, binary-search amount to meet the noise and contrast "
+            "targets without exceeding either. Manual amount is ignored."
+        )
+        auto_box.setChecked(bool(params.get("auto", fdef.default_params.get("auto", False))))
+        form.addRow(auto_box)
+        widgets["auto"] = auto_box
         target_noise = QDoubleSpinBox()
         target_noise.setRange(0.0, 20.0)
         target_noise.setDecimals(1)
@@ -1511,6 +1543,16 @@ def edit_filter_params(
         )
         form.addRow("Target contrast", target_contrast)
         widgets["target_contrast"] = target_contrast
+
+        def _sync_deconv_auto(checked: bool) -> None:
+            widgets["amount"].setEnabled(not checked)
+            widgets["target_noise"].setEnabled(checked)
+            widgets["target_contrast"].setEnabled(checked)
+            preset_combo.setEnabled(not checked)
+
+        auto_box.toggled.connect(_sync_deconv_auto)
+        _sync_deconv_auto(auto_box.isChecked())
+        widgets["_sync_auto"] = _sync_deconv_auto
     elif filter_id == "wiener_deconv":
         amount = QDoubleSpinBox()
         amount.setRange(0.0, 200.0)
