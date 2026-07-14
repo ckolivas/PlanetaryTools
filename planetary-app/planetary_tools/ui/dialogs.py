@@ -1159,11 +1159,13 @@ class MergeWaveletDetailDialog(_FilterDialog):
         self._form.addRow("Secondary:", lbl)
 
         self._scales_spin = QSpinBox()
-        self._scales_spin.setRange(1, 3)
+        self._scales_spin.setRange(0, 4)
         self._scales_spin.setValue(3)
         self._scales_spin.setToolTip(
             "Number of finest wavelet scales to take from the secondary image.\n"
-            "1 = fine scale only, 2 = fine + medium, 3 = all three scales."
+            "0 = none (main image unchanged, for comparison),\n"
+            "1 = fine only, 2 = fine + medium, 3 = fine + medium + coarse (default),\n"
+            "4 = all four scales including the coarsest detail band."
         )
         self._scales_spin.valueChanged.connect(lambda _: self.params_changed.emit())
         self._form.addRow("Scales:", self._scales_spin)

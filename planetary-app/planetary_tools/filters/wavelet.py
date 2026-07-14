@@ -10,6 +10,8 @@ from planetary_tools.core.colour import linear_to_srgb, srgb_to_linear
 NUM_SCALES = 3
 # Sharpen decomposes one level further (fine/medium/coarse/chunky).
 SHARPEN_SCALES = 4
+# Merge detail can take up to 4 finest scales from the secondary image.
+MERGE_SCALES = 4
 # GIMP wavelet-decompose: wavelet-blur radius 2**scale_index → 1, 2, 4, 8.
 _WAVELET_RADII = (1.0, 2.0, 4.0, 8.0)
 # GIMP unsharp-mask on scale layers uses std-dev 16.
@@ -194,8 +196,9 @@ def merge_wavelet_detail(
     The main image's residual (low-frequency colour) is preserved; the
     finest ``n_secondary_scales`` detail layers come from the secondary
     image, with the remaining coarser layers kept from the main image.
-    The secondary is reduced to luminance so it can drive all colour
-    channels of the main image.
+    ``n_secondary_scales`` may be 0 (main image unchanged) through
+    ``MERGE_SCALES`` (4). Default is 3. The secondary is reduced to
+    luminance so it can drive all colour channels of the main image.
     """
     # Reduce secondary to a single luminance channel (NIR is typically grey)
     if secondary_data.ndim == 3 and secondary_data.shape[2] >= 3:
@@ -216,18 +219,20 @@ def merge_wavelet_detail(
         sec_3ch = np.stack([sec_lin, sec_lin, sec_lin], axis=-1)
         sec_lin = scale_image(sec_3ch, main_w, main_h)[..., 0]
 
+    n = min(max(int(n_secondary_scales), 0), MERGE_SCALES)
+    if n <= 0:
+        return np.asarray(main_data, dtype=np.float32)
+
     # Decompose secondary once; reuse its scales for every main channel
     sec_perc = linear_to_srgb(sec_lin, clamp=False).astype(np.float64)
-    sec_scales, _ = _wavelet_decompose(sec_perc)
-
-    n = min(max(n_secondary_scales, 0), NUM_SCALES)
+    sec_scales, _ = _wavelet_decompose(sec_perc, MERGE_SCALES)
 
     def merge_channel(main_ch: np.ndarray) -> np.ndarray:
         work = _to_perceptual(main_ch)
-        main_scales, main_residual = _wavelet_decompose(work)
+        main_scales, main_residual = _wavelet_decompose(work, MERGE_SCALES)
         merged = [
             sec_scales[i] if i < n else main_scales[i]
-            for i in range(NUM_SCALES)
+            for i in range(MERGE_SCALES)
         ]
         return _from_perceptual(_merge_wavelet(merged, main_residual))
 
