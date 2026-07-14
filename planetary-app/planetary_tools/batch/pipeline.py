@@ -19,11 +19,16 @@ _PROGRESS = Callable[[int, int, str], None]  # current, total, message
 class PipelineStep:
     filter_id: str
     params: dict[str, Any] = field(default_factory=dict)
+    # Name of the saved preset used for params, if any (for list display).
+    preset_name: str | None = None
 
     @property
     def label(self) -> str:
         from planetary_tools.filters.registry import FILTERS
-        return FILTERS[self.filter_id].label
+        base = FILTERS[self.filter_id].label
+        if self.preset_name:
+            return f"{base} — {self.preset_name}"
+        return base
 
 
 @dataclass

@@ -412,7 +412,15 @@ def apply_filter_with_stats(
 
 
 def batch_filters() -> list[FilterDef]:
-    return [f for f in FILTERS.values() if f.batch_enabled]
+    """Filters available in batch (unique by id; aliases are not listed twice)."""
+    seen: set[str] = set()
+    out: list[FilterDef] = []
+    for fdef in FILTERS.values():
+        if not fdef.batch_enabled or fdef.id in seen:
+            continue
+        seen.add(fdef.id)
+        out.append(fdef)
+    return out
 
 
 # Backwards-compatible export for UI modules still importing RESCALE_PARAM.

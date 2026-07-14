@@ -1340,13 +1340,56 @@ class ColourMatrixDialog(_FilterDialog):
 #         self._form.addRow(QLabel("This filter has no adjustable parameters."))
 
 
+def _apply_params_to_batch_widgets(
+    filter_id: str,
+    widgets: dict[str, Any],
+    params: dict[str, Any],
+    defaults: dict[str, Any],
+) -> None:
+    """Push a params dict into widgets built by ``edit_filter_params``."""
+    del filter_id  # reserved for filter-specific handling
+    merged = {**defaults, **(params or {})}
+
+    if "_levels_channels" in widgets:
+        channel_data = widgets["_levels_channels"]
+        normalized = normalize_levels_params(merged)
+        for ch in LEVEL_CHANNELS:
+            channel_data[ch] = dict(normalized[ch])
+        if "_levels_reload" in widgets:
+            widgets["_levels_reload"]()
+
+    for key, widget in widgets.items():
+        if key.startswith("_levels"):
+            continue
+        if key not in merged:
+            continue
+        value = merged[key]
+        if key == "matrix":
+            _set_matrix_widgets(widget, value)
+        elif isinstance(widget, QDoubleSpinBox):
+            widget.blockSignals(True)
+            widget.setValue(float(value))
+            widget.blockSignals(False)
+        elif isinstance(widget, QCheckBox):
+            widget.blockSignals(True)
+            widget.setChecked(bool(value))
+            widget.blockSignals(False)
+
+
 def edit_filter_params(
     filter_id: str,
     params: dict[str, Any],
     is_grayscale: bool,
     parent: QWidget | None = None,
-) -> dict[str, Any] | None:
-    """Small modal editor for batch pipeline step parameters."""
+    *,
+    preset_name: str | None = None,
+) -> tuple[dict[str, Any], str | None] | None:
+    """Small modal editor for batch pipeline step parameters.
+
+    Returns ``(params, preset_name)`` on accept, or ``None`` on cancel.
+    ``preset_name`` is the selected saved preset, or ``None`` if parameters
+    were hand-edited away from a named preset.
+    """
     fdef = FILTERS[filter_id]
     dlg = QDialog(parent)
     dlg.setWindowTitle(fdef.label)
@@ -1361,6 +1404,29 @@ def edit_filter_params(
     form = QFormLayout()
     layout.addLayout(form)
     widgets: dict[str, Any] = {}
+
+    presets = ensure_builtin_presets(filter_id, fdef.default_params)
+    selected_preset: list[str | None] = [
+        preset_name if preset_name in presets else None
+    ]
+    suppress_dirty = [False]
+
+    preset_row = QWidget()
+    preset_layout = QHBoxLayout(preset_row)
+    preset_layout.setContentsMargins(0, 0, 0, 0)
+    preset_layout.addWidget(QLabel("Preset:"))
+    preset_combo = QComboBox()
+    preset_combo.addItem(_PRESET_NONE)
+    for name in sorted(presets.keys()):
+        preset_combo.addItem(name)
+    if selected_preset[0] is not None:
+        idx = preset_combo.findText(selected_preset[0])
+        if idx >= 0:
+            preset_combo.setCurrentIndex(idx)
+    else:
+        preset_combo.setCurrentIndex(0)
+    preset_layout.addWidget(preset_combo, stretch=1)
+    layout.insertWidget(0, preset_row)
 
     if filter_id == "wavelet_sharpen":
         for key in ("fine", "medium", "coarse", "chunky"):
@@ -1523,11 +1589,15 @@ def edit_filter_params(
 
         def _load_batch_channel(ch: str) -> None:
             lv = channel_data[ch]
+            for spin in level_spins.values():
+                spin.blockSignals(True)
             level_spins["in_min"].setValue(lv["in_min"] * 100.0)
             level_spins["in_max"].setValue(lv["in_max"] * 100.0)
             level_spins["gamma"].setValue(lv["gamma"])
             level_spins["out_min"].setValue(lv["out_min"] * 100.0)
             level_spins["out_max"].setValue(lv["out_max"] * 100.0)
+            for spin in level_spins.values():
+                spin.blockSignals(False)
 
         def _store_batch_channel(ch: str) -> None:
             channel_data[ch] = {
@@ -1546,12 +1616,20 @@ def edit_filter_params(
             channel_combo.setProperty("_prev_channel", ch)
             _load_batch_channel(ch)
 
+        def _reload_levels_current() -> None:
+            ch = str(channel_combo.currentData() or "L")
+            _load_batch_channel(ch)
+
         channel_combo.currentIndexChanged.connect(_on_batch_channel_changed)
         channel_combo.setProperty("_prev_channel", "L")
         _load_batch_channel("L")
         widgets["_levels_channels"] = channel_data
         widgets["_levels_channel_combo"] = channel_combo
         widgets["_levels_store"] = _store_batch_channel
+        widgets["_levels_reload"] = _reload_levels_current
+
+        for spin in level_spins.values():
+            spin.valueChanged.connect(lambda _: _mark_preset_dirty())
     else:
         layout.addWidget(QLabel("No numeric parameters for this filter."))
 
@@ -1580,6 +1658,42 @@ def edit_filter_params(
                 clamp_low_box.setChecked(False)
 
         clamp_box.toggled.connect(_sync_clamp_low)
+
+    def _mark_preset_dirty() -> None:
+        if suppress_dirty[0]:
+            return
+        if preset_combo.currentText() != _PRESET_NONE:
+            preset_combo.blockSignals(True)
+            preset_combo.setCurrentIndex(0)
+            preset_combo.blockSignals(False)
+        selected_preset[0] = None
+
+    def _on_preset_chosen(name: str) -> None:
+        if name == _PRESET_NONE or name not in presets:
+            selected_preset[0] = None
+            return
+        suppress_dirty[0] = True
+        try:
+            _apply_params_to_batch_widgets(
+                filter_id, widgets, presets[name], fdef.default_params
+            )
+            selected_preset[0] = name
+        finally:
+            suppress_dirty[0] = False
+
+    preset_combo.currentTextChanged.connect(_on_preset_chosen)
+
+    for key, widget in widgets.items():
+        if key.startswith("_levels"):
+            continue
+        if isinstance(widget, QDoubleSpinBox):
+            widget.valueChanged.connect(lambda _: _mark_preset_dirty())
+        elif isinstance(widget, QCheckBox):
+            widget.toggled.connect(lambda _: _mark_preset_dirty())
+        elif key == "matrix":
+            for row in widget:
+                for spin in row:
+                    spin.valueChanged.connect(lambda _: _mark_preset_dirty())
 
     buttons = QDialogButtonBox(
         QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -1610,4 +1724,7 @@ def edit_filter_params(
             out[key] = widget.isChecked()
     if CLAMP_LOW_PARAM in out and not out.get(CLAMP_PARAM, False):
         out[CLAMP_LOW_PARAM] = False
-    return out
+    name = selected_preset[0]
+    if name == _PRESET_NONE:
+        name = None
+    return out, name
