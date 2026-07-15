@@ -21,6 +21,11 @@ jobs:
           - os: windows-latest
             binary: planetary-app.exe
             asset: planetary-app-windows.exe
+          # Apple Silicon (arm64) runner — covers modern Macs. For Intel Macs
+          # add a second entry with os: macos-13 if you still need x86_64.
+          - os: macos-latest
+            binary: planetary-app
+            asset: planetary-app-macos
 
     runs-on: ${{ matrix.os }}
 
@@ -46,7 +51,8 @@ jobs:
 
       - name: Prepare binary for release
         working-directory: planetary-app
-        run: cp dist/${{ matrix.binary }} dist/${{ matrix.asset }}
+        shell: bash
+        run: cp "dist/${{ matrix.binary }}" "dist/${{ matrix.asset }}"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
