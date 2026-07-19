@@ -121,7 +121,7 @@ def _make_level_pct_pair_row(
     max_spin = _make_level_pct_spin(max_default, on_change=on_change)
     layout.addWidget(min_spin)
     dash = QLabel("–")
-    dash.setFixedWidth(10)
+    dash.setFixedWidth(dash.fontMetrics().horizontalAdvance("–") + 6)
     dash.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(dash)
     layout.addWidget(max_spin)
