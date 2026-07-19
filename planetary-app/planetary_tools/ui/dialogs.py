@@ -70,8 +70,20 @@ _LEVEL_CHANNEL_LABELS = {
     "B": "Blue",
 }
 
-_LEVEL_PCT_SPIN_WIDTH = 102
 FILTER_PANEL_WIDTH = 330
+
+
+def _fit_spin_width(spin: QDoubleSpinBox | QSpinBox) -> None:
+    """Fix a spin box to its natural width for the current font and DPI.
+
+    Hard-coded pixel widths clip the displayed value on high-DPI or
+    large-font systems (e.g. some Windows laptops, where only the first
+    digit is visible). The style's own size hint sizes the box to fit the
+    digits, suffix, frame, and spin buttons at the active display scale.
+    Call this after the range, decimals, and suffix are set so the hint
+    reflects the widest value.
+    """
+    spin.setFixedWidth(spin.sizeHint().width())
 
 # Preset combo entry shown once any parameter is edited by hand; selecting a
 # real preset (including the previous one) re-applies it.
@@ -89,7 +101,7 @@ def _make_level_pct_spin(
     spin.setSingleStep(0.5)
     spin.setSuffix(" %")
     spin.setValue(default_pct)
-    spin.setMaximumWidth(_LEVEL_PCT_SPIN_WIDTH)
+    _fit_spin_width(spin)
     if on_change is not None:
         spin.valueChanged.connect(lambda _: on_change())
     return spin
@@ -158,8 +170,8 @@ def _make_matrix_grid(
             spin.setRange(-10.0, 10.0)
             spin.setDecimals(3)
             spin.setSingleStep(0.01)
-            spin.setMaximumWidth(72)
             spin.setValue(float(matrix[row_idx][col_idx]))
+            _fit_spin_width(spin)
             if on_change is not None:
                 spin.valueChanged.connect(lambda _: on_change())
             grid.addWidget(spin, row_idx + 1, col_idx + 1)
@@ -1099,7 +1111,7 @@ class LevelsDialog(_FilterDialog):
         self._gamma.setDecimals(2)
         self._gamma.setSingleStep(0.05)
         self._gamma.setValue(1.0)
-        self._gamma.setMaximumWidth(_LEVEL_PCT_SPIN_WIDTH)
+        _fit_spin_width(self._gamma)
         self._gamma.valueChanged.connect(lambda _: self._on_level_spin_changed())
         self._form.addRow("Gamma", self._gamma)
         self._gamma.setToolTip("1.00 = no midtone change. Values above 1 brighten midtones.")
