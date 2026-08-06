@@ -304,6 +304,14 @@ class MainWindow(QMainWindow):
         )
         self._rgb_compose_act.triggered.connect(self._run_rgb_compose)
         colours_menu.addAction(self._rgb_compose_act)
+
+        self._align_rgb_act = QAction("&Align RGB", self)
+        self._align_rgb_act.setToolTip(
+            "Align the red and blue channels to green by best luma match, "
+            "as in RGB Compose from Files."
+        )
+        self._align_rgb_act.triggered.connect(self._run_align_rgb)
+        colours_menu.addAction(self._align_rgb_act)
         colours_menu.setToolTipsVisible(True)
 
         # self._lum_act = QAction("OKLab &Luminance", self)
@@ -361,6 +369,7 @@ class MainWindow(QMainWindow):
             self._moon_enhance_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
             self._levels_act, self._extract_component_act, self._rgb_decompose_act,
+            self._align_rgb_act,
             # self._lum_act, self._decompose_act,
         ):
             act.setEnabled(has_doc)
@@ -1099,6 +1108,30 @@ class MainWindow(QMainWindow):
             self._status.showMessage("Composed RGB image from files")
         except Exception as exc:
             QMessageBox.critical(self, "RGB Compose failed", str(exc))
+
+    def _run_align_rgb(self) -> None:
+        if self._document is None:
+            return
+        if self._document.is_grayscale:
+            QMessageBox.information(
+                self, "Align RGB", "This operation requires an RGB image."
+            )
+            return
+        if self._guard_filter_dialog("Align RGB", self._run_align_rgb):
+            return
+        data = self._document.data
+        try:
+            reference = data[..., 1]
+            aligned = [
+                data[..., c] if c == 1 else align_channel(reference, data[..., c])
+                for c in range(3)
+            ]
+            result = np.stack(aligned, axis=-1).astype(np.float32)
+        except Exception as exc:
+            QMessageBox.critical(self, "Align RGB", str(exc))
+            return
+        self._commit_filter("Align RGB", result)
+        self._status.showMessage("Aligned red and blue channels to green")
 
     # def _run_luminance(self) -> None:
     #     if self._document is None or self._document.is_grayscale:
