@@ -26,6 +26,7 @@ from planetary_tools.filters.colour_matrix import (
 )
 # from planetary_tools.filters.oklab_filters import oklab_luminance
 from planetary_tools.filters.levels import apply_levels, default_levels_params
+from planetary_tools.filters.moon_enhance import moon_enhance
 from planetary_tools.filters.saturation import apply_saturation_vibrance
 from planetary_tools.filters.stretch import stretch_contrast_oklab
 from planetary_tools.filters.wavelet import merge_wavelet_detail, wavelet_denoise, wavelet_sharpen
@@ -47,10 +48,14 @@ ENHANCE_FILTER_IDS = frozenset({
     "wiener_deconv",
 })
 
+# Moon enhance is deliberately not an "enhance" filter for stats: those noise
+# readouts crop to the bright subject (the planet), which this filter does not
+# change, so the score would be meaningless.
 CLAMP_FILTER_IDS = ENHANCE_FILTER_IDS | frozenset({
     "colour_matrix",
     "saturation_vibrance",
     "merge_wavelet_detail",
+    "moon_enhance",
 })
 
 
@@ -121,6 +126,19 @@ class WienerDeconvDef(FilterDef):
             params.get("amount", 10.0),
             params.get("adaptive", True),
             oklab,
+        )
+
+
+@dataclass
+class MoonEnhanceDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        return moon_enhance(
+            data, is_grayscale,
+            params.get("brightness", 25.0),
+            params.get("sensitivity", 8.0),
+            params.get("radius_scale", 0.5),
+            params.get("planet_margin", 0.0),
+            int(params.get("max_moons", 12)),
         )
 
 
@@ -221,6 +239,18 @@ FILTERS: dict[str, FilterDef] = {
         # Kept for a future reimplementation; not listed in batch or the Enhance menu.
         batch_enabled=False,
         default_params=_with_defaults({"amount": 10.0, "adaptive": True, "oklab": True}),
+    ),
+    "moon_enhance": MoonEnhanceDef(
+        id="moon_enhance",
+        label="Moon Enhance",
+        default_params=_with_defaults({
+            "brightness": 25.0,
+            "sensitivity": 8.0,
+            "radius_scale": 0.5,
+            # 0 = auto: max(20, 0.5 × planet equivalent radius) px.
+            "planet_margin": 0.0,
+            "max_moons": 12,
+        }),
     ),
     "stretch_contrast": StretchContrastDef(
         id="stretch_contrast",

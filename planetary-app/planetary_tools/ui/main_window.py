@@ -49,6 +49,7 @@ from planetary_tools.ui.dialogs import (
     ExtractComponentDialog,
     LevelsDialog,
     MergeWaveletDetailDialog,
+    MoonEnhanceDialog,
     # InstantFilterDialog,
     SaturationVibranceDialog,
     StretchContrastDialog,
@@ -226,6 +227,14 @@ class MainWindow(QMainWindow):
         self._deconv_act.triggered.connect(self._run_adaptive_deconv)
         enhance_menu.addAction(self._deconv_act)
 
+        self._moon_enhance_act = QAction("&Moon Enhance…", self)
+        self._moon_enhance_act.setToolTip(
+            "Detect faint moons outside the planet and brighten them "
+            "without lifting the disk."
+        )
+        self._moon_enhance_act.triggered.connect(self._run_moon_enhance)
+        enhance_menu.addAction(self._moon_enhance_act)
+
         # Wiener deconvolution is implemented but not exposed: weaker denoise
         # than wavelet for typical planetary stacks. Re-enable when improved.
         self._wiener_act = QAction("&Wiener Deconvolution…", self)
@@ -349,7 +358,7 @@ class MainWindow(QMainWindow):
         for act in (
             self._save_act, self._save_as_act, self._scale_act,
             self._sharpen_act, self._denoise_act, self._deconv_act,
-            self._merge_detail_act,
+            self._moon_enhance_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
             self._levels_act, self._extract_component_act, self._rgb_decompose_act,
             # self._lum_act, self._decompose_act,
@@ -897,6 +906,9 @@ class MainWindow(QMainWindow):
             AdaptiveDeconvDialog(self._document.is_grayscale, self),
             "Adaptive Deconvolution",
         )
+
+    def _run_moon_enhance(self) -> None:
+        self._run_filter_dialog(MoonEnhanceDialog(self), "Moon Enhance")
 
     def _run_wiener_deconv(self) -> None:
         if self._document is None:

@@ -749,6 +749,119 @@ class WaveletDenoiseDialog(_FilterDialog):
         self.coarse.blockSignals(False)
 
 
+class MoonEnhanceDialog(_FilterDialog):
+    filter_id = "moon_enhance"
+    supports_presets = True
+    supports_clamp = True
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Moon Enhance", parent)
+        self.set_help_text(
+            "Detects faint moons outside the planet's disk and ring envelope "
+            "and brightens each toward the target brightness. The planet and "
+            "empty sky are left untouched. Detection re-runs when Sensitivity, "
+            "Planet margin, or Max moons change; Moon brightness and Radius "
+            "scale update instantly."
+        )
+
+    def _build_filter_params(self) -> None:
+        fdef = FILTERS[self.filter_id]
+        self.brightness = self._add_double(
+            "Moon brightness", fdef.default_params["brightness"], 0.0, 100.0,
+            step=1.0, decimals=0,
+        )
+        self.brightness.setSuffix(" %")
+        self.brightness.setToolTip(
+            "Brightness each detected moon's peak is driven toward, as a "
+            "percentage of full scale."
+        )
+        self.sensitivity = self._add_double(
+            "Sensitivity", fdef.default_params["sensitivity"], 1.0, 50.0,
+            step=0.5, decimals=1,
+        )
+        self.sensitivity.setToolTip(
+            "Detection threshold in local signal-to-noise. Lower finds "
+            "fainter moons but risks false positives from sky noise."
+        )
+        self.radius_scale = self._add_double(
+            "Radius scale", fdef.default_params["radius_scale"], 0.2, 3.0,
+            step=0.1, decimals=1,
+        )
+        self.radius_scale.setToolTip(
+            "Multiplier on each moon's measured size for the brightening "
+            "region."
+        )
+        self.planet_margin = QDoubleSpinBox()
+        self.planet_margin.setRange(1.0, 2000.0)
+        self.planet_margin.setDecimals(0)
+        self.planet_margin.setSingleStep(10.0)
+        self.planet_margin.setValue(100.0)
+        self.planet_margin.setToolTip(
+            "Exclusion distance around the planet in pixels."
+        )
+        self.planet_margin.valueChanged.connect(lambda _: self.params_changed.emit())
+        self.margin_auto = QCheckBox("Auto")
+        self.margin_auto.setChecked(True)
+        self.margin_auto.setToolTip(
+            "Scale the margin with the planet's size to cover rings and glow."
+        )
+        self.margin_auto.toggled.connect(self._on_margin_auto_toggled)
+        self.margin_auto.toggled.connect(lambda _: self.params_changed.emit())
+        self.planet_margin.setEnabled(False)
+        margin_row = QWidget()
+        margin_layout = QHBoxLayout(margin_row)
+        margin_layout.setContentsMargins(0, 0, 0, 0)
+        margin_layout.addWidget(self.planet_margin, stretch=1)
+        margin_layout.addWidget(self.margin_auto)
+        self._form.addRow("Planet margin", margin_row)
+        self.max_moons = self._add_double(
+            "Max moons", fdef.default_params["max_moons"], 1.0, 100.0,
+            step=1.0, decimals=0,
+        )
+        self.max_moons.setToolTip(
+            "Keep at most this many detections, strongest first."
+        )
+
+    def _on_margin_auto_toggled(self, checked: bool) -> None:
+        self.planet_margin.setEnabled(not checked)
+
+    def get_params(self) -> dict[str, Any]:
+        p = super().get_params()
+        p.update({
+            "brightness": self.brightness.value(),
+            "sensitivity": self.sensitivity.value(),
+            "radius_scale": self.radius_scale.value(),
+            "planet_margin": (
+                0.0 if self.margin_auto.isChecked() else self.planet_margin.value()
+            ),
+            "max_moons": int(self.max_moons.value()),
+        })
+        return p
+
+    def set_params(self, params: dict[str, Any]) -> None:
+        super().set_params(params)
+        spins = (
+            (self.brightness, "brightness"),
+            (self.sensitivity, "sensitivity"),
+            (self.radius_scale, "radius_scale"),
+            (self.max_moons, "max_moons"),
+        )
+        for spin, key in spins:
+            spin.blockSignals(True)
+            spin.setValue(float(params.get(key, spin.value())))
+            spin.blockSignals(False)
+        margin = float(params.get("planet_margin", 0.0))
+        auto = margin <= 0.0
+        self.margin_auto.blockSignals(True)
+        self.margin_auto.setChecked(auto)
+        self.margin_auto.blockSignals(False)
+        self.planet_margin.blockSignals(True)
+        if not auto:
+            self.planet_margin.setValue(margin)
+        self.planet_margin.setEnabled(not auto)
+        self.planet_margin.blockSignals(False)
+
+
 class AdaptiveDeconvDialog(_FilterDialog):
     filter_id = "adaptive_deconv"
     supports_presets = True
@@ -1740,6 +1853,26 @@ def edit_filter_params(
 
         for spin in level_spins.values():
             spin.valueChanged.connect(lambda _: _mark_preset_dirty())
+    elif filter_id == "moon_enhance":
+        specs = (
+            ("brightness", "Moon brightness", 0.0, 100.0, 0, " %"),
+            ("sensitivity", "Sensitivity", 1.0, 50.0, 1, ""),
+            ("radius_scale", "Radius scale", 0.2, 3.0, 1, ""),
+            ("planet_margin", "Planet margin", 0.0, 2000.0, 0, ""),
+            ("max_moons", "Max moons", 1.0, 100.0, 0, ""),
+        )
+        for key, label, lo, hi, decimals, suffix in specs:
+            spin = QDoubleSpinBox()
+            spin.setRange(lo, hi)
+            spin.setDecimals(decimals)
+            if suffix:
+                spin.setSuffix(suffix)
+            if key == "planet_margin":
+                spin.setSpecialValueText("Auto")
+                spin.setToolTip("Set to 0 for Auto (scales with the planet's size).")
+            spin.setValue(float(params.get(key, fdef.default_params[key])))
+            form.addRow(label, spin)
+            widgets[key] = spin
     else:
         layout.addWidget(QLabel("No numeric parameters for this filter."))
 
