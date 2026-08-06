@@ -67,16 +67,22 @@ def ensure_builtin_presets(
     default_params: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     presets = load_presets(filter_id, default_params)
-    if "Default" not in presets:
-        presets["Default"] = deepcopy(default_params)
+    original = deepcopy(presets)
+    # Reserved presets cannot be edited or deleted by the user, so they are
+    # refreshed from the code on every load — a stored "Default" (or sensor
+    # matrix) must not go stale when the app's defaults change. "Last" and
+    # user-named presets are only ever created, never overwritten.
+    presets["Default"] = deepcopy(default_params)
     if "Last" not in presets:
         presets["Last"] = deepcopy(presets["Default"])
     builder = _BUILTIN_PRESET_BUILDERS.get(filter_id)
     if builder is not None:
+        reserved = reserved_preset_names(filter_id)
         for name, params in builder(default_params).items():
-            if name not in presets:
+            if name in reserved or name not in presets:
                 presets[name] = deepcopy(params)
-    save_presets(filter_id, presets)
+    if presets != original:
+        save_presets(filter_id, presets)
     return presets
 
 
