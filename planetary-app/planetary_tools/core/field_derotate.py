@@ -3,6 +3,8 @@
 Rigid (rotation + translation) registration in the style of WaveSharp
 Align/Rotate: no astrometry. Shift is taken from a low-passed luma match so
 compact moons cannot pull the translation. Moons may only vote on angle.
+Optional subpixel lock uses the Align RGB 3× cross-correlation against the
+chosen reference after the integer rigid match.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter, maximum_filter, rotate as ndi_rotate
 from scipy.ndimage import shift as ndi_shift
 
+from planetary_tools.core.align import align_to_reference
 from planetary_tools.core.colour import linear_luminance
 from planetary_tools.core.rotate import (
     geometric_centre,
@@ -358,18 +361,44 @@ class DerotateSetResult:
     frames: list[DerotateFrameResult] = field(default_factory=list)
 
 
+def _is_identity_match(match: RigidMatch) -> bool:
+    return (
+        abs(match.angle_deg) < 1e-9
+        and abs(match.dx) < 1e-9
+        and abs(match.dy) < 1e-9
+    )
+
+
+def _reference_index(
+    items: list[tuple[Path, np.ndarray, RigidMatch]],
+    ref_index: int | None,
+) -> int:
+    if ref_index is not None and 0 <= ref_index < len(items):
+        return ref_index
+    for i, (_path, _data, match) in enumerate(items):
+        if _is_identity_match(match):
+            return i
+    return 0
+
+
 def derotate_set(
     items: list[tuple[Path, np.ndarray, RigidMatch]],
     output_dir: Path,
     *,
     suffix: str = "_derot",
     bit_depth: int = 32,
+    subpixel: bool = False,
+    ref_index: int | None = None,
     on_progress: ProgressCb | None = None,
 ) -> DerotateSetResult:
     """Apply matches, paste onto a common centred canvas, and save.
 
     ``items`` is ``(path, pixels, match)``. The first item whose match is the
     identity (or the first item) supplies the canvas-centre pivot.
+
+    When ``subpixel`` is true, each non-reference canvas is locked to the
+    reference with the Align RGB 3× cross-correlation after the integer
+    rigid match.
     """
     from planetary_tools.core.document import ImageDocument
     from planetary_tools.io.loader import save_image
@@ -416,11 +445,31 @@ def derotate_set(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for i, ((path, arr, match), pivot) in enumerate(zip(applied, pivots)):
+    canvases: list[tuple[Path, np.ndarray, RigidMatch]] = []
+    for (path, arr, match), pivot in zip(applied, pivots):
+        canvases.append((path, paste_into_canvas(arr, canvas_w, canvas_h, pivot), match))
+
+    if subpixel and len(canvases) >= 2:
+        ref_path = items[_reference_index(items, ref_index)][0]
+        ref_i = next((i for i, (path, _c, _m) in enumerate(canvases) if path == ref_path), 0)
+        ref_canvas = canvases[ref_i][1]
+        for i, (path, canvas, match) in enumerate(canvases):
+            if i == ref_i:
+                continue
+            if on_progress:
+                on_progress(i, total, f"Subpixel {path.name}")
+            try:
+                canvases[i] = (path, align_to_reference(ref_canvas, canvas), match)
+            except Exception as exc:
+                result.failed.append((str(path), str(exc)))
+
+    failed_paths = {p for p, _exc in result.failed}
+    for i, (path, canvas, match) in enumerate(canvases):
+        if str(path) in failed_paths:
+            continue
         if on_progress:
             on_progress(i, total, f"Saving {path.name}")
         try:
-            canvas = paste_into_canvas(arr, canvas_w, canvas_h, pivot)
             out_path = output_dir / f"{path.stem}{suffix}{path.suffix}"
             is_gray = canvas.ndim == 2
             doc = ImageDocument(

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -103,6 +104,8 @@ class _RunWorker(QThread):
         output_dir: Path,
         suffix: str,
         bit_depth: int,
+        subpixel: bool,
+        ref_index: int,
     ) -> None:
         super().__init__()
         self._paths = paths
@@ -110,6 +113,8 @@ class _RunWorker(QThread):
         self._output_dir = output_dir
         self._suffix = suffix
         self._bit_depth = bit_depth
+        self._subpixel = subpixel
+        self._ref_index = ref_index
 
     def run(self) -> None:
         try:
@@ -124,6 +129,8 @@ class _RunWorker(QThread):
                 self._output_dir,
                 suffix=self._suffix,
                 bit_depth=self._bit_depth,
+                subpixel=self._subpixel,
+                ref_index=self._ref_index,
                 on_progress=lambda c, t, m: self.progress.emit(c, t, m),
             )
             self.finished_ok.emit(result)
@@ -196,6 +203,14 @@ class FieldDerotateDialog(QDialog):
             "best match sits on the limit."
         )
         of.addRow("Max search angle", self._max_angle)
+        self._subpixel = QCheckBox("Subpixel alignment")
+        self._subpixel.setChecked(True)
+        self._subpixel.setToolTip(
+            "After the integer luminance match, enlarge each frame 3× and lock "
+            "it to the reference by the same cross-correlation Align RGB uses "
+            "(about ⅓ pixel)."
+        )
+        of.addRow(self._subpixel)
         root.addWidget(opts)
 
         out = QGroupBox("Output")
@@ -393,6 +408,8 @@ class FieldDerotateDialog(QDialog):
             output_dir,
             suffix,
             int(self._bit_depth.currentData()),
+            self._subpixel.isChecked(),
+            self._ref_index,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished_ok.connect(self._on_ran)
