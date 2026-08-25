@@ -43,6 +43,7 @@ from planetary_tools.io.loader import (
 )
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
+from planetary_tools.ui.animate_dialog import AnimateDialog
 from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
 from planetary_tools.ui.compose_dialog import RGBComposeDialog
 from planetary_tools.ui.dialogs import (
@@ -347,6 +348,12 @@ class MainWindow(QMainWindow):
         )
         self._field_derot_act.triggered.connect(self._run_field_derotate)
         tools_menu.addAction(self._field_derot_act)
+        self._animate_act = QAction("&Animate…", self)
+        self._animate_act.setToolTip(
+            "Write a looping GIF, animated PNG, or WebP from a sequence of stills."
+        )
+        self._animate_act.triggered.connect(self._run_animate)
+        tools_menu.addAction(self._animate_act)
         tools_menu.setToolTipsVisible(True)
 
         # self._lum_act = QAction("OKLab &Luminance", self)
@@ -1170,6 +1177,12 @@ class MainWindow(QMainWindow):
         if self._guard_filter_dialog("Field Derotation", self._run_field_derotate):
             return
         dlg = FieldDerotateDialog(self)
+        dlg.exec()
+
+    def _run_animate(self) -> None:
+        if self._guard_filter_dialog("Animate", self._run_animate):
+            return
+        dlg = AnimateDialog(self)
         dlg.exec()
 
     # def _run_decompose(self) -> None:
