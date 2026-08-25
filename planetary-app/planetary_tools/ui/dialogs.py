@@ -1556,10 +1556,13 @@ def _apply_params_to_batch_widgets(
             widget.setChecked(bool(value))
             widget.blockSignals(False)
 
-    # Refresh auto/manual enable state after loading a preset.
+    # Refresh auto/manual enable state (or scale aspect linking) after a preset.
     sync_auto = widgets.get("_sync_auto")
-    if callable(sync_auto) and "auto" in widgets:
-        sync_auto(bool(widgets["auto"].isChecked()))
+    if callable(sync_auto):
+        if "auto" in widgets:
+            sync_auto(bool(widgets["auto"].isChecked()))
+        else:
+            sync_auto()
 
 
 def edit_filter_params(
@@ -1853,6 +1856,141 @@ def edit_filter_params(
 
         for spin in level_spins.values():
             spin.valueChanged.connect(lambda _: _mark_preset_dirty())
+    elif filter_id == "scale_image":
+        percent = QDoubleSpinBox()
+        percent.setRange(0.01, 10_000.0)
+        percent.setDecimals(2)
+        percent.setSingleStep(1.0)
+        percent.setSuffix(" %")
+        percent.setValue(float(params.get("percent", fdef.default_params["percent"])))
+        percent.setToolTip(
+            "Scale factor applied to each image. Width and height follow this "
+            "when aspect ratio is maintained."
+        )
+        form.addRow("Scale", percent)
+        widgets["percent"] = percent
+
+        width_percent = QDoubleSpinBox()
+        width_percent.setRange(0.01, 10_000.0)
+        width_percent.setDecimals(2)
+        width_percent.setSingleStep(1.0)
+        width_percent.setSuffix(" %")
+        width_percent.setValue(
+            float(params.get("width_percent", fdef.default_params["width_percent"]))
+        )
+        width_percent.setToolTip("Horizontal scale relative to each image's original width.")
+        form.addRow("Width", width_percent)
+        widgets["width_percent"] = width_percent
+
+        height_percent = QDoubleSpinBox()
+        height_percent.setRange(0.01, 10_000.0)
+        height_percent.setDecimals(2)
+        height_percent.setSingleStep(1.0)
+        height_percent.setSuffix(" %")
+        height_percent.setValue(
+            float(params.get("height_percent", fdef.default_params["height_percent"]))
+        )
+        height_percent.setToolTip("Vertical scale relative to each image's original height.")
+        form.addRow("Height", height_percent)
+        widgets["height_percent"] = height_percent
+
+        aspect = QCheckBox("Maintain aspect ratio")
+        aspect.setChecked(
+            bool(params.get("maintain_aspect", fdef.default_params["maintain_aspect"]))
+        )
+        aspect.setToolTip("Keep width and height scale factors equal.")
+        form.addRow(aspect)
+        widgets["maintain_aspect"] = aspect
+
+        syncing = [False]
+
+        def _sync_scale_aspect(_checked: bool | None = None) -> None:
+            linked = aspect.isChecked()
+            if linked and not syncing[0]:
+                syncing[0] = True
+                try:
+                    height_percent.setValue(width_percent.value())
+                    percent.setValue(width_percent.value())
+                finally:
+                    syncing[0] = False
+
+        def _on_scale_percent(value: float) -> None:
+            if syncing[0]:
+                return
+            syncing[0] = True
+            try:
+                width_percent.setValue(value)
+                if aspect.isChecked():
+                    height_percent.setValue(value)
+            finally:
+                syncing[0] = False
+
+        def _on_scale_width(value: float) -> None:
+            if syncing[0]:
+                return
+            syncing[0] = True
+            try:
+                percent.setValue(value)
+                if aspect.isChecked():
+                    height_percent.setValue(value)
+            finally:
+                syncing[0] = False
+
+        def _on_scale_height(value: float) -> None:
+            if syncing[0]:
+                return
+            syncing[0] = True
+            try:
+                if aspect.isChecked():
+                    width_percent.setValue(value)
+                    percent.setValue(value)
+            finally:
+                syncing[0] = False
+
+        percent.valueChanged.connect(_on_scale_percent)
+        width_percent.valueChanged.connect(_on_scale_width)
+        height_percent.valueChanged.connect(_on_scale_height)
+        aspect.toggled.connect(_sync_scale_aspect)
+        widgets["_sync_auto"] = _sync_scale_aspect
+    elif filter_id == "rotate_image":
+        angle = QDoubleSpinBox()
+        angle.setRange(-3600.0, 3600.0)
+        angle.setDecimals(2)
+        angle.setSingleStep(0.01)
+        angle.setSuffix(" °")
+        angle.setValue(float(params.get("angle", fdef.default_params["angle"])))
+        angle.setToolTip(
+            "Rotation angle in degrees. Positive = counter-clockwise (CCW). "
+            "The canvas expands to fit unless cropped."
+        )
+        form.addRow("Angle", angle)
+        widgets["angle"] = angle
+
+        presets_row = QHBoxLayout()
+        btn_ccw = QPushButton("90° CCW")
+        btn_ccw.setToolTip("Rotate 90° counter-clockwise.")
+        btn_ccw.clicked.connect(lambda: angle.setValue(90.0))
+        presets_row.addWidget(btn_ccw)
+        btn_cw = QPushButton("90° CW")
+        btn_cw.setToolTip("Rotate 90° clockwise (−90°).")
+        btn_cw.clicked.connect(lambda: angle.setValue(-90.0))
+        presets_row.addWidget(btn_cw)
+        btn_180 = QPushButton("180°")
+        btn_180.setToolTip("Rotate 180°.")
+        btn_180.clicked.connect(lambda: angle.setValue(180.0))
+        presets_row.addWidget(btn_180)
+        form.addRow("Presets", presets_row)
+
+        crop = QCheckBox("Crop to original size")
+        crop.setChecked(
+            bool(params.get("crop_to_original", fdef.default_params["crop_to_original"]))
+        )
+        crop.setToolTip(
+            "After expanding to fit the rotated image, centre-crop back to "
+            "the original width and height."
+        )
+        form.addRow(crop)
+        widgets["crop_to_original"] = crop
     elif filter_id == "moon_enhance":
         specs = (
             ("brightness", "Moon brightness", 0.0, 100.0, 0, " %"),

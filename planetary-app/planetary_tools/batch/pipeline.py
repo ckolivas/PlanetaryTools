@@ -11,7 +11,7 @@ from typing import Any, Callable
 import numpy as np
 
 from planetary_tools.core.document import ImageDocument
-from planetary_tools.filters.registry import FILTERS, apply_filter
+from planetary_tools.filters.registry import FILTERS, apply_filter, scale_percents
 from planetary_tools.io.loader import load_image, save_image, supported_extensions
 
 _PROGRESS = Callable[[int, int, str], None]  # current, total, message
@@ -31,13 +31,22 @@ class PipelineStep:
 
     @property
     def label(self) -> str:
-        from planetary_tools.filters.registry import FILTERS
         base = FILTERS[self.filter_id].label
         parts: list[str] = []
         if self.preset_name:
             parts.append(self.preset_name)
         if self.params.get("auto"):
             parts.append("Auto")
+        if self.filter_id == "scale_image":
+            wp, hp = scale_percents(self.params)
+            if abs(wp - hp) < 1e-6:
+                parts.append(f"{wp:g}%")
+            else:
+                parts.append(f"{wp:g}% × {hp:g}%")
+        elif self.filter_id == "rotate_image":
+            parts.append(f"{float(self.params.get('angle', 0.0)):g}°")
+            if self.params.get("crop_to_original"):
+                parts.append("crop")
         if parts:
             return f"{base} — {', '.join(parts)}"
         return base

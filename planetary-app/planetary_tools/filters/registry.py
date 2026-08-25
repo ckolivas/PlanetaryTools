@@ -26,6 +26,8 @@ from planetary_tools.filters.colour_matrix import (
 )
 # from planetary_tools.filters.oklab_filters import oklab_luminance
 from planetary_tools.filters.levels import apply_levels, default_levels_params
+from planetary_tools.core.rotate import rotate_image
+from planetary_tools.core.scale import scale_image
 from planetary_tools.filters.moon_enhance import moon_enhance
 from planetary_tools.filters.saturation import apply_saturation_vibrance
 from planetary_tools.filters.stretch import stretch_contrast_oklab
@@ -184,6 +186,40 @@ class MergeWaveletDetailDef(FilterDef):
         )
 
 
+def scale_percents(params: dict[str, Any]) -> tuple[float, float]:
+    """Return (width%, height%) for a Scale Image step."""
+    percent = float(params.get("percent", 100.0))
+    width_percent = float(params.get("width_percent", percent))
+    height_percent = float(params.get("height_percent", percent))
+    if bool(params.get("maintain_aspect", True)):
+        scale = float(params.get("percent", width_percent))
+        return scale, scale
+    return width_percent, height_percent
+
+
+@dataclass
+class ScaleImageDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        del is_grayscale
+        h, w = int(data.shape[0]), int(data.shape[1])
+        wp, hp = scale_percents(params)
+        new_w = max(1, int(round(w * wp / 100.0)))
+        new_h = max(1, int(round(h * hp / 100.0)))
+        return scale_image(data, new_w, new_h)
+
+
+@dataclass
+class RotateImageDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        del is_grayscale
+        return rotate_image(
+            data,
+            float(params.get("angle", 0.0)),
+            expand=True,
+            crop_to_original=bool(params.get("crop_to_original", False)),
+        )
+
+
 # @dataclass
 # class OklabLuminanceDef(FilterDef):
 #     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
@@ -203,6 +239,24 @@ def _with_defaults(default_params: dict[str, Any]) -> dict[str, Any]:
 
 
 FILTERS: dict[str, FilterDef] = {
+    "scale_image": ScaleImageDef(
+        id="scale_image",
+        label="Scale Image",
+        default_params={
+            "percent": 100.0,
+            "width_percent": 100.0,
+            "height_percent": 100.0,
+            "maintain_aspect": True,
+        },
+    ),
+    "rotate_image": RotateImageDef(
+        id="rotate_image",
+        label="Rotate Image",
+        default_params={
+            "angle": 0.0,
+            "crop_to_original": False,
+        },
+    ),
     "wavelet_sharpen": WaveletSharpenDef(
         id="wavelet_sharpen",
         label="Wavelet Sharpen",
