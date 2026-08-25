@@ -43,7 +43,7 @@ from planetary_tools.io.loader import (
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
-from planetary_tools.ui.compose_dialog import RGBComposeDialog, detect_channel
+from planetary_tools.ui.compose_dialog import RGBComposeDialog
 from planetary_tools.ui.dialogs import (
     FILTER_PANEL_WIDTH,
     AdaptiveDeconvDialog,
@@ -312,7 +312,8 @@ class MainWindow(QMainWindow):
 
         self._rgb_compose_act = QAction("RGB &Compose from Files…", self)
         self._rgb_compose_act.setToolTip(
-            "Combine 2 or 3 separate channel image files into a single colour image."
+            "Combine 2 or 3 separate channel image files into a single colour "
+            "image. Files may be in different folders."
         )
         self._rgb_compose_act.triggered.connect(self._run_rgb_compose)
         colours_menu.addAction(self._rgb_compose_act)
@@ -1078,25 +1079,7 @@ class MainWindow(QMainWindow):
             return
         if not self._confirm_unsaved_changes("before composing a new image"):
             return
-        paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select 2 or 3 channel images (Red, Green, Blue)",
-            last_open_directory(),
-            self._file_filter(),
-        )
-        if not paths:
-            return
-        if len(paths) not in (2, 3):
-            QMessageBox.warning(
-                self,
-                "RGB Compose from Files",
-                "Select either two or three channel images.",
-            )
-            return
-        remember_open_path(paths[0])
-        paths = [Path(p) for p in paths]
-        guesses = [detect_channel(p) for p in paths]
-        dlg = RGBComposeDialog(paths, guesses, self)
+        dlg = RGBComposeDialog(self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         assignment = dlg.channel_assignment()
