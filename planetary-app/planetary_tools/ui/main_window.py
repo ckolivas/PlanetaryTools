@@ -381,7 +381,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About Planetary Tools",
-            f"Planetary Tools {__version__}\nby Con Kolivas <kernel@kolivas.org>",
+            f"Planetary Tools {__version__}\nby Con Kolivas <kernel@kolivas.org>\nLicense: GPLv3",
         )
 
     def _update_actions(self) -> None:
