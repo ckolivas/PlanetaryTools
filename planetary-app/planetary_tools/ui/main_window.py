@@ -42,6 +42,7 @@ from planetary_tools.io.loader import (
 )
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
+from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
 from planetary_tools.ui.compose_dialog import RGBComposeDialog, detect_channel
 from planetary_tools.ui.dialogs import (
     FILTER_PANEL_WIDTH,
@@ -324,6 +325,17 @@ class MainWindow(QMainWindow):
         self._align_rgb_act.triggered.connect(self._run_align_rgb)
         colours_menu.addAction(self._align_rgb_act)
         colours_menu.setToolTipsVisible(True)
+
+        tools_menu = self.menuBar().addMenu("&Tools")
+        self._field_derot_act = QAction("&Field Derotation…", self)
+        self._field_derot_act.setToolTip(
+            "Align and rotate a set of stacked stills to a chosen reference "
+            "image by best luminance match (field / alt-az derotation). "
+            "Not WinJUPOS CM derotation."
+        )
+        self._field_derot_act.triggered.connect(self._run_field_derotate)
+        tools_menu.addAction(self._field_derot_act)
+        tools_menu.setToolTipsVisible(True)
 
         # self._lum_act = QAction("OKLab &Luminance", self)
         # self._lum_act.triggered.connect(self._run_luminance)
@@ -1157,6 +1169,12 @@ class MainWindow(QMainWindow):
         if self._guard_filter_dialog("Batch Processing", self._run_batch):
             return
         dlg = BatchDialog(self)
+        dlg.exec()
+
+    def _run_field_derotate(self) -> None:
+        if self._guard_filter_dialog("Field Derotation", self._run_field_derotate):
+            return
+        dlg = FieldDerotateDialog(self)
         dlg.exec()
 
     # def _run_decompose(self) -> None:

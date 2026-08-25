@@ -5,6 +5,59 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
+
+def geometric_centre(shape: tuple[int, ...] | np.ndarray) -> tuple[float, float]:
+    """Return ``(x, y)`` geometric centre (column, row)."""
+    if isinstance(shape, np.ndarray):
+        h, w = int(shape.shape[0]), int(shape.shape[1])
+    else:
+        h, w = int(shape[0]), int(shape[1])
+    return (w - 1) * 0.5, (h - 1) * 0.5
+
+
+def paste_into_canvas(
+    image: np.ndarray,
+    canvas_w: int,
+    canvas_h: int,
+    pivot_xy: tuple[float, float],
+    canvas_pivot_xy: tuple[float, float] | None = None,
+) -> np.ndarray:
+    """Place ``image`` on a zero canvas so ``pivot_xy`` maps to ``canvas_pivot_xy``.
+
+    Coordinates are ``(x, y)`` = (column, row). ``canvas_pivot_xy`` defaults to
+    the geometric centre of the canvas.
+    """
+    if canvas_w < 1 or canvas_h < 1:
+        raise ValueError("Canvas size must be at least 1×1.")
+
+    arr = np.asarray(image, dtype=np.float32)
+    if arr.ndim == 2:
+        canvas = np.zeros((canvas_h, canvas_w), dtype=np.float32)
+    elif arr.ndim == 3 and arr.shape[2] >= 3:
+        canvas = np.zeros((canvas_h, canvas_w, 3), dtype=np.float32)
+        arr = arr[..., :3]
+    else:
+        raise ValueError(f"Unsupported image shape for paste: {arr.shape}")
+
+    if canvas_pivot_xy is None:
+        canvas_pivot_xy = geometric_centre((canvas_h, canvas_w))
+
+    ox = int(round(canvas_pivot_xy[0] - pivot_xy[0]))
+    oy = int(round(canvas_pivot_xy[1] - pivot_xy[1]))
+    src_h, src_w = arr.shape[:2]
+
+    x0 = max(0, ox)
+    y0 = max(0, oy)
+    x1 = min(canvas_w, ox + src_w)
+    y1 = min(canvas_h, oy + src_h)
+    if x0 >= x1 or y0 >= y1:
+        return canvas
+
+    sx0 = x0 - ox
+    sy0 = y0 - oy
+    canvas[y0:y1, x0:x1, ...] = arr[sy0 : sy0 + (y1 - y0), sx0 : sx0 + (x1 - x0), ...]
+    return canvas
+
 # Pillow rejects LANCZOS/BOX/HAMMING for mode "F" on rotate/transform;
 # BICUBIC is the highest-quality filter it allows for float32 channels.
 _ROTATE_RESAMPLE = Image.Resampling.BICUBIC
