@@ -1991,6 +1991,117 @@ def edit_filter_params(
         )
         form.addRow(crop)
         widgets["crop_to_original"] = crop
+    elif filter_id == "crop_image":
+        autocrop = QCheckBox("Autocrop")
+        autocrop.setChecked(
+            bool(params.get("autocrop", fdef.default_params["autocrop"]))
+        )
+        autocrop.setToolTip(
+            "Detect the central bright object on each image and set the "
+            "canvas to its bounding box plus the border. If the border "
+            "reaches past the frame, the canvas expands (new pixels are "
+            "black). Recommended for mixed image sizes."
+        )
+        form.addRow(autocrop)
+        widgets["autocrop"] = autocrop
+
+        border = QDoubleSpinBox()
+        border.setRange(0.0, 65535.0)
+        border.setDecimals(0)
+        border.setSuffix(" px")
+        border.setValue(float(params.get("border_px", fdef.default_params["border_px"])))
+        border.setToolTip(
+            "Pixels kept around the detected object on every side. "
+            "If that reaches past the frame, the canvas expands."
+        )
+        form.addRow("Border", border)
+        widgets["border_px"] = border
+
+        min_bright = QDoubleSpinBox()
+        min_bright.setRange(0.0, 100.0)
+        min_bright.setDecimals(1)
+        min_bright.setSuffix(" %")
+        min_bright.setValue(
+            float(
+                params.get(
+                    "min_brightness_pct",
+                    fdef.default_params["min_brightness_pct"],
+                )
+            )
+        )
+        min_bright.setToolTip(
+            "Pixels at least this bright relative to each image's peak "
+            "luminance are treated as the central object."
+        )
+        form.addRow("Min brightness", min_bright)
+        widgets["min_brightness_pct"] = min_bright
+
+        width = QDoubleSpinBox()
+        width.setRange(0.0, 65535.0)
+        width.setDecimals(0)
+        width.setSuffix(" px")
+        width.setSpecialValueText("Same as image")
+        width.setValue(float(params.get("width", fdef.default_params["width"])))
+        width.setToolTip(
+            "Output width in pixels. Same as image uses each file's full "
+            "width. Larger than an image expands the canvas (black padding)."
+        )
+        form.addRow("Width", width)
+        widgets["width"] = width
+
+        height = QDoubleSpinBox()
+        height.setRange(0.0, 65535.0)
+        height.setDecimals(0)
+        height.setSuffix(" px")
+        height.setSpecialValueText("Same as image")
+        height.setValue(float(params.get("height", fdef.default_params["height"])))
+        height.setToolTip(
+            "Output height in pixels. Same as image uses each file's full "
+            "height. Larger than an image expands the canvas (black padding)."
+        )
+        form.addRow("Height", height)
+        widgets["height"] = height
+
+        offset_x = QDoubleSpinBox()
+        offset_x.setRange(-65535.0, 65535.0)
+        offset_x.setDecimals(0)
+        offset_x.setSuffix(" px")
+        offset_x.setValue(
+            float(params.get("offset_x", fdef.default_params["offset_x"]))
+        )
+        offset_x.setToolTip(
+            "Horizontal shift of the crop centre from each image's middle. "
+            "Positive moves the crop to the right."
+        )
+        form.addRow("Offset X", offset_x)
+        widgets["offset_x"] = offset_x
+
+        offset_y = QDoubleSpinBox()
+        offset_y.setRange(-65535.0, 65535.0)
+        offset_y.setDecimals(0)
+        offset_y.setSuffix(" px")
+        offset_y.setValue(
+            float(params.get("offset_y", fdef.default_params["offset_y"]))
+        )
+        offset_y.setToolTip(
+            "Vertical shift of the crop centre from each image's middle. "
+            "Positive moves the crop down."
+        )
+        form.addRow("Offset Y", offset_y)
+        widgets["offset_y"] = offset_y
+
+        def _sync_crop_mode(_checked: bool | None = None) -> None:
+            auto = autocrop.isChecked()
+            border.setEnabled(auto)
+            min_bright.setEnabled(auto)
+            width.setEnabled(not auto)
+            height.setEnabled(not auto)
+            offset_x.setEnabled(not auto)
+            offset_y.setEnabled(not auto)
+
+        autocrop.toggled.connect(_sync_crop_mode)
+        _sync_crop_mode()
+        widgets["_sync_auto"] = _sync_crop_mode
     elif filter_id == "moon_enhance":
         specs = (
             ("brightness", "Moon brightness", 0.0, 100.0, 0, " %"),

@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from planetary_tools import __version__
 from planetary_tools.core.align import align_channel
+from planetary_tools.core.crop import crop_image
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
@@ -61,6 +62,7 @@ from planetary_tools.ui.dialogs import (
     _FilterDialog,
 )
 from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
+from planetary_tools.ui.crop_dialog import CropImageDialog
 from planetary_tools.ui.rotate_dialog import RotateImageDialog
 from planetary_tools.ui.scale_dialog import ScaleImageDialog
 from planetary_tools.ui.recent_files import (
@@ -215,6 +217,15 @@ class MainWindow(QMainWindow):
         )
         self._rotate_act.triggered.connect(self._run_rotate_image)
         edit_menu.addAction(self._rotate_act)
+
+        self._crop_act = QAction("&Crop/Expand Image…", self)
+        self._crop_act.setToolTip(
+            "Crop or expand the image. A dashed outline on the canvas shows "
+            "the proposed canvas. Sizes larger than the image pad with black. "
+            "Offsets are from the image centre; Autocrop finds the central object."
+        )
+        self._crop_act.triggered.connect(self._run_crop_image)
+        edit_menu.addAction(self._crop_act)
         edit_menu.setToolTipsVisible(True)
 
         enhance_menu = self.menuBar().addMenu("&Enhance")
@@ -389,6 +400,7 @@ class MainWindow(QMainWindow):
         has_doc = self._document is not None
         for act in (
             self._save_act, self._save_as_act, self._scale_act, self._rotate_act,
+            self._crop_act,
             self._sharpen_act, self._denoise_act, self._deconv_act,
             self._moon_enhance_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
@@ -1308,6 +1320,100 @@ class MainWindow(QMainWindow):
             f"{'Greyscale' if self._document.is_grayscale else 'RGB'}  "
             f"32-bit float linear"
         )
+
+    def _run_crop_image(self) -> None:
+        if self._document is None:
+            return
+        if self._guard_filter_dialog("Crop/Expand Image", self._run_crop_image):
+            return
+
+        dlg = CropImageDialog(
+            self._document.width,
+            self._document.height,
+            self._document.data,
+            self._document.is_grayscale,
+            self,
+        )
+        self._filter_dialog_open = True
+        self._filter_accepted = False
+        try:
+            self._clear_filter_panel()
+            self._filter_host_layout.addWidget(dlg)
+            self._filter_dock.setWindowTitle("Crop/Expand Image")
+            margins = self._filter_host_layout.contentsMargins()
+            width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
+            self._filter_dock.setFixedWidth(width + margins.left() + margins.right())
+            self._filter_dock.show()
+
+            dlg.rect_changed.connect(self._canvas.set_crop_overlay)
+            self._filter_dock.visibilityChanged.connect(self._on_filter_dock_visibility)
+
+            def on_accept() -> None:
+                self._filter_accepted = True
+                if self._filter_loop is not None:
+                    self._filter_loop.quit()
+
+            def on_reject() -> None:
+                self._filter_accepted = False
+                if self._filter_loop is not None:
+                    self._filter_loop.quit()
+
+            dlg.accepted.connect(on_accept)
+            dlg.rejected.connect(on_reject)
+            self._active_filter_dlg = dlg  # type: ignore[assignment]
+            dlg.emit_current_rect()
+
+            self._filter_loop = QEventLoop(self)
+            self._filter_loop.exec()
+            self._filter_loop = None
+
+            dlg.rect_changed.disconnect(self._canvas.set_crop_overlay)
+            self._filter_dock.visibilityChanged.disconnect(
+                self._on_filter_dock_visibility
+            )
+            dlg.accepted.disconnect(on_accept)
+            dlg.rejected.disconnect(on_reject)
+            self._active_filter_dlg = None
+            self._canvas.clear_crop_overlay()
+
+            if self._filter_accepted:
+                rect = dlg.crop_rect()
+                if not (
+                    rect.x == 0
+                    and rect.y == 0
+                    and rect.width == self._document.width
+                    and rect.height == self._document.height
+                ):
+                    try:
+                        result = crop_image(
+                            self._document.data,
+                            rect.x,
+                            rect.y,
+                            rect.width,
+                            rect.height,
+                        )
+                    except Exception as exc:
+                        QMessageBox.critical(self, "Crop/Expand Image", str(exc))
+                        return
+                    self._undo.record(
+                        self._document.data,
+                        self._document.is_grayscale,
+                        "Crop/Expand Image",
+                    )
+                    self._document.set_data(result)
+                    self._canvas.refresh()
+                    self._update_undo_actions()
+                    self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
+                    self._status.showMessage(
+                        f"{self._document.width}×{self._document.height}  "
+                        f"{'Greyscale' if self._document.is_grayscale else 'RGB'}  "
+                        f"32-bit float linear"
+                    )
+        finally:
+            self._canvas.clear_crop_overlay()
+            self._clear_filter_panel()
+            self._filter_dock.hide()
+            self._filter_dialog_open = False
 
 
 def _close_splash() -> None:

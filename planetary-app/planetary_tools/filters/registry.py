@@ -26,6 +26,13 @@ from planetary_tools.filters.colour_matrix import (
 )
 # from planetary_tools.filters.oklab_filters import oklab_luminance
 from planetary_tools.filters.levels import apply_levels, default_levels_params
+from planetary_tools.core.crop import (
+    DEFAULT_BORDER_PX,
+    DEFAULT_MIN_BRIGHTNESS_PCT,
+    autocrop_rect,
+    crop_image,
+    rect_from_size_offset,
+)
 from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
 from planetary_tools.filters.moon_enhance import moon_enhance
@@ -220,6 +227,64 @@ class RotateImageDef(FilterDef):
         )
 
 
+def crop_step_summary(params: dict[str, Any]) -> str:
+    """Short label for a Crop/Expand Image batch step."""
+    if bool(params.get("autocrop", True)):
+        border = int(params.get("border_px", DEFAULT_BORDER_PX))
+        bright = float(params.get("min_brightness_pct", DEFAULT_MIN_BRIGHTNESS_PCT))
+        return f"Autocrop, {border} px, {bright:g}%"
+    width = int(params.get("width", 0))
+    height = int(params.get("height", 0))
+    ox = int(params.get("offset_x", 0))
+    oy = int(params.get("offset_y", 0))
+    if width <= 0 and height <= 0:
+        size = "full"
+    elif width <= 0:
+        size = f"full × {height}"
+    elif height <= 0:
+        size = f"{width} × full"
+    else:
+        size = f"{width} × {height}"
+    if ox or oy:
+        return f"{size}, offset {ox}, {oy}"
+    return size
+
+
+@dataclass
+class CropImageDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        arr = np.asarray(data, dtype=np.float32)
+        img_h, img_w = int(arr.shape[0]), int(arr.shape[1])
+        if bool(params.get("autocrop", True)):
+            rect, _found = autocrop_rect(
+                arr,
+                is_grayscale,
+                border_px=int(params.get("border_px", DEFAULT_BORDER_PX)),
+                min_brightness_pct=float(
+                    params.get("min_brightness_pct", DEFAULT_MIN_BRIGHTNESS_PCT)
+                ),
+            )
+        else:
+            crop_w = int(params.get("width", 0)) or img_w
+            crop_h = int(params.get("height", 0)) or img_h
+            rect = rect_from_size_offset(
+                img_w,
+                img_h,
+                crop_w,
+                crop_h,
+                int(params.get("offset_x", 0)),
+                int(params.get("offset_y", 0)),
+            )
+        if (
+            rect.x == 0
+            and rect.y == 0
+            and rect.width == img_w
+            and rect.height == img_h
+        ):
+            return arr
+        return crop_image(arr, rect.x, rect.y, rect.width, rect.height)
+
+
 # @dataclass
 # class OklabLuminanceDef(FilterDef):
 #     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
@@ -255,6 +320,19 @@ FILTERS: dict[str, FilterDef] = {
         default_params={
             "angle": 0.0,
             "crop_to_original": False,
+        },
+    ),
+    "crop_image": CropImageDef(
+        id="crop_image",
+        label="Crop/Expand Image",
+        default_params={
+            "autocrop": True,
+            "border_px": float(DEFAULT_BORDER_PX),
+            "min_brightness_pct": float(DEFAULT_MIN_BRIGHTNESS_PCT),
+            "width": 0.0,
+            "height": 0.0,
+            "offset_x": 0.0,
+            "offset_y": 0.0,
         },
     ),
     "wavelet_sharpen": WaveletSharpenDef(

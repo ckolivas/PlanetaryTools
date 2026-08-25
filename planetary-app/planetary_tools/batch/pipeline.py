@@ -11,7 +11,12 @@ from typing import Any, Callable
 import numpy as np
 
 from planetary_tools.core.document import ImageDocument
-from planetary_tools.filters.registry import FILTERS, apply_filter, scale_percents
+from planetary_tools.filters.registry import (
+    FILTERS,
+    apply_filter,
+    crop_step_summary,
+    scale_percents,
+)
 from planetary_tools.io.loader import load_image, save_image, supported_extensions
 
 _PROGRESS = Callable[[int, int, str], None]  # current, total, message
@@ -47,6 +52,8 @@ class PipelineStep:
             parts.append(f"{float(self.params.get('angle', 0.0)):g}°")
             if self.params.get("crop_to_original"):
                 parts.append("crop")
+        elif self.filter_id == "crop_image":
+            parts.append(crop_step_summary(self.params))
         if parts:
             return f"{base} — {', '.join(parts)}"
         return base
