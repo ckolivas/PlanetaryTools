@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 from planetary_tools import __version__
 from planetary_tools.core.align import align_channel
 from planetary_tools.core.document import ImageDocument
+from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import UndoManager
 # from planetary_tools.filters import oklab_compose, oklab_decompose
@@ -59,6 +60,7 @@ from planetary_tools.ui.dialogs import (
     _FilterDialog,
 )
 from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
+from planetary_tools.ui.rotate_dialog import RotateImageDialog
 from planetary_tools.ui.scale_dialog import ScaleImageDialog
 from planetary_tools.ui.recent_files import (
     add_recent,
@@ -203,6 +205,15 @@ class MainWindow(QMainWindow):
         )
         self._scale_act.triggered.connect(self._run_scale_image)
         edit_menu.addAction(self._scale_act)
+
+        self._rotate_act = QAction("&Rotate Image…", self)
+        self._rotate_act.setToolTip(
+            "Rotate the image with high-quality bicubic resampling. Positive "
+            "angles are counter-clockwise; the canvas expands to fit unless "
+            "cropped."
+        )
+        self._rotate_act.triggered.connect(self._run_rotate_image)
+        edit_menu.addAction(self._rotate_act)
         edit_menu.setToolTipsVisible(True)
 
         enhance_menu = self.menuBar().addMenu("&Enhance")
@@ -364,7 +375,7 @@ class MainWindow(QMainWindow):
     def _update_actions(self) -> None:
         has_doc = self._document is not None
         for act in (
-            self._save_act, self._save_as_act, self._scale_act,
+            self._save_act, self._save_as_act, self._scale_act, self._rotate_act,
             self._sharpen_act, self._denoise_act, self._deconv_act,
             self._moon_enhance_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
@@ -1252,6 +1263,47 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
         self._status.showMessage(
             f"{new_w}×{new_h}  "
+            f"{'Greyscale' if self._document.is_grayscale else 'RGB'}  "
+            f"32-bit float linear"
+        )
+
+    def _run_rotate_image(self) -> None:
+        if self._document is None:
+            return
+        if self._guard_filter_dialog("Rotate Image", self._run_rotate_image):
+            return
+        dlg = RotateImageDialog(
+            self._document.width,
+            self._document.height,
+            self,
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        angle = dlg.angle_deg()
+        crop = dlg.crop_to_original()
+        if angle % 360.0 == 0.0:
+            return
+        try:
+            result = rotate_image(
+                self._document.data,
+                angle,
+                expand=True,
+                crop_to_original=crop,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Rotate Image", str(exc))
+            return
+        self._undo.record(
+            self._document.data,
+            self._document.is_grayscale,
+            "Rotate Image",
+        )
+        self._document.set_data(result)
+        self._canvas.refresh()
+        self._update_undo_actions()
+        self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
+        self._status.showMessage(
+            f"{self._document.width}×{self._document.height}  "
             f"{'Greyscale' if self._document.is_grayscale else 'RGB'}  "
             f"32-bit float linear"
         )
