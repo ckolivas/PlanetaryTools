@@ -35,6 +35,7 @@ from planetary_tools.core.field_derotate import (
     RigidMatch,
     derotate_set,
     estimate_rigid,
+    pad_to_common,
 )
 from planetary_tools.io.loader import load_image, supported_extensions
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
@@ -81,19 +82,22 @@ class _EstimateWorker(QThread):
 
     def run(self) -> None:
         try:
-            matches: list[RigidMatch] = [IDENTITY_MATCH] * len(self._paths)
-            ref_path = self._paths[self._ref_index]
-            self.progress.emit(0, len(self._paths), f"Loading reference {ref_path.name}")
-            ref = load_image(ref_path).data
-            matches[self._ref_index] = IDENTITY_MATCH
+            n = len(self._paths)
+            loaded: list = []
             for i, path in enumerate(self._paths):
+                self.progress.emit(i, n * 2, f"Loading {path.name}")
+                loaded.append(load_image(path).data)
+            padded = pad_to_common(loaded)
+            ref = padded[self._ref_index]
+            matches: list[RigidMatch] = [IDENTITY_MATCH] * n
+            matches[self._ref_index] = IDENTITY_MATCH
+            for i, arr in enumerate(padded):
                 if i == self._ref_index:
                     continue
-                self.progress.emit(i, len(self._paths), f"Matching {path.name}")
-                tgt = load_image(path).data
+                self.progress.emit(n + i, n * 2, f"Matching {self._paths[i].name}")
                 matches[i] = estimate_rigid(
                     ref,
-                    tgt,
+                    arr,
                     max_angle=self._max_angle,
                     rotate=self._rotate,
                 )
@@ -156,14 +160,16 @@ class FieldDerotateDialog(QDialog):
         self._rows: list[_Row] = []
         self._ref_index = 0
         self._worker: QThread | None = None
+        self._estimated = False
 
         root = QVBoxLayout(self)
         root.addWidget(
             QLabel(
                 "Align stacked stills to a chosen reference image by best "
-                "luminance match. Rotation (derotation) is optional. This is "
-                "not WinJUPOS CM / longitude derotation, and it does not use "
-                "site or sky coordinates."
+                "luminance match. Frames may differ in size; smaller ones are "
+                "centred on a black canvas that fits the largest. Rotation "
+                "(derotation) is optional. This is not WinJUPOS CM / longitude "
+                "derotation, and it does not use site or sky coordinates."
             )
         )
 
@@ -171,10 +177,16 @@ class FieldDerotateDialog(QDialog):
         fl = QVBoxLayout(files)
         pick = QHBoxLayout()
         btn_files = QPushButton("Select files…")
+        btn_files.setToolTip("Replace the current file list.")
         btn_files.clicked.connect(self._pick_files)
+        btn_add = QPushButton("Add files…")
+        btn_add.setToolTip("Append images without clearing the current list.")
+        btn_add.clicked.connect(self._add_files)
         btn_folder = QPushButton("Select folder…")
+        btn_folder.setToolTip("Replace the list with every image in a folder.")
         btn_folder.clicked.connect(self._pick_folder)
         pick.addWidget(btn_files)
+        pick.addWidget(btn_add)
         pick.addWidget(btn_folder)
         pick.addStretch()
         fl.addLayout(pick)
@@ -276,11 +288,14 @@ class FieldDerotateDialog(QDialog):
         buttons.addButton(self._run_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+        self._update_action_buttons()
 
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
 
     def _pick_files(self) -> None:
+        if self._busy():
+            return
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Select stacked images", last_open_directory(), _image_filter()
         )
@@ -288,7 +303,35 @@ class FieldDerotateDialog(QDialog):
             remember_open_path(paths[0])
             self._set_paths([Path(p) for p in paths])
 
+    def _add_files(self) -> None:
+        if self._busy():
+            return
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Add images", last_open_directory(), _image_filter()
+        )
+        if not paths:
+            return
+        remember_open_path(paths[0])
+        existing = {r.path.resolve() for r in self._rows}
+        added = 0
+        for raw in paths:
+            path = Path(raw)
+            key = path.resolve()
+            if key in existing:
+                continue
+            self._rows.append(_Row(path=path, status=""))
+            existing.add(key)
+            added += 1
+        if not added:
+            return
+        if not self._output_dir.text().strip():
+            self._output_dir.setText(str(self._rows[0].path.parent))
+        self._invalidate_estimate()
+        self._refresh_table()
+
     def _pick_folder(self) -> None:
+        if self._busy():
+            return
         folder = QFileDialog.getExistingDirectory(
             self, "Select folder of stacked images", last_open_directory()
         )
@@ -311,6 +354,7 @@ class FieldDerotateDialog(QDialog):
         self._ref_index = 0
         if paths and not self._output_dir.text().strip():
             self._output_dir.setText(str(paths[0].parent))
+        self._invalidate_estimate()
         self._refresh_table()
 
     def _selected_rows(self) -> list[int]:
@@ -331,16 +375,16 @@ class FieldDerotateDialog(QDialog):
             del self._rows[r]
         if not self._rows:
             self._ref_index = 0
+            self._invalidate_estimate()
         elif ref_removed:
             self._ref_index = 0
-            for row in self._rows:
-                row.match = None
-                row.status = ""
+            self._invalidate_estimate()
             self._status.setText(f"Reference: {self._rows[0].path.name}")
         else:
             self._ref_index = max(
                 0, min(self._ref_index - removed_before_ref, len(self._rows) - 1)
             )
+            self._update_action_buttons()
         self._refresh_table()
         if self._rows:
             self._table.selectRow(min(rows[0], len(self._rows) - 1))
@@ -350,14 +394,31 @@ class FieldDerotateDialog(QDialog):
             return
         self._rows = []
         self._ref_index = 0
+        self._invalidate_estimate()
         self._refresh_table()
 
-    def _on_derotate_toggled(self, checked: bool) -> None:
-        self._max_angle.setEnabled(checked)
-        had_matches = any(r.match is not None for r in self._rows)
+    def _invalidate_estimate(self) -> None:
+        self._estimated = False
         for r in self._rows:
             r.match = None
             r.status = ""
+        self._update_action_buttons()
+
+    def _update_action_buttons(self, *, running: bool | None = None) -> None:
+        if running is None:
+            running = self._busy()
+        if running:
+            self._est_btn.setEnabled(False)
+            self._run_btn.setEnabled(False)
+            return
+        enough = len(self._rows) >= 2
+        self._est_btn.setEnabled(enough and not self._estimated)
+        self._run_btn.setEnabled(enough and self._estimated)
+
+    def _on_derotate_toggled(self, checked: bool) -> None:
+        self._max_angle.setEnabled(checked)
+        had_matches = self._estimated
+        self._invalidate_estimate()
         self._refresh_table()
         mode = "Derotate on." if checked else "Shift only."
         if had_matches:
@@ -372,9 +433,7 @@ class FieldDerotateDialog(QDialog):
             )
             return
         self._ref_index = row
-        for r in self._rows:
-            r.match = None
-            r.status = ""
+        self._invalidate_estimate()
         self._refresh_table()
         self._status.setText(f"Reference: {self._rows[row].path.name}")
 
@@ -410,10 +469,9 @@ class FieldDerotateDialog(QDialog):
             self._table.setItem(i, _COL_STATUS, st)
 
     def _set_running(self, running: bool) -> None:
-        self._est_btn.setEnabled(not running)
-        self._run_btn.setEnabled(not running)
         self._derotate.setEnabled(not running)
         self._progress.setVisible(running)
+        self._update_action_buttons(running=running)
 
     def _estimate(self) -> None:
         if self._busy():
@@ -437,11 +495,12 @@ class FieldDerotateDialog(QDialog):
         self._worker.start()
 
     def _on_estimated(self, matches: object) -> None:
-        self._set_running(False)
         typed = matches  # type: list[RigidMatch]
         for row, match in zip(self._rows, typed):
             row.match = match
             row.status = match.status
+        self._estimated = True
+        self._set_running(False)
         self._refresh_table()
         if self._derotate.isChecked():
             self._status.setText("Estimate complete. Review Δ° / dx / dy, then Run.")
@@ -523,6 +582,7 @@ class FieldDerotateDialog(QDialog):
         self._status.setText(f"{message} ({current}/{total})")
 
     def _on_failed(self, message: str) -> None:
+        self._estimated = False
         self._set_running(False)
         self._status.setText("Failed")
         QMessageBox.critical(self, "Derotate/Align", message)

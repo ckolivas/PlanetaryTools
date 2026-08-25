@@ -261,6 +261,28 @@ def moon_angle_vote(
     return _wrap_180(a_tgt - a_ref)
 
 
+def centre_pad_to(data: np.ndarray, canvas_w: int, canvas_h: int) -> np.ndarray:
+    """Centre ``data`` on a black canvas of ``canvas_w``×``canvas_h``."""
+    arr = np.asarray(data, dtype=np.float32)
+    h, w = int(arr.shape[0]), int(arr.shape[1])
+    if w == canvas_w and h == canvas_h:
+        return arr
+    if w > canvas_w or h > canvas_h:
+        raise ValueError(
+            f"Frame {w}×{h} is larger than canvas {canvas_w}×{canvas_h}."
+        )
+    return paste_into_canvas(arr, canvas_w, canvas_h, geometric_centre(arr.shape))
+
+
+def pad_to_common(images: list[np.ndarray]) -> list[np.ndarray]:
+    """Centre-pad every image onto a canvas of max width × max height."""
+    if not images:
+        return []
+    canvas_w = max(int(im.shape[1]) for im in images)
+    canvas_h = max(int(im.shape[0]) for im in images)
+    return [centre_pad_to(im, canvas_w, canvas_h) for im in images]
+
+
 def estimate_rigid(
     reference: np.ndarray,
     target: np.ndarray,
@@ -274,13 +296,13 @@ def estimate_rigid(
     ``angle_deg`` is CCW (Pillow). ``(dy, dx)`` shifts the *rotated* target
     onto the reference (scipy.ndimage.shift convention, original-pixel units).
     When ``rotate`` is false, only the low-pass translation is estimated.
+    Frames of different size are centre-padded to a shared canvas first.
     """
+    reference, target = pad_to_common(
+        [np.asarray(reference, dtype=np.float32), np.asarray(target, dtype=np.float32)]
+    )
     ref_l = luma(reference)
     tgt_l = luma(target)
-    if ref_l.shape != tgt_l.shape:
-        raise ValueError(
-            f"Images must share a shape for matching ({ref_l.shape} vs {tgt_l.shape})."
-        )
 
     sigma = _shift_sigma(ref_l.shape)
     if not rotate:
@@ -425,6 +447,11 @@ def derotate_set(
     result = DerotateSetResult()
     if not items:
         return result
+
+    padded = pad_to_common([data for _path, data, _match in items])
+    items = [
+        (path, arr, match) for (path, _old, match), arr in zip(items, padded)
+    ]
 
     applied: list[tuple[Path, np.ndarray, RigidMatch]] = []
     total = len(items)
