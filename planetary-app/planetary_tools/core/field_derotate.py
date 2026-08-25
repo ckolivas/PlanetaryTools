@@ -1,10 +1,11 @@
-"""Field derotation by luminance match to a reference image.
+"""Derotate/Align by luminance match to a reference image.
 
-Rigid (rotation + translation) registration in the style of WaveSharp
-Align/Rotate: no astrometry. Shift is taken from a low-passed luma match so
-compact moons cannot pull the translation. Moons may only vote on angle.
-Optional subpixel lock uses the Align RGB 3× cross-correlation against the
-chosen reference after the integer rigid match.
+Rigid registration in the style of WaveSharp Align/Rotate: no astrometry.
+Rotation is optional; shift-only matching skips the angle search. Shift is
+taken from a low-passed luma match so compact moons cannot pull the
+translation. Moons may only vote on angle. Optional subpixel lock uses the
+Align RGB 3× cross-correlation against the chosen reference after the
+integer match.
 """
 
 from __future__ import annotations
@@ -265,11 +266,14 @@ def estimate_rigid(
     target: np.ndarray,
     *,
     max_angle: float = 45.0,
+    rotate: bool = True,
 ) -> RigidMatch:
-    """Rigid match of ``target`` to ``reference`` by best luminance.
+    """Match ``target`` to ``reference`` by best luminance.
 
+    When ``rotate`` is true, search a rigid rotation + translation.
     ``angle_deg`` is CCW (Pillow). ``(dy, dx)`` shifts the *rotated* target
     onto the reference (scipy.ndimage.shift convention, original-pixel units).
+    When ``rotate`` is false, only the low-pass translation is estimated.
     """
     ref_l = luma(reference)
     tgt_l = luma(target)
@@ -278,9 +282,24 @@ def estimate_rigid(
             f"Images must share a shape for matching ({ref_l.shape} vs {tgt_l.shape})."
         )
 
+    sigma = _shift_sigma(ref_l.shape)
+    if not rotate:
+        dy, dx, shift_score = phase_correlation_shift(
+            gaussian_filter(ref_l, sigma=sigma),
+            gaussian_filter(tgt_l, sigma=sigma),
+        )
+        status = "OK" if shift_score >= _WEAK_SCORE else "Weak match"
+        return RigidMatch(
+            angle_deg=0.0,
+            dy=float(dy),
+            dx=float(dx),
+            score=float(shift_score),
+            moon_vote_deg=None,
+            status=status,
+        )
+
     ref_s = _structure(_search_downsample(ref_l))
     tgt_s = _structure(_search_downsample(tgt_l))
-    sigma = _shift_sigma(ref_l.shape)
     # Planet-only shift (low-pass) with no rotation — moons must not drive this.
     pre_dy, pre_dx, _ = phase_correlation_shift(
         gaussian_filter(ref_l, sigma=sigma),
@@ -411,7 +430,7 @@ def derotate_set(
     total = len(items)
     for i, (path, data, match) in enumerate(items):
         if on_progress:
-            on_progress(i, total, f"Rotating {path.name}")
+            on_progress(i, total, f"Applying {path.name}")
         try:
             applied.append((path, apply_rigid(data, match), match))
         except Exception as exc:

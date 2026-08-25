@@ -1,4 +1,4 @@
-"""Field derotation — align/rotate a set to a chosen reference image."""
+"""Derotate/Align — align and optionally rotate a set to a reference image."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -45,6 +46,8 @@ _COL_DY = 3
 _COL_SCORE = 4
 _COL_STATUS = 5
 
+_TITLE = "Derotate/Align"
+
 
 def _image_filter() -> str:
     exts = " ".join(f"*{e}" for e in supported_extensions())
@@ -68,11 +71,13 @@ class _EstimateWorker(QThread):
         paths: list[Path],
         ref_index: int,
         max_angle: float,
+        rotate: bool,
     ) -> None:
         super().__init__()
         self._paths = paths
         self._ref_index = ref_index
         self._max_angle = max_angle
+        self._rotate = rotate
 
     def run(self) -> None:
         try:
@@ -86,7 +91,12 @@ class _EstimateWorker(QThread):
                     continue
                 self.progress.emit(i, len(self._paths), f"Matching {path.name}")
                 tgt = load_image(path).data
-                matches[i] = estimate_rigid(ref, tgt, max_angle=self._max_angle)
+                matches[i] = estimate_rigid(
+                    ref,
+                    tgt,
+                    max_angle=self._max_angle,
+                    rotate=self._rotate,
+                )
             self.finished_ok.emit(matches)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -141,7 +151,7 @@ class _RunWorker(QThread):
 class FieldDerotateDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Field Derotation")
+        self.setWindowTitle(_TITLE)
         self.setMinimumWidth(740)
         self._rows: list[_Row] = []
         self._ref_index = 0
@@ -150,9 +160,10 @@ class FieldDerotateDialog(QDialog):
         root = QVBoxLayout(self)
         root.addWidget(
             QLabel(
-                "Align and rotate stacked stills to a chosen reference image "
-                "by best luminance match. This is not WinJUPOS CM / longitude "
-                "derotation, and it does not use site or sky coordinates."
+                "Align stacked stills to a chosen reference image by best "
+                "luminance match. Rotation (derotation) is optional. This is "
+                "not WinJUPOS CM / longitude derotation, and it does not use "
+                "site or sky coordinates."
             )
         )
 
@@ -175,7 +186,7 @@ class FieldDerotateDialog(QDialog):
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(_COL_FILE, QHeaderView.ResizeMode.Stretch)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         fl.addWidget(self._table)
 
         ref_row = QHBoxLayout()
@@ -185,13 +196,32 @@ class FieldDerotateDialog(QDialog):
             "(WaveSharp “Set Reference”)."
         )
         set_ref.clicked.connect(self._set_reference)
+        btn_remove = QPushButton("Remove")
+        btn_remove.setToolTip("Remove the selected file(s) from the list.")
+        btn_remove.clicked.connect(self._remove)
+        btn_clear = QPushButton("Clear")
+        btn_clear.setToolTip("Remove all files from the list.")
+        btn_clear.clicked.connect(self._clear)
         ref_row.addWidget(set_ref)
+        ref_row.addWidget(btn_remove)
+        ref_row.addWidget(btn_clear)
         ref_row.addStretch()
         fl.addLayout(ref_row)
+        QShortcut(QKeySequence.StandardKey.Delete, self._table).activated.connect(
+            self._remove
+        )
         root.addWidget(files)
 
         opts = QGroupBox("Match")
         of = QFormLayout(opts)
+        self._derotate = QCheckBox("Derotate")
+        self._derotate.setChecked(True)
+        self._derotate.setToolTip(
+            "Search and apply a rotation to match the reference. Uncheck to "
+            "shift only — faster, and leaves each frame’s orientation unchanged."
+        )
+        self._derotate.toggled.connect(self._on_derotate_toggled)
+        of.addRow(self._derotate)
         self._max_angle = QDoubleSpinBox()
         self._max_angle.setRange(0.5, 180.0)
         self._max_angle.setDecimals(2)
@@ -200,7 +230,7 @@ class FieldDerotateDialog(QDialog):
         self._max_angle.setSuffix(" °")
         self._max_angle.setToolTip(
             "Search this many degrees either side of 0. Warns if the "
-            "best match sits on the limit."
+            "best match sits on the limit. Used only when Derotate is on."
         )
         of.addRow("Max search angle", self._max_angle)
         self._subpixel = QCheckBox("Subpixel alignment")
@@ -283,11 +313,62 @@ class FieldDerotateDialog(QDialog):
             self._output_dir.setText(str(paths[0].parent))
         self._refresh_table()
 
+    def _selected_rows(self) -> list[int]:
+        return sorted({idx.row() for idx in self._table.selectedIndexes()})
+
+    def _remove(self) -> None:
+        if self._busy():
+            return
+        rows = self._selected_rows()
+        if not rows:
+            QMessageBox.information(
+                self, _TITLE, "Select a file in the table first."
+            )
+            return
+        removed_before_ref = sum(1 for r in rows if r < self._ref_index)
+        ref_removed = self._ref_index in rows
+        for r in reversed(rows):
+            del self._rows[r]
+        if not self._rows:
+            self._ref_index = 0
+        elif ref_removed:
+            self._ref_index = 0
+            for row in self._rows:
+                row.match = None
+                row.status = ""
+            self._status.setText(f"Reference: {self._rows[0].path.name}")
+        else:
+            self._ref_index = max(
+                0, min(self._ref_index - removed_before_ref, len(self._rows) - 1)
+            )
+        self._refresh_table()
+        if self._rows:
+            self._table.selectRow(min(rows[0], len(self._rows) - 1))
+
+    def _clear(self) -> None:
+        if self._busy():
+            return
+        self._rows = []
+        self._ref_index = 0
+        self._refresh_table()
+
+    def _on_derotate_toggled(self, checked: bool) -> None:
+        self._max_angle.setEnabled(checked)
+        had_matches = any(r.match is not None for r in self._rows)
+        for r in self._rows:
+            r.match = None
+            r.status = ""
+        self._refresh_table()
+        mode = "Derotate on." if checked else "Shift only."
+        if had_matches:
+            mode += " Run Estimate again."
+        self._status.setText(mode)
+
     def _set_reference(self) -> None:
         row = self._table.currentRow()
         if row < 0 or row >= len(self._rows):
             QMessageBox.information(
-                self, "Field Derotation", "Select a file in the table first."
+                self, "Derotate/Align", "Select a file in the table first."
             )
             return
         self._ref_index = row
@@ -331,6 +412,7 @@ class FieldDerotateDialog(QDialog):
     def _set_running(self, running: bool) -> None:
         self._est_btn.setEnabled(not running)
         self._run_btn.setEnabled(not running)
+        self._derotate.setEnabled(not running)
         self._progress.setVisible(running)
 
     def _estimate(self) -> None:
@@ -338,7 +420,7 @@ class FieldDerotateDialog(QDialog):
             return
         if len(self._rows) < 2:
             QMessageBox.warning(
-                self, "Field Derotation", "Select at least two images."
+                self, "Derotate/Align", "Select at least two images."
             )
             return
         self._set_running(True)
@@ -347,6 +429,7 @@ class FieldDerotateDialog(QDialog):
             [r.path for r in self._rows],
             self._ref_index,
             float(self._max_angle.value()),
+            self._derotate.isChecked(),
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished_ok.connect(self._on_estimated)
@@ -360,7 +443,10 @@ class FieldDerotateDialog(QDialog):
             row.match = match
             row.status = match.status
         self._refresh_table()
-        self._status.setText("Estimate complete. Review Δ° / dx / dy, then Run.")
+        if self._derotate.isChecked():
+            self._status.setText("Estimate complete. Review Δ° / dx / dy, then Run.")
+        else:
+            self._status.setText("Estimate complete. Review dx / dy, then Run.")
 
     def _run(self) -> None:
         if self._busy():
@@ -368,13 +454,13 @@ class FieldDerotateDialog(QDialog):
         if any(r.match is None for r in self._rows):
             QMessageBox.warning(
                 self,
-                "Field Derotation",
+                "Derotate/Align",
                 "Run Estimate first so each file has a match to the reference.",
             )
             return
         out_text = self._output_dir.text().strip()
         if not out_text:
-            QMessageBox.warning(self, "Field Derotation", "Select an output folder.")
+            QMessageBox.warning(self, "Derotate/Align", "Select an output folder.")
             return
         output_dir = Path(out_text)
         suffix = self._suffix.text().strip() or "_derot"
@@ -426,9 +512,9 @@ class FieldDerotateDialog(QDialog):
         if r.failed:
             msg += f" {len(r.failed)} failed."
             details = "\n".join(f"{p}: {e}" for p, e in r.failed[:10])
-            QMessageBox.warning(self, "Field Derotation", msg + "\n\n" + details)
+            QMessageBox.warning(self, "Derotate/Align", msg + "\n\n" + details)
         else:
-            QMessageBox.information(self, "Field Derotation", msg)
+            QMessageBox.information(self, "Derotate/Align", msg)
         self._status.setText(msg)
 
     def _on_progress(self, current: int, total: int, message: str) -> None:
@@ -439,12 +525,12 @@ class FieldDerotateDialog(QDialog):
     def _on_failed(self, message: str) -> None:
         self._set_running(False)
         self._status.setText("Failed")
-        QMessageBox.critical(self, "Field Derotation", message)
+        QMessageBox.critical(self, "Derotate/Align", message)
 
     def closeEvent(self, event) -> None:
         if self._busy():
             QMessageBox.warning(
-                self, "Field Derotation", "Wait for the run to finish before closing."
+                self, "Derotate/Align", "Wait for the run to finish before closing."
             )
             event.ignore()
             return

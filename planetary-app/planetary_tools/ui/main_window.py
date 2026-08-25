@@ -340,11 +340,11 @@ class MainWindow(QMainWindow):
         colours_menu.setToolTipsVisible(True)
 
         tools_menu = self.menuBar().addMenu("&Tools")
-        self._field_derot_act = QAction("&Field Derotation…", self)
+        self._field_derot_act = QAction("&Derotate/Align…", self)
         self._field_derot_act.setToolTip(
-            "Align and rotate a set of stacked stills to a chosen reference "
-            "image by best luminance match (field / alt-az derotation). "
-            "Not WinJUPOS CM derotation."
+            "Align stacked stills to a chosen reference by best luminance "
+            "match. Rotation (derotation) is optional; uncheck it to shift "
+            "only. Not WinJUPOS CM derotation."
         )
         self._field_derot_act.triggered.connect(self._run_field_derotate)
         tools_menu.addAction(self._field_derot_act)
@@ -1174,7 +1174,7 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _run_field_derotate(self) -> None:
-        if self._guard_filter_dialog("Field Derotation", self._run_field_derotate):
+        if self._guard_filter_dialog("Derotate/Align", self._run_field_derotate):
             return
         dlg = FieldDerotateDialog(self)
         dlg.exec()
