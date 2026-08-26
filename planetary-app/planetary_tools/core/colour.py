@@ -124,6 +124,39 @@ def rgb_to_oklab_L(rgb: np.ndarray) -> np.ndarray:
     return rgb_to_oklab(rgb)[..., 0]
 
 
+def scale_rgb_by_oklab_L(
+    rgb: np.ndarray,
+    L: np.ndarray,
+    L_new: np.ndarray,
+    *,
+    peak: float,
+) -> np.ndarray:
+    """Scale linear RGB so OKLab L moves toward ``L_new`` without clipping.
+
+    Same method as Stretch Contrast OKLab: per-pixel scale ``L_new / L``,
+    limited so no channel exceeds 1, then a global factor so the peak
+    channel value equals ``peak``. Rewriting L in OKLab and converting
+    back is not equivalent — L is cube-root-like, so that path cubes
+    linear RGB and blows the result.
+    """
+    rgb = np.asarray(rgb, dtype=np.float32)
+    V = np.max(rgb, axis=-1)
+    L_arr = np.asarray(L, dtype=np.float64)
+    L_tgt = np.asarray(L_new, dtype=np.float64)
+    peak = float(peak)
+    if peak <= 0.0:
+        return np.zeros_like(rgb)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        f_desired = np.where(L_arr > 1e-7, L_tgt / L_arr, 0.0)
+        f_max = np.where(V > 1e-7, 1.0 / V, f_desired)
+    f = np.minimum(f_desired, f_max)
+    out_max = float(np.max(V * f))
+    if out_max < 1e-7:
+        return np.array(rgb, copy=True)
+    f = f * (peak / out_max)
+    return clamp01(rgb * f[..., None].astype(np.float32))
+
+
 def linear_luminance(rgb: np.ndarray) -> np.ndarray:
     """BT.709 luminance from linear RGB."""
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]

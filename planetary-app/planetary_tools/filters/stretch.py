@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from planetary_tools.core.colour import clamp01, rgb_to_oklab_L
+from planetary_tools.core.colour import clamp01, rgb_to_oklab_L, scale_rgb_by_oklab_L
 
 
 def stretch_contrast_oklab(data: np.ndarray, amount_pct: float = 100.0) -> np.ndarray:
@@ -29,21 +29,8 @@ def stretch_contrast_oklab(data: np.ndarray, amount_pct: float = 100.0) -> np.nd
         return data.copy()
 
     scale = target / L_range
-    V = np.max(rgb, axis=-1)
     L_new = (L - L_min) * scale
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        f_desired = np.where(L > 1e-7, L_new / L, 0.0)
-        f_max = np.where(V > 1e-7, 1.0 / V, f_desired)
-    f = np.minimum(f_desired, f_max)
-    peak = V * f
-    out_max = float(np.max(peak))
-    if out_max < 1e-7:
-        return data.copy()
-
-    renorm = target / out_max
-    f = f * renorm
-    out = clamp01(rgb * f[..., None])
+    out = scale_rgb_by_oklab_L(rgb, L, L_new, peak=target)
 
     if was_gray:
         return out[..., 0]

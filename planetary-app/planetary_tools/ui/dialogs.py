@@ -1257,8 +1257,9 @@ class LevelsDialog(_FilterDialog):
         self._form.addRow(row)
 
         self.set_help_text(
-            "Luminance uses OKLab. RGB matches GIMP perceptual gamma "
-            "(sRGB-encoded); output is applied before input."
+            "Luminance uses OKLab L as the brightness measure, applied by "
+            "scaling RGB like Stretch Contrast OKLab. RGB matches GIMP "
+            "perceptual gamma (sRGB-encoded); output is applied before input."
         )
         self._load_channel_into_spins(self._current_channel())
 

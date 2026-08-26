@@ -8,9 +8,11 @@ from typing import Any
 import numpy as np
 
 from planetary_tools.core.colour import (
+    clamp01,
     linear_to_srgb,
-    oklab_to_rgb,
     rgb_to_oklab,
+    rgb_to_oklab_L,
+    scale_rgb_by_oklab_L,
     srgb_to_linear,
 )
 
@@ -120,20 +122,20 @@ def apply_levels_curve(
     return _apply_input_curve(out, levels)
 
 
-def _apply_oklab_l_output(rgb: np.ndarray, levels: dict[str, float]) -> np.ndarray:
-    if _is_identity_output(levels):
-        return rgb
-    lab = rgb_to_oklab(rgb)
-    lab[..., 0] = _apply_output_curve(lab[..., 0], levels)
-    return oklab_to_rgb(lab, clamp=False)
+def _apply_oklab_l(rgb: np.ndarray, levels: dict[str, float]) -> np.ndarray:
+    """Remap OKLab L, then apply it by scaling linear RGB (as stretch does).
 
-
-def _apply_oklab_l_input(rgb: np.ndarray, levels: dict[str, float]) -> np.ndarray:
-    if _is_identity_input(levels):
+    Rewriting L in OKLab and converting back cubes linear light and does not
+    match Stretch Contrast OKLab. Input-max on L with the image's L peak
+    should therefore match a 100% OKLab stretch.
+    """
+    if is_identity_levels(levels):
         return rgb
-    lab = rgb_to_oklab(rgb)
-    lab[..., 0] = _apply_input_curve(lab[..., 0], levels)
-    return oklab_to_rgb(lab, clamp=False)
+    work = clamp01(rgb)
+    L = rgb_to_oklab_L(work)
+    L_new = apply_levels_curve(L, levels)
+    peak = float(np.clip(np.max(L_new), 0.0, 1.0))
+    return scale_rgb_by_oklab_L(work, L, L_new, peak=peak)
 
 
 def _apply_srgb_rgb_output(
@@ -167,7 +169,7 @@ def _apply_srgb_rgb_input(
 
 
 def apply_levels(data: np.ndarray, params: dict[str, Any]) -> np.ndarray:
-    """Apply OKLab L and sRGB-encoded R, G, B (output pass, then input pass)."""
+    """Apply OKLab L (RGB-scaled, as stretch) then sRGB-encoded R, G, B."""
     channels = normalize_levels_params(params)
     if all(is_identity_levels(channels[ch]) for ch in LEVEL_CHANNELS):
         return np.asarray(data, dtype=np.float32)
@@ -177,9 +179,8 @@ def apply_levels(data: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     if rgb.ndim == 2:
         rgb = np.stack([rgb, rgb, rgb], axis=-1)
 
-    rgb = _apply_oklab_l_output(rgb, channels["L"])
+    rgb = _apply_oklab_l(rgb, channels["L"])
     rgb = _apply_srgb_rgb_output(rgb, channels)
-    rgb = _apply_oklab_l_input(rgb, channels["L"])
     rgb = _apply_srgb_rgb_input(rgb, channels)
     return rgb.astype(np.float32)
 
