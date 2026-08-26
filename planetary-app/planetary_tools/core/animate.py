@@ -173,33 +173,39 @@ def encode_frames(
             raise ValueError(f"Unknown GIF quality: {gif_quality}")
         colors, dither = _GIF_PRESETS[quality]
         paletted = [_quantize_gif(im, colors, dither) for im in pil_rgb]
+        delays = [delay] * len(paletted)
         paletted[0].save(
             path,
             format="GIF",
             save_all=True,
             append_images=paletted[1:],
-            duration=delay,
+            duration=delays,
             loop=0,
             optimize=True,
-            disposal=2,
+            # Do not restore to background after each frame. Disposal 2 flashes
+            # a blank canvas at the loop wrap, which looks like a pause.
+            disposal=1,
         )
     elif fmt == "apng":
+        delays = [delay] * len(pil_rgb)
         pil_rgb[0].save(
             path,
             format="PNG",
             save_all=True,
             append_images=pil_rgb[1:],
-            duration=delay,
+            duration=delays,
             loop=0,
             default_image=False,
+            disposal=0,
         )
     else:
+        delays = [delay] * len(pil_rgb)
         pil_rgb[0].save(
             path,
             format="WEBP",
             save_all=True,
             append_images=pil_rgb[1:],
-            duration=delay,
+            duration=delays,
             loop=0,
             lossless=True,
             quality=100,
