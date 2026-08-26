@@ -1,11 +1,11 @@
 """Derotate/Align by luminance match to a reference image.
 
 Rigid registration in the style of WaveSharp Align/Rotate: no astrometry.
-Rotation is optional; shift-only matching skips the angle search. Shift is
-taken from a low-passed luma match so compact moons cannot pull the
-translation. Moons may only vote on angle. Optional subpixel lock uses the
-Align RGB 3× cross-correlation against the chosen reference after the
-integer match.
+Rotation is optional; shift-only matching skips the angle search. Angle and
+shift both come from the planet’s luminance structure. Shift uses a
+low-passed luma match so compact moons cannot pull the translation.
+Optional subpixel lock uses the Align RGB 3× cross-correlation against the
+chosen reference after the integer match.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from scipy.ndimage import gaussian_filter, maximum_filter, rotate as ndi_rotate
+from scipy.ndimage import gaussian_filter, rotate as ndi_rotate
 from scipy.ndimage import shift as ndi_shift
 
 from planetary_tools.core.align import align_to_reference
@@ -40,9 +40,7 @@ _POLISH_STEP = 0.01
 _SHIFT_SIGMA_FRAC = 0.03
 _SHIFT_SIGMA_MIN = 6.0
 _WEAK_SCORE = 0.15
-_MOON_AGREE_DEG = 3.0
 _CORE_FRAC = 0.2
-_MOON_PEAK_FRAC = 0.02
 
 
 @dataclass(frozen=True)
@@ -51,7 +49,6 @@ class RigidMatch:
     dy: float
     dx: float
     score: float
-    moon_vote_deg: float | None = None
     status: str = "OK"
 
 
@@ -211,56 +208,6 @@ def _luma_centroid(lum: np.ndarray) -> tuple[float, float]:
     return float(np.dot(w, xs) / wsum), float(np.dot(w, ys) / wsum)
 
 
-def _core_radius(lum: np.ndarray, cx: float, cy: float) -> float:
-    peak = float(lum.max())
-    mask = lum >= _CORE_FRAC * peak
-    if not bool(mask.any()):
-        return 0.15 * min(lum.shape)
-    ys, xs = np.nonzero(mask)
-    rms = float(np.sqrt(np.mean((xs - cx) ** 2 + (ys - cy) ** 2)))
-    return max(8.0, 2.0 * rms)
-
-
-def _brightest_outlier(
-    lum: np.ndarray, cx: float, cy: float, min_r: float
-) -> tuple[float, float] | None:
-    h, w = lum.shape
-    yy, xx = np.ogrid[0:h, 0:w]
-    rad = np.hypot(xx - cx, yy - cy)
-    work = lum.copy()
-    work[rad < min_r] = 0.0
-    floor = _MOON_PEAK_FRAC * float(lum.max())
-    if float(work.max()) < floor:
-        return None
-    nms = maximum_filter(work, size=7)
-    peaks = (work == nms) & (work >= floor)
-    ys, xs = np.nonzero(peaks)
-    if len(xs) == 0:
-        return None
-    vals = work[ys, xs]
-    i = int(np.argmax(vals))
-    return float(xs[i]), float(ys[i])
-
-
-def moon_angle_vote(
-    ref_luma: np.ndarray, aligned_luma: np.ndarray
-) -> float | None:
-    """Implied field angle (degrees CCW) from a compact off-planet source.
-
-    Uses the brightest residual outside the high-luma core. ``None`` if either
-    frame has no such source. Never used for shift.
-    """
-    cx, cy = _luma_centroid(ref_luma)
-    min_r = _core_radius(ref_luma, cx, cy)
-    p_ref = _brightest_outlier(ref_luma, cx, cy, min_r)
-    p_tgt = _brightest_outlier(aligned_luma, cx, cy, min_r)
-    if p_ref is None or p_tgt is None:
-        return None
-    a_ref = math.degrees(math.atan2(p_ref[1] - cy, p_ref[0] - cx))
-    a_tgt = math.degrees(math.atan2(p_tgt[1] - cy, p_tgt[0] - cx))
-    return _wrap_180(a_tgt - a_ref)
-
-
 def centre_pad_to(data: np.ndarray, canvas_w: int, canvas_h: int) -> np.ndarray:
     """Centre ``data`` on a black canvas of ``canvas_w``×``canvas_h``."""
     arr = np.asarray(data, dtype=np.float32)
@@ -316,36 +263,20 @@ def estimate_rigid(
             dy=float(dy),
             dx=float(dx),
             score=float(shift_score),
-            moon_vote_deg=None,
             status=status,
         )
 
     ref_s = _structure(_search_downsample(ref_l))
     tgt_s = _structure(_search_downsample(tgt_l))
-    # Planet-only shift (low-pass) with no rotation — moons must not drive this.
-    pre_dy, pre_dx, _ = phase_correlation_shift(
-        gaussian_filter(ref_l, sigma=sigma),
-        gaussian_filter(tgt_l, sigma=sigma),
-    )
-    pre_aligned = ndi_shift(
-        tgt_l, shift=(pre_dy, pre_dx), order=1, mode="constant", cval=0.0
-    )
-    # Polar delta of a compact source after planet shift, before rotation.
-    vote = moon_angle_vote(ref_l, pre_aligned)
-
     theta, score, on_limit = _search_angle(ref_s, tgt_s, max_angle)
 
     status = "OK"
     if score < _WEAK_SCORE:
         status = "Weak match"
-        if vote is not None and abs(vote) <= max_angle:
-            theta = float(vote)
-            status = "OK (moon angle)"
-    elif vote is not None and abs(_wrap_180(vote - theta)) > _MOON_AGREE_DEG:
-        status = "Moon angle disagrees"
 
     rotated = rotate_image(target, theta, expand=False, crop_to_original=False)
     rot_l = luma(rotated)
+    # Planet-only shift (low-pass) — compact moons must not drive this.
     dy, dx, shift_score = phase_correlation_shift(
         gaussian_filter(ref_l, sigma=sigma),
         gaussian_filter(rot_l, sigma=sigma),
@@ -359,7 +290,6 @@ def estimate_rigid(
         dy=float(dy),
         dx=float(dx),
         score=float(score),
-        moon_vote_deg=vote,
         status=status,
     )
 
