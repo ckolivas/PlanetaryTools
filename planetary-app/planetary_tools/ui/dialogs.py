@@ -37,6 +37,7 @@ from planetary_tools.filters.colour_matrix import IDENTITY_MATRIX
 from planetary_tools.filters.levels import (
     LEVEL_CHANNELS,
     auto_balance_levels,
+    channel_input_peak,
     default_levels_params,
     identity_levels,
     normalize_levels_params,
@@ -1210,7 +1211,17 @@ class LevelsDialog(_FilterDialog):
         for ch in LEVEL_CHANNELS:
             self._channel_combo.addItem(_LEVEL_CHANNEL_LABELS[ch], ch)
         self._channel_combo.currentIndexChanged.connect(self._on_channel_changed)
-        self._form.addRow("Channel", self._channel_combo)
+        ch_row = QWidget()
+        ch_layout = QHBoxLayout(ch_row)
+        ch_layout.setContentsMargins(0, 0, 0, 0)
+        ch_layout.addWidget(self._channel_combo, stretch=1)
+        stretch_btn = QPushButton("Stretch")
+        stretch_btn.setToolTip(
+            "Set this channel's input maximum to its peak value."
+        )
+        stretch_btn.clicked.connect(self._stretch_channel)
+        ch_layout.addWidget(stretch_btn)
+        self._form.addRow("Channel", ch_row)
 
         in_row, self._in_min, self._in_max = _make_level_pct_pair_row(
             0.0, 100.0, on_change=self._on_level_spin_changed,
@@ -1342,6 +1353,18 @@ class LevelsDialog(_FilterDialog):
         )
         self._input_data = np.asarray(data, dtype=np.float32)
         self._is_grayscale = is_grayscale
+
+    def _stretch_channel(self) -> None:
+        if self._input_data is None:
+            return
+        self._store_spins_in_channel(self._editing_channel)
+        ch = self._editing_channel
+        peak = channel_input_peak(self._input_data, ch)
+        if peak < 1e-6:
+            peak = 1.0
+        self._channel_params[ch]["in_max"] = peak
+        self._load_channel_into_spins(ch)
+        self._notify_params_changed(immediate=True)
 
     def _auto_balance(self) -> None:
         if self._input_data is None:

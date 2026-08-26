@@ -202,6 +202,14 @@ def _channel_values(data: np.ndarray, channel: str) -> np.ndarray:
     return srgb[..., idx].ravel()
 
 
+def channel_input_peak(data: np.ndarray, channel: str) -> float:
+    """Peak sample for the levels curve on ``channel``, clipped to [0, 1]."""
+    values = _channel_values(data, channel)
+    if values.size == 0:
+        return 1.0
+    return float(np.clip(np.max(values), 0.0, 1.0))
+
+
 def auto_input_levels_for_channel(values: np.ndarray) -> dict[str, float]:
     """GIMP-style auto input levels for one channel (output 0–1, gamma 1)."""
     flat = np.asarray(values, dtype=np.float64).ravel()
