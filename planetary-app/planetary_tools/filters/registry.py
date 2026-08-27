@@ -118,12 +118,12 @@ class WaveletDenoiseDef(FilterDef):
 @dataclass
 class AdaptiveDeconvDef(FilterDef):
     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
-        oklab = params.get("oklab", True) and not is_grayscale
+        luminance = params.get("luminance", True) and not is_grayscale
         return adaptive_deconvolution(
             data, is_grayscale,
             params.get("amount", 10.0),
             params.get("adaptive", True),
-            oklab,
+            luminance=luminance,
         )
 
 
@@ -361,7 +361,7 @@ FILTERS: dict[str, FilterDef] = {
         default_params=_with_defaults({
             "amount": 10.0,
             "adaptive": True,
-            "oklab": True,
+            "luminance": True,
             "auto": False,
             "target_noise": 3.5,
             "target_contrast": 15.0,

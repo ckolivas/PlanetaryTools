@@ -571,9 +571,10 @@ class WaveletSharpenDialog(_FilterDialog):
         self.coarse = self._add_double("Coarse", fdef.default_params["coarse"], 0.0, 300.0)
         self.chunky = self._add_double("Chunky", fdef.default_params["chunky"], 0.0, 300.0)
 
-        self.luminance = QCheckBox("OKLab luminance")
+        self.luminance = QCheckBox("Luminance (BT.709)")
         self.luminance.setToolTip(
-            "Sharpens on luminance layer decreasing colour noise but lowers saturation."
+            "Sharpens BT.709 luminance and adds the change back to RGB. "
+            "Decreases colour noise but lowers saturation."
         )
         self.luminance.setChecked(
             fdef.default_params.get("luminance", False) and not self._is_grayscale
@@ -946,14 +947,17 @@ class AdaptiveDeconvDialog(_FilterDialog):
         self.adaptive.setChecked(fdef.default_params["adaptive"])
         self.adaptive.toggled.connect(lambda _: self.params_changed.emit())
         self._form.addRow(self.adaptive)
-        self.oklab = QCheckBox("OKLab luminance")
-        self.oklab.setToolTip(
-            "Sharpens on luminance layer decreasing colour noise but lowers saturation."
+        self.luminance = QCheckBox("Luminance (BT.709)")
+        self.luminance.setToolTip(
+            "Sharpens BT.709 luminance and adds the change back to RGB. "
+            "Decreases colour noise but lowers saturation."
         )
-        self.oklab.setChecked(fdef.default_params["oklab"] and not self._is_grayscale)
-        self.oklab.setEnabled(not self._is_grayscale)
-        self.oklab.toggled.connect(lambda _: self.params_changed.emit())
-        self._form.addRow(self.oklab)
+        self.luminance.setChecked(
+            fdef.default_params["luminance"] and not self._is_grayscale
+        )
+        self.luminance.setEnabled(not self._is_grayscale)
+        self.luminance.toggled.connect(lambda _: self.params_changed.emit())
+        self._form.addRow(self.luminance)
 
         auto_row = QWidget()
         auto_layout = QHBoxLayout(auto_row)
@@ -1028,7 +1032,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
                 target_noise=self.target_noise.value(),
                 target_contrast=self.target_contrast.value(),
                 adaptive=self.adaptive.isChecked(),
-                oklab=self.oklab.isChecked(),
+                luminance=self.luminance.isChecked(),
                 progress=progress,
                 texture_scale=getattr(self, "_noise_texture_scale", None),
                 chromatic=getattr(self, "_noise_chromatic", None),
@@ -1047,7 +1051,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
         p.update({
             "amount": self.amount.value(),
             "adaptive": self.adaptive.isChecked(),
-            "oklab": self.oklab.isChecked(),
+            "luminance": self.luminance.isChecked(),
             "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
         })
@@ -1057,13 +1061,14 @@ class AdaptiveDeconvDialog(_FilterDialog):
         super().set_params(params)
         self.amount.blockSignals(True)
         self.adaptive.blockSignals(True)
-        self.oklab.blockSignals(True)
+        self.luminance.blockSignals(True)
         self.target_noise.blockSignals(True)
         self.target_contrast.blockSignals(True)
         self.amount.setValue(params.get("amount", self.amount.value()))
         self.adaptive.setChecked(params.get("adaptive", self.adaptive.isChecked()))
-        self.oklab.setChecked(
-            params.get("oklab", self.oklab.isChecked()) and not self._is_grayscale
+        self.luminance.setChecked(
+            params.get("luminance", self.luminance.isChecked())
+            and not self._is_grayscale
         )
         self.target_noise.setValue(
             float(params.get("target_noise", self.target_noise.value()))
@@ -1073,7 +1078,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
         )
         self.amount.blockSignals(False)
         self.adaptive.blockSignals(False)
-        self.oklab.blockSignals(False)
+        self.luminance.blockSignals(False)
         self.target_noise.blockSignals(False)
         self.target_contrast.blockSignals(False)
 
@@ -1703,9 +1708,10 @@ def edit_filter_params(
             spin.setValue(params.get(key, fdef.default_params.get(key, 0.0)))
             form.addRow(key.capitalize(), spin)
             widgets[key] = spin
-        luminance = QCheckBox("OKLab luminance")
+        luminance = QCheckBox("Luminance (BT.709)")
         luminance.setToolTip(
-            "Sharpens on luminance layer decreasing colour noise but lowers saturation."
+            "Sharpens BT.709 luminance and adds the change back to RGB. "
+            "Decreases colour noise but lowers saturation."
         )
         luminance.setChecked(
             bool(params.get("luminance", fdef.default_params.get("luminance", False)))
@@ -1778,14 +1784,17 @@ def edit_filter_params(
         adaptive.setChecked(params.get("adaptive", fdef.default_params["adaptive"]))
         form.addRow(adaptive)
         widgets["adaptive"] = adaptive
-        oklab = QCheckBox("OKLab luminance")
-        oklab.setToolTip(
-            "Sharpens on luminance layer decreasing colour noise but lowers saturation."
+        luminance = QCheckBox("Luminance (BT.709)")
+        luminance.setToolTip(
+            "Sharpens BT.709 luminance and adds the change back to RGB. "
+            "Decreases colour noise but lowers saturation."
         )
-        oklab.setChecked(params.get("oklab", fdef.default_params["oklab"]) and not is_grayscale)
-        oklab.setEnabled(not is_grayscale)
-        form.addRow(oklab)
-        widgets["oklab"] = oklab
+        luminance.setChecked(
+            params.get("luminance", fdef.default_params["luminance"]) and not is_grayscale
+        )
+        luminance.setEnabled(not is_grayscale)
+        form.addRow(luminance)
+        widgets["luminance"] = luminance
         auto_box = QCheckBox("Auto")
         auto_box.setToolTip(
             "Per image, binary-search amount to meet the noise and contrast "

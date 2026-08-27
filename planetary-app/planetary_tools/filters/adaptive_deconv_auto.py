@@ -39,7 +39,7 @@ def auto_adaptive_deconv_params(
     target_contrast: float = 15.0,
     *,
     adaptive: bool = True,
-    oklab: bool = True,
+    luminance: bool = True,
     max_amount: float = _MAX_AMOUNT,
     progress: Callable[[float, float, float], None] | None = None,
     texture_scale: float | None = None,
@@ -71,7 +71,7 @@ def auto_adaptive_deconv_params(
             is_grayscale,
             float(amount),
             bool(adaptive),
-            bool(oklab) and not is_grayscale,
+            luminance=bool(luminance) and not is_grayscale,
         )
         noise = absolute_noise(
             out,

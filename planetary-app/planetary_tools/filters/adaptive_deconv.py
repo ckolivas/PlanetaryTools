@@ -7,7 +7,7 @@ import math
 import numpy as np
 from scipy.ndimage import convolve, uniform_filter
 
-from planetary_tools.core.colour import linear_luminance, oklab_to_rgb, rgb_to_oklab
+from planetary_tools.core.colour import linear_luminance
 
 # Moffat PSF (gamma=1, beta=2, 5x5) — matches GIMP plug-in
 _GAMMA = 1.0
@@ -45,18 +45,21 @@ def _convolve2d(flat: np.ndarray, kernel: np.ndarray, width: int, height: int) -
     return out.ravel().astype(np.float32)
 
 
-def _oklab_sharpen_rgb(
+def _luma_sharpen_rgb(
     rgb: np.ndarray,
-    ratio: np.ndarray,
+    damped: np.ndarray,
 ) -> np.ndarray:
-    """Scale OKLab L by per-pixel ratio and convert back to linear RGB.
+    """Apply grayscale-style luma gain as an additive Rec.709 delta.
 
-    RGB is not clamped so highlight overshoot remains for the optional
-    clamp post-process and brightness-increase readout.
+    ``damped`` is the same per-pixel factor used on grayscale, where the
+    linear result is ``Y * damped**3``. Adding ``Y_new − Y`` leaves
+    ``R−Y, G−Y, B−Y`` unchanged. RGB is not clamped so highlight overshoot
+    remains for the optional clamp post-process and brightness readout.
     """
-    lab = rgb_to_oklab(rgb)
-    lab[..., 0] = lab[..., 0] * ratio.reshape(rgb.shape[0], rgb.shape[1])
-    return oklab_to_rgb(lab, clamp=False)
+    y = linear_luminance(rgb)
+    gain = np.asarray(damped, dtype=np.float32).reshape(y.shape)
+    y_new = y * gain * gain * gain
+    return (rgb + (y_new - y)[..., None]).astype(np.float32)
 
 
 def adaptive_deconvolution(
@@ -64,13 +67,16 @@ def adaptive_deconvolution(
     is_grayscale: bool,
     amount: float = 10.0,
     adaptive: bool = True,
-    oklab: bool = True,
+    luminance: bool = True,
 ) -> np.ndarray:
     """Adaptive Moffat deconvolution without hard-capping highlights at 100%.
 
     The GIMP plug-in floors results with ``min(result, min(2*peak, 1))``, which
     always clamps when the image is already at full scale.  We leave values
     open so overshoot is visible; optional dialog clamp handles 100% limiting.
+
+    On RGB, ``luminance=True`` sharpens BT.709 luma and adds the delta back
+    to linear RGB. ``luminance=False`` deconvolves each channel independently.
     """
     strength = amount / math.pi
     src = np.asarray(data, dtype=np.float32)
@@ -79,7 +85,6 @@ def adaptive_deconvolution(
         ch = src if src.ndim == 2 else src[..., 0]
         flat = ch.ravel().astype(np.float32)
         is_gray = True
-        oklab = False
     else:
         flat = src.reshape(-1, 3).astype(np.float32).ravel()
         is_gray = False
@@ -96,7 +101,7 @@ def adaptive_deconvolution(
     contrast_norm = (contrast - c_min) / denom
     sqrt_contrast = np.sqrt(contrast_norm) if adaptive else None
 
-    if not oklab and not is_gray:
+    if not luminance and not is_gray:
         red = flat[0::3].copy()
         green = flat[1::3].copy()
         blue = flat[2::3].copy()
@@ -136,6 +141,6 @@ def adaptive_deconvolution(
             sharpened = lum * damped * damped * damped
             result = sharpened.reshape(height, width)
         else:
-            result = _oklab_sharpen_rgb(src.reshape(height, width, 3), damped)
+            result = _luma_sharpen_rgb(src.reshape(height, width, 3), damped)
 
     return result.astype(np.float32)

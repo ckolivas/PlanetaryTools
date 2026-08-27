@@ -13,7 +13,7 @@ from planetary_tools.core.noise import (
     estimate_texture_scale,
     is_chromatic,
 )
-from planetary_tools.core.colour import oklab_to_rgb, rgb_to_oklab
+from planetary_tools.core.colour import linear_luminance
 from planetary_tools.filters.wavelet import (
     SHARPEN_SCALES,
     _UNSHARP_STD,
@@ -63,7 +63,7 @@ class _SharpenTrialEngine:
         self.is_grayscale = is_grayscale
         self.luminance = bool(luminance) and not is_grayscale
         self.src = np.asarray(data, dtype=np.float32)
-        self._lab: np.ndarray | None = None
+        self._luma: np.ndarray | None = None
         # Fix noise residual probe scales to the unsharpened source PSF/texture
         # (or a session-pinned scale from the document).
         self.texture_scale = (
@@ -79,8 +79,8 @@ class _SharpenTrialEngine:
         self._prepared: list[tuple[list[np.ndarray], np.ndarray]] = []
         if is_grayscale or self.luminance:
             if self.luminance:
-                self._lab = rgb_to_oklab(self.src)
-                ch = self._lab[..., 0]
+                self._luma = linear_luminance(self.src)
+                ch = self._luma
             else:
                 ch = self.src if self.src.ndim == 2 else self.src[..., 0]
             work = _to_perceptual(ch)
@@ -129,11 +129,10 @@ class _SharpenTrialEngine:
         if self.is_grayscale:
             return channels[0]
         if self.luminance:
-            lab = self._lab
-            assert lab is not None
-            out_lab = np.array(lab, copy=True)
-            out_lab[..., 0] = channels[0]
-            return oklab_to_rgb(out_lab, clamp=False)
+            sharpened = channels[0]
+            luma = self._luma
+            assert luma is not None
+            return (self.src + (sharpened - luma)[..., None]).astype(np.float32)
         return np.stack(channels, axis=-1)
 
     def metrics(

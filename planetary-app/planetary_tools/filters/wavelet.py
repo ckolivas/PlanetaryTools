@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-from planetary_tools.core.colour import linear_to_srgb, oklab_to_rgb, rgb_to_oklab, srgb_to_linear
+from planetary_tools.core.colour import linear_luminance, linear_to_srgb, srgb_to_linear
 
 NUM_SCALES = 3
 # Sharpen decomposes one level further (fine/medium/coarse/chunky).
@@ -172,8 +172,8 @@ def wavelet_sharpen(
     layer to linear light (matching gegl:gaussian-blur which uses "RGB
     float"), applies USM there, and converts back before merge.
 
-    When ``luminance`` is true on RGB data, only OKLab L is sharpened and
-    a and b are left unchanged.
+    When ``luminance`` is true on RGB data, only BT.709 luma is sharpened
+    and the luma delta is added back to linear RGB (chroma is unchanged).
     """
     amounts = (fine, medium, coarse, chunky)
 
@@ -188,9 +188,10 @@ def wavelet_sharpen(
 
     if luminance and not is_grayscale:
         src = np.asarray(data, dtype=np.float32)
-        lab = rgb_to_oklab(src)
-        lab[..., 0] = sharpen_channel(lab[..., 0])
-        return oklab_to_rgb(lab, clamp=False)
+        luma = linear_luminance(src)
+        sharpened = sharpen_channel(luma)
+        delta = sharpened - luma
+        return (src + delta[..., None]).astype(np.float32)
 
     return _process_channels(data, is_grayscale, sharpen_channel)
 

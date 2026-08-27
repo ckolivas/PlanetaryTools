@@ -250,7 +250,7 @@ def _resolve_auto_params(
             target_noise=float(merged.get("target_noise", 3.5)),
             target_contrast=float(merged.get("target_contrast", 15.0)),
             adaptive=bool(merged.get("adaptive", True)),
-            oklab=bool(merged.get("oklab", True)),
+            luminance=bool(merged.get("luminance", True)),
         )
         merged["amount"] = result.amount
     return merged
