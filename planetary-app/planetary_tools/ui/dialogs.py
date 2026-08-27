@@ -1497,13 +1497,11 @@ class MergeWaveletDetailDialog(_FilterDialog):
 
 
 class ExtractComponentDialog(_FilterDialog):
-    """Extract one colour component as a greyscale image."""
+    """Extract one colour component as R=G=B RGB (same as a loaded greyscale file)."""
 
     filter_id = ""
     supports_presets = False
     supports_clamp = False
-    # Result is always greyscale (2-D plane after apply).
-    result_is_grayscale = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Extract Component", parent)
@@ -1546,8 +1544,7 @@ class ExtractComponentDialog(_FilterDialog):
         component = str(self.component.currentData() or "luminance")
 
         def func(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
-            # RGB triple for preview/canvas; apply path collapses to 2-D greyscale.
-            return extract_component(data, is_grayscale, component, as_rgb=True)
+            return extract_component(data, is_grayscale, component)
 
         return func
 

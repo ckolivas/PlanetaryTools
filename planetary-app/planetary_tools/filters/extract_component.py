@@ -1,4 +1,4 @@
-"""Extract a single colour component as greyscale."""
+"""Extract a single colour component as R=G=B RGB (same as a loaded greyscale file)."""
 
 from __future__ import annotations
 
@@ -102,15 +102,12 @@ def extract_component(
     data: np.ndarray,
     is_grayscale: bool,
     component: str,
-    *,
-    as_rgb: bool = False,
 ) -> np.ndarray:
-    """Extract a component as greyscale.
+    """Extract a component as linear RGB with R=G=B.
 
-    By default returns a 2-D (H, W) plane. With ``as_rgb=True``, returns
-    (H, W, 3) with R=G=B for preview paths that expect three channels.
+    Same layout as a loaded greyscale file: three identical channels so
+    RGB tools stay available. Use ``extract_component_plane`` for a 2-D
+    plane.
     """
     plane = extract_component_plane(data, is_grayscale, component)
-    if as_rgb:
-        return np.stack([plane, plane, plane], axis=-1)
-    return plane
+    return np.stack([plane, plane, plane], axis=-1)
