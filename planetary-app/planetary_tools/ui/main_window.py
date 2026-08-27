@@ -946,7 +946,12 @@ class MainWindow(QMainWindow):
             self._update_undo_actions()
 
     def _run_wavelet_sharpen(self) -> None:
-        self._run_filter_dialog(WaveletSharpenDialog(self), "Wavelet Sharpen")
+        if self._document is None:
+            return
+        self._run_filter_dialog(
+            WaveletSharpenDialog(self._document.is_grayscale, self),
+            "Wavelet Sharpen",
+        )
 
     def _run_wavelet_denoise(self) -> None:
         self._run_filter_dialog(WaveletDenoiseDialog(self), "Wavelet Denoise")

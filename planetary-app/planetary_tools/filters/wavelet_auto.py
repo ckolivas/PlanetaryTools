@@ -13,6 +13,7 @@ from planetary_tools.core.noise import (
     estimate_texture_scale,
     is_chromatic,
 )
+from planetary_tools.core.colour import oklab_to_rgb, rgb_to_oklab
 from planetary_tools.filters.wavelet import (
     SHARPEN_SCALES,
     _UNSHARP_STD,
@@ -57,9 +58,12 @@ class _SharpenTrialEngine:
         *,
         texture_scale: float | None = None,
         chromatic: bool | None = None,
+        luminance: bool = False,
     ) -> None:
         self.is_grayscale = is_grayscale
+        self.luminance = bool(luminance) and not is_grayscale
         self.src = np.asarray(data, dtype=np.float32)
+        self._lab: np.ndarray | None = None
         # Fix noise residual probe scales to the unsharpened source PSF/texture
         # (or a session-pinned scale from the document).
         self.texture_scale = (
@@ -73,8 +77,12 @@ class _SharpenTrialEngine:
             else is_chromatic(self.src, is_grayscale)
         )
         self._prepared: list[tuple[list[np.ndarray], np.ndarray]] = []
-        if is_grayscale:
-            ch = self.src if self.src.ndim == 2 else self.src[..., 0]
+        if is_grayscale or self.luminance:
+            if self.luminance:
+                self._lab = rgb_to_oklab(self.src)
+                ch = self._lab[..., 0]
+            else:
+                ch = self.src if self.src.ndim == 2 else self.src[..., 0]
             work = _to_perceptual(ch)
             scales, residual = _wavelet_decompose(work, SHARPEN_SCALES)
             self._prepared.append((scales, residual))
@@ -120,6 +128,12 @@ class _SharpenTrialEngine:
             channels.append(_from_perceptual(_merge_wavelet(sharpened, residual)))
         if self.is_grayscale:
             return channels[0]
+        if self.luminance:
+            lab = self._lab
+            assert lab is not None
+            out_lab = np.array(lab, copy=True)
+            out_lab[..., 0] = channels[0]
+            return oklab_to_rgb(out_lab, clamp=False)
         return np.stack(channels, axis=-1)
 
     def metrics(
@@ -148,6 +162,7 @@ def auto_wavelet_sharpen_params(
     progress: Callable[[float, float, float, float, float, float], None] | None = None,
     texture_scale: float | None = None,
     chromatic: bool | None = None,
+    luminance: bool = False,
 ) -> AutoSharpenResult:
     """Search fine/medium/coarse/chunky to approach noise and contrast targets.
 
@@ -180,6 +195,7 @@ def auto_wavelet_sharpen_params(
         is_grayscale,
         texture_scale=texture_scale,
         chromatic=chromatic,
+        luminance=luminance,
     )
 
     fine = 0.0
@@ -354,9 +370,12 @@ def verify_auto_params(
     *,
     texture_scale: float | None = None,
     chromatic: bool | None = None,
+    luminance: bool = False,
 ) -> tuple[float, float]:
     """Return (noise, contrast%) for the given amounts on full data."""
-    out = wavelet_sharpen(data, is_grayscale, fine, medium, coarse, chunky)
+    out = wavelet_sharpen(
+        data, is_grayscale, fine, medium, coarse, chunky, luminance=luminance
+    )
     if texture_scale is None:
         texture_scale = estimate_texture_scale(data, is_grayscale)
     if chromatic is None:

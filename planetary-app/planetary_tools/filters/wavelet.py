@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-from planetary_tools.core.colour import linear_to_srgb, srgb_to_linear
+from planetary_tools.core.colour import linear_to_srgb, oklab_to_rgb, rgb_to_oklab, srgb_to_linear
 
 NUM_SCALES = 3
 # Sharpen decomposes one level further (fine/medium/coarse/chunky).
@@ -163,6 +163,7 @@ def wavelet_sharpen(
     medium: float = 8.0,
     coarse: float = 1.0,
     chunky: float = 0.0,
+    luminance: bool = False,
 ) -> np.ndarray:
     """Wavelet sharpen matching GIMP plug-in-wavelet-sharpen.
 
@@ -170,6 +171,9 @@ def wavelet_sharpen(
     gegl:wavelet-blur-1d).  The unsharp-mask step converts each scale
     layer to linear light (matching gegl:gaussian-blur which uses "RGB
     float"), applies USM there, and converts back before merge.
+
+    When ``luminance`` is true on RGB data, only OKLab L is sharpened and
+    a and b are left unchanged.
     """
     amounts = (fine, medium, coarse, chunky)
 
@@ -181,6 +185,12 @@ def wavelet_sharpen(
             for i, scale in enumerate(scales)
         ]
         return _from_perceptual(_merge_wavelet(sharpened, residual))
+
+    if luminance and not is_grayscale:
+        src = np.asarray(data, dtype=np.float32)
+        lab = rgb_to_oklab(src)
+        lab[..., 0] = sharpen_channel(lab[..., 0])
+        return oklab_to_rgb(lab, clamp=False)
 
     return _process_channels(data, is_grayscale, sharpen_channel)
 

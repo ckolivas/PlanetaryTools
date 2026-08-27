@@ -555,7 +555,8 @@ class WaveletSharpenDialog(_FilterDialog):
     supports_presets = True
     supports_clamp = True
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
+        self._is_grayscale = is_grayscale
         self._auto_running = False
         super().__init__("Wavelet Sharpen", parent)
 
@@ -569,6 +570,17 @@ class WaveletSharpenDialog(_FilterDialog):
         self.medium = self._add_double("Medium", fdef.default_params["medium"], 0.0, 300.0)
         self.coarse = self._add_double("Coarse", fdef.default_params["coarse"], 0.0, 300.0)
         self.chunky = self._add_double("Chunky", fdef.default_params["chunky"], 0.0, 300.0)
+
+        self.luminance = QCheckBox("OKLab luminance")
+        self.luminance.setToolTip(
+            "Sharpens on luminance layer decreasing colour noise but lowers saturation."
+        )
+        self.luminance.setChecked(
+            fdef.default_params.get("luminance", False) and not self._is_grayscale
+        )
+        self.luminance.setEnabled(not self._is_grayscale)
+        self.luminance.toggled.connect(lambda _: self.params_changed.emit())
+        self._form.addRow(self.luminance)
 
         auto_row = QWidget()
         auto_layout = QHBoxLayout(auto_row)
@@ -667,6 +679,7 @@ class WaveletSharpenDialog(_FilterDialog):
                 progress=progress,
                 texture_scale=getattr(self, "_noise_texture_scale", None),
                 chromatic=getattr(self, "_noise_chromatic", None),
+                luminance=self.luminance.isChecked(),
             )
             self._set_amount_spins(
                 result.fine, result.medium, result.coarse, result.chunky
@@ -686,6 +699,7 @@ class WaveletSharpenDialog(_FilterDialog):
             "medium": self.medium.value(),
             "coarse": self.coarse.value(),
             "chunky": self.chunky.value(),
+            "luminance": self.luminance.isChecked(),
             "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
         })
@@ -699,11 +713,16 @@ class WaveletSharpenDialog(_FilterDialog):
         )
         for spin in spins:
             spin.blockSignals(True)
+        self.luminance.blockSignals(True)
         self.fine.setValue(params.get("fine", self.fine.value()))
         self.medium.setValue(params.get("medium", self.medium.value()))
         self.coarse.setValue(params.get("coarse", self.coarse.value()))
         # Older presets predate the chunky scale: treat missing as 0.
         self.chunky.setValue(params.get("chunky", 0.0))
+        self.luminance.setChecked(
+            bool(params.get("luminance", self.luminance.isChecked()))
+            and not self._is_grayscale
+        )
         self.target_noise.setValue(
             float(params.get("target_noise", self.target_noise.value()))
         )
@@ -712,6 +731,7 @@ class WaveletSharpenDialog(_FilterDialog):
         )
         for spin in spins:
             spin.blockSignals(False)
+        self.luminance.blockSignals(False)
 
 
 class WaveletDenoiseDialog(_FilterDialog):
@@ -1648,6 +1668,17 @@ def edit_filter_params(
             spin.setValue(params.get(key, fdef.default_params.get(key, 0.0)))
             form.addRow(key.capitalize(), spin)
             widgets[key] = spin
+        luminance = QCheckBox("OKLab luminance")
+        luminance.setToolTip(
+            "Sharpens on luminance layer decreasing colour noise but lowers saturation."
+        )
+        luminance.setChecked(
+            bool(params.get("luminance", fdef.default_params.get("luminance", False)))
+            and not is_grayscale
+        )
+        luminance.setEnabled(not is_grayscale)
+        form.addRow(luminance)
+        widgets["luminance"] = luminance
         auto_box = QCheckBox("Auto")
         auto_box.setToolTip(
             "Per image, search fine/medium/coarse/chunky to meet the noise and "

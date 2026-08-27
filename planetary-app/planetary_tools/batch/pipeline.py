@@ -231,6 +231,7 @@ def _resolve_auto_params(
             is_grayscale,
             target_noise=float(merged.get("target_noise", 3.0)),
             target_contrast=float(merged.get("target_contrast", 15.0)),
+            luminance=bool(merged.get("luminance", False)),
         )
         merged.update({
             "fine": result.fine,
