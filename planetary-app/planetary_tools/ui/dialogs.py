@@ -816,7 +816,7 @@ class MoonEnhanceDialog(_FilterDialog):
         self.planet_margin.setRange(1.0, 2000.0)
         self.planet_margin.setDecimals(0)
         self.planet_margin.setSingleStep(10.0)
-        self.planet_margin.setValue(100.0)
+        self.planet_margin.setValue(50.0)
         self.planet_margin.setToolTip(
             "Exclusion distance around the planet in pixels."
         )
@@ -824,7 +824,8 @@ class MoonEnhanceDialog(_FilterDialog):
         self.margin_auto = QCheckBox("Auto")
         self.margin_auto.setChecked(True)
         self.margin_auto.setToolTip(
-            "Scale the margin with the planet's size to cover rings and glow."
+            "Half the planet's equivalent radius, enough for limb/ring glow "
+            "without swallowing nearby moons."
         )
         self.margin_auto.toggled.connect(self._on_margin_auto_toggled)
         self.margin_auto.toggled.connect(lambda _: self.params_changed.emit())
@@ -845,6 +846,19 @@ class MoonEnhanceDialog(_FilterDialog):
 
     def _on_margin_auto_toggled(self, checked: bool) -> None:
         self.planet_margin.setEnabled(not checked)
+        if checked:
+            self.planet_margin.blockSignals(True)
+            self._refresh_auto_margin_display()
+            self.planet_margin.blockSignals(False)
+
+    def _refresh_auto_margin_display(self) -> None:
+        data = getattr(self, "_input_data", None)
+        if data is None:
+            return
+        from planetary_tools.filters.moon_enhance import auto_planet_margin
+
+        gray = bool(getattr(self, "_input_is_grayscale", False))
+        self.planet_margin.setValue(auto_planet_margin(data, gray))
 
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
@@ -877,10 +891,31 @@ class MoonEnhanceDialog(_FilterDialog):
         self.margin_auto.setChecked(auto)
         self.margin_auto.blockSignals(False)
         self.planet_margin.blockSignals(True)
-        if not auto:
+        if auto:
+            self._refresh_auto_margin_display()
+        else:
             self.planet_margin.setValue(margin)
         self.planet_margin.setEnabled(not auto)
         self.planet_margin.blockSignals(False)
+
+    def set_input_brightness(
+        self,
+        data: np.ndarray,
+        is_grayscale: bool,
+        *,
+        noise_texture_scale: float | None = None,
+        noise_chromatic: bool | None = None,
+    ) -> None:
+        super().set_input_brightness(
+            data,
+            is_grayscale,
+            noise_texture_scale=noise_texture_scale,
+            noise_chromatic=noise_chromatic,
+        )
+        if self.margin_auto.isChecked():
+            self.planet_margin.blockSignals(True)
+            self._refresh_auto_margin_display()
+            self.planet_margin.blockSignals(False)
 
 
 class AdaptiveDeconvDialog(_FilterDialog):
@@ -2173,7 +2208,9 @@ def edit_filter_params(
                 spin.setSuffix(suffix)
             if key == "planet_margin":
                 spin.setSpecialValueText("Auto")
-                spin.setToolTip("Set to 0 for Auto (scales with the planet's size).")
+                spin.setToolTip(
+                    "Set to 0 for Auto (half the planet's equivalent radius)."
+                )
             spin.setValue(float(params.get(key, fdef.default_params[key])))
             form.addRow(label, spin)
             widgets[key] = spin

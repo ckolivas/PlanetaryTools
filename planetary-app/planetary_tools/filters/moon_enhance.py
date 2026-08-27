@@ -10,7 +10,9 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
 1. Planet mask: seed at ``planet_floor × L.max()`` (the max, not a percentile —
    on a wide field p99 of luminance is sky), keep the largest connected
    component, and exclude everything within ``margin`` px of it (Euclidean
-   distance transform). Auto margin scales with the planet's equivalent radius.
+   distance transform). Auto margin is half the planet's equivalent radius
+   (min 20 px). A full radius swallowed inner moons on close-ups
+   (3moons.png: ~105 px vs moons at ~60 px from the rings).
 2. Background: median filter at ×4 downsample, upsampled — removes sky
    gradients and planet glow so moons appear as compact positive residual.
 3. Detection: local SNR against a local median/MAD noise map (sky noise is
@@ -38,9 +40,11 @@ from planetary_tools.core.scale import scale_image
 # Planet seed threshold as a fraction of the luminance maximum.
 DEFAULT_PLANET_FLOOR = 0.05
 # Auto exclusion margin = this fraction of the planet's equivalent radius.
-# A full radius: at half that, detections appear in the glow annulus hugging
-# the exclusion boundary (widefield.png).
-_AUTO_MARGIN_RADIUS_FRAC = 1.0
+# Half a radius covers limb/ring glow without swallowing inner moons just
+# outside the seed (3moons.png; a full radius chose ~100 px when 50 px
+# still captured them). Leftover glow knots on the exclusion rim are
+# rejected in detection, not by inflating the pad (widefield.png).
+_AUTO_MARGIN_RADIUS_FRAC = 0.5
 _AUTO_MARGIN_MIN_PX = 20.0
 
 # Background / noise maps are computed at this downsample factor. Full-res
@@ -62,6 +66,10 @@ _FWHM_MEASURE_HALF = 16
 # Moons are round; overexposed ring ansae and glow knots are stretched along
 # the ring plane. Reject sources whose x/y half-max widths differ this much.
 _MAX_ELONGATION = 2.0
+# Extended residual on the exclusion rim is leftover planet glow, not a moon.
+# Compact moons (FWHM ~4–7 px on 3moons.png / 4moons.png) still pass.
+_GLOW_HUG_PX = 8.0
+_GLOW_HUG_MIN_FWHM = 10.0
 _FWHM_TO_SIGMA = 1.0 / 2.355
 _MIN_MASK_SIGMA = 1.0
 
@@ -92,25 +100,54 @@ def _resample(arr: np.ndarray, width: int, height: int) -> np.ndarray:
     return np.asarray(scale_image(np.asarray(arr, dtype=np.float32), width, height))
 
 
-def _planet_exclusion(
-    lum: np.ndarray, planet_floor: float, margin: float
+def _planet_seed(
+    lum: np.ndarray, planet_floor: float
 ) -> tuple[np.ndarray, float]:
-    """Boolean exclusion zone around the planet and its equivalent radius."""
+    """Largest bright connected component and its equivalent-area radius."""
+    empty = np.zeros(lum.shape, dtype=bool)
     peak = float(lum.max())
     if peak <= 0.0:
-        return np.zeros(lum.shape, dtype=bool), 0.0
+        return empty, 0.0
     seed = lum >= planet_floor * peak
     labels, count = ndimage.label(seed)
     if count == 0:
-        return np.zeros(lum.shape, dtype=bool), 0.0
+        return empty, 0.0
     sizes = ndimage.sum(seed, labels, range(1, count + 1))
     planet = labels == (int(np.argmax(sizes)) + 1)
     area = float(planet.sum())
     if area < _MIN_PLANET_AREA:
+        return empty, 0.0
+    return planet, float(np.sqrt(area / np.pi))
+
+
+def _auto_margin_px(r_eq: float) -> float:
+    raw = max(_AUTO_MARGIN_MIN_PX, _AUTO_MARGIN_RADIUS_FRAC * float(r_eq))
+    # Planet-margin control is integers with step 10.
+    return float(max(_AUTO_MARGIN_MIN_PX, 10.0 * round(raw / 10.0)))
+
+
+def auto_planet_margin(
+    data: np.ndarray,
+    is_grayscale: bool = False,
+    planet_floor: float = DEFAULT_PLANET_FLOOR,
+) -> float:
+    """Exclusion distance used when ``planet_margin`` is 0 (Auto)."""
+    lum = _luminance(data, is_grayscale)
+    _planet, r_eq = _planet_seed(lum, planet_floor)
+    if r_eq <= 0.0:
+        return _AUTO_MARGIN_MIN_PX
+    return _auto_margin_px(r_eq)
+
+
+def _planet_exclusion(
+    lum: np.ndarray, planet_floor: float, margin: float
+) -> tuple[np.ndarray, float]:
+    """Boolean exclusion zone around the planet and its equivalent radius."""
+    planet, r_eq = _planet_seed(lum, planet_floor)
+    if r_eq <= 0.0:
         return np.zeros(lum.shape, dtype=bool), 0.0
-    r_eq = float(np.sqrt(area / np.pi))
     if margin <= 0.0:
-        margin = max(_AUTO_MARGIN_MIN_PX, _AUTO_MARGIN_RADIUS_FRAC * r_eq)
+        margin = _auto_margin_px(r_eq)
     distance = ndimage.distance_transform_edt(~planet)
     return distance <= margin, r_eq
 
@@ -146,6 +183,8 @@ def detect_moons(
     exclusion, _r_eq = _planet_exclusion(lum, planet_floor, planet_margin)
     if bool(exclusion.all()):
         return [], exclusion
+    # Distance outside the exclusion: glow knots peak on this rim.
+    outside = ndimage.distance_transform_edt(~exclusion)
 
     small_w = max(1, w // _DOWNSAMPLE)
     small_h = max(1, h // _DOWNSAMPLE)
@@ -178,6 +217,8 @@ def detect_moons(
         if not (_FWHM_MIN <= fwhm <= _FWHM_MAX):
             continue
         if max(fx, fy) > _MAX_ELONGATION * max(min(fx, fy), 1.0):
+            continue
+        if fwhm >= _GLOW_HUG_MIN_FWHM and float(outside[y, x]) <= _GLOW_HUG_PX:
             continue
         y0, y1 = max(0, y - 2), min(h, y + 3)
         x0, x1 = max(0, x - 2), min(w, x + 3)

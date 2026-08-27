@@ -381,7 +381,7 @@ FILTERS: dict[str, FilterDef] = {
             "brightness": 25.0,
             "sensitivity": 8.0,
             "radius_scale": 0.5,
-            # 0 = auto: max(20, 0.5 × planet equivalent radius) px.
+            # 0 = auto: max(20, 0.5 × planet equivalent radius) px, rounded to 10.
             "planet_margin": 0.0,
             "max_moons": 12,
         }),
