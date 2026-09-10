@@ -938,7 +938,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
 
         fdef = FILTERS[self.filter_id]
         self.amount = self._add_double(
-            "Amount", fdef.default_params["amount"], 0.0, 100.0, step=0.1, decimals=1
+            "Amount", fdef.default_params["amount"], 0.0, 1000.0, step=0.1, decimals=1
         )
         self.adaptive = QCheckBox("Contrast Adaptive")
         self.adaptive.setToolTip(

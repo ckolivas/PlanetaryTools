@@ -39,6 +39,59 @@ def _is_probably_linear(path: Path, arr: np.ndarray) -> bool:
     return False
 
 
+def _tiff_colour_space(path: Path, grayscale: bool):
+    """Read TIFF colour interpretation separately from its raw sample array."""
+    if path.suffix.lower() not in {".tif", ".tiff"} or not path.is_file():
+        return None
+    with tifffile.TiffFile(path) as image:
+        tag = image.pages[0].tags.get("InterColorProfile")
+        if tag is None:
+            return None
+        profile = bytes(tag.value)
+    from PyQt6.QtGui import QColorSpace
+
+    model = profile[16:20]
+    if model not in (b"RGB ", b"GRAY") or (model == b"GRAY" and not grayscale):
+        raise ValueError("TIFF ICC profile does not describe the image's RGB/gray channels")
+    space = QColorSpace.fromIccProfile(profile)
+    if not space.isValid():
+        raise ValueError("TIFF contains an invalid or unsupported ICC colour profile")
+    if model == b"GRAY":
+        # A gray profile defines a neutral tone curve. Expand that curve onto
+        # neutral RGB for our RGB working document and Qt's float image format.
+        space.setPrimaries(QColorSpace.Primaries.SRgb)
+    return space
+
+
+def _profile_to_linear(samples: np.ndarray, space) -> np.ndarray:
+    """Convert tagged samples to linear sRGB without an 8-bit intermediate."""
+    from PyQt6.QtGui import QColorSpace, QImage
+
+    space = QColorSpace(space)
+    if space.transferFunction() == QColorSpace.TransferFunction.SRgb:
+        # Exact floating transfer for the common case (including HDR), avoiding
+        # a sampled ICC LUT for PlanetRecon's sRGB RGB and D65 gray exports.
+        samples = srgb_to_linear(samples, clamp=False)
+        space.setTransferFunction(QColorSpace.TransferFunction.Linear)
+    if (space.transferFunction() == QColorSpace.TransferFunction.Linear
+            and space.primaries() == QColorSpace.Primaries.SRgb):
+        return samples.astype(np.float32)
+    if samples.ndim == 2:
+        samples = np.repeat(samples[..., None], 3, axis=-1)
+    height, width = samples.shape[:2]
+    rgba = np.empty((height, width, 4), dtype=np.float32)
+    rgba[..., :3], rgba[..., 3] = samples, 1.
+    image = QImage(rgba.data, width, height, rgba.strides[0], QImage.Format.Format_RGBA32FPx4)
+    image.setColorSpace(space)
+    converted = image.convertedToColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgbLinear))
+    if converted.isNull():
+        raise ValueError("Cannot convert TIFF ICC profile to the linear RGB working space")
+    pixels = converted.constBits()
+    pixels.setsize(converted.sizeInBytes())
+    rows = np.frombuffer(pixels, dtype=np.float32).reshape(height, converted.bytesPerLine() // 4)
+    return rows[:, :width*4].reshape(height, width, 4)[..., :3].copy()
+
+
 def _load_array(path: Path) -> np.ndarray:
     suffix = path.suffix.lower()
     if suffix == ".png":
@@ -50,6 +103,8 @@ def _load_array(path: Path) -> np.ndarray:
             pass
         except Exception:
             pass
+    if suffix in {".tif", ".tiff"}:
+        return tifffile.imread(path)  # Raw samples; apply the ICC profile exactly once below.
     if suffix in {".fits", ".fit", ".fts"}:
         try:
             return tifffile.imread(path)
@@ -87,6 +142,20 @@ def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool, int
         raise ValueError(f"Unsupported image rank: {arr.ndim}")
 
     storage_bits = _storage_bits(arr, path)
+    space = _tiff_colour_space(path, grayscale)
+    if space is not None:
+        if arr.dtype.kind == "u":
+            samples = arr.astype(np.float32) / np.iinfo(arr.dtype).max
+        elif arr.dtype.kind == "f":
+            samples = arr.astype(np.float32)
+        else:
+            raise ValueError("Profiled TIFF requires unsigned integer or floating samples")
+        # Tagged floats already have a defined scale: never guess from maxima,
+        # rescale HDR highlights to 16-bit ADU, or clip negative filter residuals.
+        f = _profile_to_linear(samples, space)
+        if f.ndim == 2:
+            f = np.repeat(f[..., None], 3, axis=-1)
+        return f, False, storage_bits
     linear_input = _is_probably_linear(path, arr)
 
     if arr.dtype == np.uint8:
