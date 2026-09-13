@@ -124,6 +124,46 @@ class BatchDirectoryTests(unittest.TestCase):
             self.assertIsNone(reopened._input_folder)
             self.assertEqual(reopened._input_start_directory(), str(self.root))
 
+    def test_add_files_accumulates_across_folders_and_skips_duplicates(self):
+        dialog = self.dialog()
+        first = self.input_dir/'saturn.png'
+        second = self.output_dir/'saturn.png'
+        with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
+                   return_value=([str(first)], '')):
+            dialog._pick_files()
+        with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
+                   return_value=([str(second), str(first)], '')):
+            dialog._add_files()
+        self.assertEqual(dialog._input_files, [first, second])
+        self.assertEqual(dialog._input_label.text(), '2 file(s) selected')
+        self.assertIn(str(second), dialog._input_label.toolTip())
+        self.assertEqual(dialog._input_start_directory(), str(self.output_dir))
+        with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
+                   return_value=([], '')):
+            dialog._add_files()
+        self.assertEqual(dialog._input_files, [first, second])
+        with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
+                   return_value=([str(second)], '')):
+            dialog._pick_files()
+        self.assertEqual(dialog._input_files, [second])
+
+    def test_add_files_keeps_selected_folder_and_recursive_images(self):
+        dialog = self.dialog()
+        first = self.input_dir/'saturn.png'
+        nested = self.input_dir/'nested'/'moon.png'
+        nested.parent.mkdir()
+        first.touch()
+        nested.touch()
+        extra = self.output_dir/'extra.png'
+        self.select_input(dialog)
+        dialog._recursive.setChecked(True)
+        with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
+                   return_value=([str(extra)], '')):
+            dialog._add_files()
+        self.assertCountEqual(dialog._input_files, [first, nested, extra])
+        self.assertIsNone(dialog._input_folder)
+        self.assertFalse(dialog._settings.contains('batch/inputFolder'))
+
     def test_folder_history_survives_a_fresh_process(self):
         script = '''
 import json, sys

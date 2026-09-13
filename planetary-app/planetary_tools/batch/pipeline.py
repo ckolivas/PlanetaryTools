@@ -296,7 +296,7 @@ def planned_output_paths(
     input_root: Path | None = None,
 ) -> list[Path]:
     """Output paths for every input, in the same order as ``input_paths``."""
-    return [
+    candidates = [
         output_path_for(
             p,
             output_dir,
@@ -306,6 +306,23 @@ def planned_output_paths(
         )
         for p in input_paths
     ]
+    # Reserve natural names as well as assigned names so a numbered collision
+    # cannot take the destination of a later input (e.g. image_processed_2).
+    reserved = set(candidates)
+    used: set[Path] = set()
+    planned: list[Path] = []
+    for candidate in candidates:
+        destination = candidate
+        number = 2
+        if destination in used:
+            while True:
+                destination = candidate.with_name(f"{candidate.stem}_{number}{candidate.suffix}")
+                number += 1
+                if destination not in reserved and destination not in used:
+                    break
+        used.add(destination)
+        planned.append(destination)
+    return planned
 
 
 def existing_output_paths(paths: list[Path]) -> list[Path]:
@@ -330,8 +347,12 @@ def run_batch(
     output_dir.mkdir(parents=True, exist_ok=True)
     result = BatchResult()
     total = len(input_paths)
+    destinations = planned_output_paths(
+        input_paths, output_dir, suffix=suffix,
+        preserve_tree=preserve_tree, input_root=input_root,
+    )
 
-    for i, in_path in enumerate(input_paths):
+    for i, (in_path, out_path) in enumerate(zip(input_paths, destinations)):
         msg = in_path.name
         if on_progress:
             on_progress(i, total, msg)
@@ -340,13 +361,6 @@ def run_batch(
             processed = apply_pipeline(doc.data, doc.is_grayscale, steps)
             doc.set_data(processed)
 
-            out_path = output_path_for(
-                in_path,
-                output_dir,
-                suffix=suffix,
-                preserve_tree=preserve_tree,
-                input_root=input_root,
-            )
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
             save_image(doc, out_path, bit_depth=bit_depth)

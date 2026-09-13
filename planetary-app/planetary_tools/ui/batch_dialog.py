@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from os.path import commonpath
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QSettings, QThread, pyqtSignal
@@ -109,11 +110,16 @@ class BatchDialog(QDialog):
         self._input_label = QLabel(str(self._input_folder) if self._input_folder else "No input selected")
         self._input_label.setWordWrap(True)
         pick_files = QPushButton("Select files…")
+        pick_files.setToolTip("Replace the current input selection.")
         pick_files.clicked.connect(self._pick_files)
+        add_files = QPushButton("Add files…")
+        add_files.setToolTip("Add images from any folder to the current input selection.")
+        add_files.clicked.connect(self._add_files)
         pick_folder = QPushButton("Select folder…")
         pick_folder.clicked.connect(self._pick_folder)
         in_btns = QHBoxLayout()
         in_btns.addWidget(pick_files)
+        in_btns.addWidget(add_files)
         in_btns.addWidget(pick_folder)
         in_layout.addRow(self._input_label)
         in_layout.addRow(in_btns)
@@ -232,7 +238,32 @@ class BatchDialog(QDialog):
             self._input_files = [Path(p) for p in paths]
             self._input_folder = None
             self._input_label.setText(f"{len(paths)} file(s) selected")
+            self._input_label.setToolTip("\n".join(str(p) for p in self._input_files))
             self._remember_input_directory(Path(paths[0]).parent, selected_folder=False)
+
+    def _add_files(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Add input images", self._input_start_directory()
+        )
+        if not paths:
+            return
+        inputs = collect_paths(
+            files=self._input_files or None,
+            folder=self._input_folder,
+            recursive=self._recursive.isChecked(),
+        )
+        seen = {p.resolve() for p in inputs}
+        for path in paths:
+            resolved = Path(path).resolve()
+            if resolved not in seen:
+                inputs.append(Path(path))
+                seen.add(resolved)
+        self._input_files = inputs
+        self._input_folder = None
+        self._input_label.setText(f"{len(inputs)} file(s) selected")
+        self._input_label.setToolTip("\n".join(str(p) for p in inputs))
+        remember_open_path(paths[0])
+        self._remember_input_directory(Path(paths[0]).parent, selected_folder=False)
 
     def _pick_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select input folder", self._input_start_directory())
@@ -240,6 +271,7 @@ class BatchDialog(QDialog):
             self._input_folder = Path(folder)
             self._input_files = []
             self._input_label.setText(str(self._input_folder))
+            self._input_label.setToolTip(str(self._input_folder))
             self._remember_input_directory(self._input_folder, selected_folder=True)
 
     def _pick_output(self) -> None:
@@ -495,6 +527,8 @@ class BatchDialog(QDialog):
         suffix = self._suffix.text().strip() or "_processed"
         preserve_tree = self._preserve_tree.isChecked()
         input_root = self._input_folder if preserve_tree else None
+        if preserve_tree and input_root is None:
+            input_root = Path(commonpath([str(p.parent) for p in paths]))
 
         planned = planned_output_paths(
             paths,
