@@ -278,6 +278,10 @@ class CurvesDialog(_FilterDialog):
         self._form.addRow(row)
         row = QHBoxLayout()
         self.input = QDoubleSpinBox()
+        # Intermediate digits can lie outside the neighbouring point bounds.
+        # Commit typed input before moving/syncing the point, or that sync
+        # replaces the text while the user is still entering the number.
+        self.input.setKeyboardTracking(False)
         self.output = QDoubleSpinBox()
         for label, spin in (('Input', self.input), ('Output', self.output)):
             spin.setRange(0, 255)

@@ -12,7 +12,7 @@ from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
 from PyQt6.QtCore import QPointF, Qt, QTimer
-from PyQt6.QtTest import QTest
+from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication, QDialog
 
 from planetary_tools.core.colour import linear_to_srgb, srgb_to_linear
@@ -248,6 +248,48 @@ class CurvesUiTests(unittest.TestCase):
         self.assertNotEqual(dialog.get_params()['channels']['Red'], identity_curve())
         dialog._reset_all()
         self.assertEqual(dialog.get_params(), default_curves_params())
+
+    def test_input_typing_commits_complete_number_without_rewriting_digits(self):
+        dialog = CurvesDialog()
+        self.addCleanup(dialog.close)
+        dialog.show()
+        self.app.processEvents()
+        for x, y in ((.25, .3), (.75, .7), (.5, .5)):
+            dialog.editor.add_point(x, y)
+        changes = QSignalSpy(dialog.params_changed)
+        dialog.input.setFocus()
+        dialog.input.selectAll()
+        typed = ''
+        for digit in '150.25':
+            QTest.keyClicks(dialog.input, digit)
+            typed += digit
+            self.assertEqual(dialog.input.text(), typed)
+            self.assertEqual(dialog.editor.curve['points'][2][0], .5)
+        self.assertEqual(len(changes), 0)
+        QTest.keyClick(dialog.input, Qt.Key.Key_Return)
+        self.assertEqual(dialog.input.value(), 150.25)
+        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 150.25/255)
+        self.assertEqual(len(changes), 1)
+
+        # Focus loss commits too, and stepping still updates immediately.
+        dialog.input.selectAll()
+        QTest.keyClicks(dialog.input, '175.50')
+        dialog.output.setFocus()
+        self.app.processEvents()
+        self.assertEqual(dialog.input.value(), 175.5)
+        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 175.5/255)
+        dialog.input.stepUp()
+        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 176.5/255)
+
+        # The final number is still constrained to preserve point order.
+        dialog.input.setFocus()
+        dialog.input.selectAll()
+        QTest.keyClicks(dialog.input, '25')
+        self.assertEqual(dialog.input.text(), '25')
+        QTest.keyClick(dialog.input, Qt.Key.Key_Return)
+        points = dialog.editor.curve['points']
+        self.assertGreater(points[2][0], points[1][0])
+        self.assertLess(points[2][0], points[3][0])
 
     def test_linear_histogram_toggle_renders_tones_on_black_background(self):
         from PyQt6.QtGui import QColor
