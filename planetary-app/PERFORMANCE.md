@@ -403,12 +403,57 @@ with exact output parity and commit each completed step.
 
 Remaining candidates to evaluate, not established gains:
 
-- Levels auto-balance currently converts all RGB channels three times through
-  `_channel_values`; selecting the requested channel before the transfer may
-  remove redundant work. Joint percentile evaluation is another candidate.
+- Levels channel selection and joint percentiles: completed in the eighth
+  pass below.
+- Alignment angle sweeps repeatedly compute the unchanged reference FFT and
+  normalization. Preparing those once per sweep may avoid redundant work.
 - Alignment refinement allocates coordinates for every signal pixel to find
   the bounding box; row/column masks may save allocation while preserving it.
 - Curves mapping and noise median/percentile temporaries may have redundant
   copies; evaluate complete operations before retaining small local changes.
 - OKLab matrix arithmetic changes can alter rounding. Avoid changing its
   equations or claiming equivalence without exact pixel verification.
+
+## Levels channel measurements and auto-balance
+
+RGB Levels histograms now select the requested channel before converting it
+to sRGB. This avoids processing all three channels for each histogram and
+avoids creating three copies of grayscale images. The OKLab L path is
+unchanged. Auto input levels compute the same 2nd and 98th percentiles together,
+sharing the partition work. Clamping, precision, interpolation, output limits
+and application order remain unchanged.
+
+### Eighth-pass measurements
+
+Compared against `a8b5ee1`, medians of three paired runs on `widefield.png`
+(3088 × 1600 RGB) and five on `3moons.png` (704 × 464 RGB), with alternating
+order after warmup. Loading and fixture creation are excluded. The percentile
+benchmark uses precomputed R-channel samples; the auto-balance and combined
+application benchmarks include channel conversion.
+
+| Operation | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Red input peak | 142.17 → 51.74 ms | 2.75× | 8.60 → 2.92 ms | 2.95× |
+| Channel percentiles | 82.90 → 57.30 ms | 1.45× | 2.57 → 1.74 ms | 1.48× |
+| RGB auto-balance | 639.15 → 279.91 ms | 2.28× | 34.37 → 14.65 ms | 2.35× |
+| Auto-balance and apply | 1338.22 → 1029.32 ms | 1.30× | 79.75 → 58.18 ms | 1.37× |
+
+The large-image peak measurement's traced allocations fell from 75.4 to
+21.4 MiB. Whole auto-balance and application peaks remain essentially unchanged,
+since their percentile/application buffers dominate. Existing input buffers
+are excluded from these allocation measurements.
+
+Four new tests preserve exact histogram float32 bits, percentile limits,
+auto-balance settings, applied pixels and peak defaults across grayscale/RGB,
+readonly/strided/Fortran inputs, empty/constant samples, nonfinite values and
+percentile/identity boundaries. All 123 tests pass. The paired benchmark also
+compares parameters and complete applied images against the previous Git code.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/levels_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/levels_performance.py 3moons.png --repeats 5
+```

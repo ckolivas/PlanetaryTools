@@ -193,13 +193,14 @@ def levels_params_for_preset(params: dict[str, Any]) -> dict[str, Any]:
 def _channel_values(data: np.ndarray, channel: str) -> np.ndarray:
     """Flatten per-channel sample values used for auto-balance histograms."""
     rgb = np.asarray(data, dtype=np.float32)
-    if rgb.ndim == 2:
-        rgb = np.stack([rgb, rgb, rgb], axis=-1)
     if channel == "L":
+        if rgb.ndim == 2:
+            rgb = np.stack([rgb, rgb, rgb], axis=-1)
         return rgb_to_oklab(rgb)[..., 0].ravel()
-    srgb = linear_to_srgb(rgb)
     idx = {"R": 0, "G": 1, "B": 2}[channel]
-    return srgb[..., idx].ravel()
+    # Only this channel contributes to its levels histogram. Select it before
+    # the transfer, avoiding conversion of the other channels (or mono copies).
+    return linear_to_srgb(rgb if rgb.ndim == 2 else rgb[..., idx]).ravel()
 
 
 def channel_input_peak(data: np.ndarray, channel: str) -> float:
@@ -216,8 +217,7 @@ def auto_input_levels_for_channel(values: np.ndarray) -> dict[str, float]:
     if flat.size == 0:
         return identity_levels()
 
-    lo = float(np.percentile(flat, _AUTO_INPUT_LOW_PCT))
-    hi = float(np.percentile(flat, _AUTO_INPUT_HIGH_PCT))
+    lo, hi = map(float, np.percentile(flat, [_AUTO_INPUT_LOW_PCT, _AUTO_INPUT_HIGH_PCT]))
     if hi - lo < 1e-10:
         return identity_levels()
 
