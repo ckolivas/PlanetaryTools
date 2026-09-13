@@ -52,22 +52,41 @@ def _unfilter_row(
 
 def read_png_ihdr(path: str | Path) -> tuple[int, int, int, int]:
     """Return (width, height, bit_depth, colour_type)."""
-    data = Path(path).read_bytes()
+    # IHDR is the first chunk. Metadata probes must not read the entire image
+    # before the decoder opens it again.
+    with Path(path).open('rb') as stream:
+        data = stream.read(33)
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError("Not a PNG file")
-    pos = 8
-    while pos < len(data):
-        length = struct.unpack(">I", data[pos:pos + 4])[0]
-        chunk_type = data[pos + 4:pos + 8]
-        chunk = data[pos + 8:pos + 8 + length]
-        if chunk_type == b"IHDR":
-            return struct.unpack(">IIBBBBB", chunk)[:4]
-        pos += 12 + length
-    raise ValueError("PNG missing IHDR")
+    if len(data) != 33 or data[8:16] != b'\x00\x00\x00\rIHDR':
+        raise ValueError("PNG missing or truncated IHDR")
+    return struct.unpack(">IIBBBBB", data[16:29])[:4]
 
 
 def read_png_rgb16(path: str | Path) -> np.ndarray:
     """Decode 16-bit-per-channel RGB PNG to uint16 array (H, W, 3)."""
+    from PyQt6.QtGui import QImage, QImageReader
+
+    _, _, bit_depth, colour_type = read_png_ihdr(path)
+    if bit_depth != 16 or colour_type != 2:
+        raise ValueError(f"read_png_rgb16 requires 16-bit RGB, got depth={bit_depth} type={colour_type}")
+    reader = QImageReader(str(path))
+    reader.setAutoTransform(False)
+    image = reader.read()
+    # Accept only opaque, encoded 16-bit samples. Qt/plugin builds can expand
+    # RGB+tRNS incorrectly; the fallback retains the original RGB values for
+    # transparent-key images as well as lower-precision native decoders.
+    if image.format() != QImage.Format.Format_RGBX64:
+        return _read_png_rgb16_python(path)
+    pixels = image.constBits()
+    pixels.setsize(image.sizeInBytes())
+    rows = np.frombuffer(pixels, dtype=np.uint16).reshape(image.height(), image.bytesPerLine() // 2)
+    rgba = rows[:, :image.width() * 4].reshape(image.height(), image.width(), 4)
+    return rgba[..., :3].copy()
+
+
+def _read_png_rgb16_python(path: str | Path) -> np.ndarray:
+    """Precision-preserving fallback when native 16-bit decoding is unavailable."""
     data = Path(path).read_bytes()
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError("Not a PNG file")

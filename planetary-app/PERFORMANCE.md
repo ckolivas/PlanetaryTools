@@ -172,3 +172,66 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
 
 The benchmark loads the previous filter and search modules from Git, including
 the previous local-contrast helper, to compare the complete implementations.
+
+## PNG loading and clipping buffers
+
+16-bit RGB PNGs now use Qt's native decoder when it supplies opaque RGBX64
+pixels. The uint16 channels are copied directly, without an 8-bit intermediate,
+colour conversion or automatic orientation change. Qt is already an app
+dependency. Other native formats and decode failures retain the original
+Python decoder. This also protects RGB PNGs with a transparent-colour key:
+a regression fixture exposed incorrect native sample expansion for that case.
+Header probes read just the 33-byte PNG signature/IHDR instead of the full file.
+
+Clip-black, highlight clamping and full-range clamping now share a single
+owned float32 result buffer. Operations preserve the old arithmetic order,
+thresholds and grayscale-channel selection, including nonfinite values. Even
+a no-op returns independent storage, so document/preview/undo pixels remain
+unchanged when callers modify the result.
+
+### Fourth-pass measurements
+
+Compared against `bd529d5`, median of three paired runs for `widefield.png`
+(3088 × 1600) and five for `3moons.png` (704 × 464), with warmup and alternating
+order. Decode timings include file reads; complete loading additionally
+includes linear-light conversion and pinning the document's noise context.
+Qt imports are warmed as they already are in the GUI. Clipping uses the sample
+normalized to a 1.4 peak and shifted by −0.02 to exercise both bounds.
+
+| Operation | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| 16-bit PNG decode | 6157.71 → 117.95 ms | 52.21× | 8.22 → 11.54 ms | 0.71× |
+| Complete image load | 6970.34 → 926.35 ms | 7.52× | 71.46 → 68.85 ms | 1.04× |
+| PNG header probe | 5.51 → 0.06 ms | 97.79× | 0.05 → 0.01 ms | 6.98× |
+| Clip black + clamp high | 94.78 → 47.22 ms | 2.01× | 1.72 → 0.92 ms | 1.87× |
+| Clamp full range | 60.11 → 54.39 ms | 1.11× | 1.12 → 0.69 ms | 1.62× |
+
+On the larger sample, peak traced allocations for clip-black plus clamp-high
+fell from 169.6 MiB to 56.5 MiB, and full-range clamping from
+113.1 MiB to 56.5 MiB. These `tracemalloc` measurements
+exclude the existing input image and include the returned output buffer.
+
+The largest PNG gain is for files with predictive scanline filters, which the
+old implementation reconstructed byte by byte in Python. Small PNGs with
+unfiltered rows already decoded cheaply and do not show the same benefit.
+The native fast path is conditional on Qt's full-precision opaque output;
+transparent-key PNGs and unsupported native formats retain the prior path.
+
+Ten new regression tests cover every PNG predictor, mixed row filters, split
+IDAT chunks, gamma/ICC/significant-bit metadata, transparency fallback, exact
+linear pixels and pinned noise context, bounded header reads, all clipping
+options, threshold/extreme values, readonly and strided input, and result
+ownership. All 104 tests pass.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/loading_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/loading_performance.py 3moons.png --repeats 5
+```
+
+The benchmark loads the previous PNG reader, loader and brightness functions
+from Git. It checks decoded uint16 samples, linear document pixels, storage
+precision, noise context and postprocessed float32 pixels for exact equality.

@@ -77,32 +77,44 @@ def brightness_increase_pct(
     return (out_max / in_max - 1.0) * 100.0
 
 
+def _clip_black_inplace(out: np.ndarray) -> None:
+    if float(out.min()) < 0.0:
+        np.maximum(out, 0.0, out=out)
+
+
+def _clamp_inplace(out: np.ndarray, is_grayscale: bool, *, low: bool) -> None:
+    ch = _channel_array(out, is_grayscale)
+    hi = float(ch.max())
+    if hi > 1.0 + 1e-6:
+        if low:
+            lo = float(ch.min())
+            span = hi - lo
+            if span > 1e-6:
+                np.subtract(out, lo, out=out)
+                np.divide(out, span, out=out)
+        else:
+            np.divide(out, hi, out=out)
+
+
 def clip_black_channels(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
     """Floor channel values below 0% to 0%; leave maximum unchanged."""
-    out = np.asarray(data, dtype=np.float32)
-    if float(out.min()) < 0.0:
-        out = np.maximum(out, 0.0)
-    return out.astype(np.float32)
+    out = np.array(data, dtype=np.float32, copy=True)
+    _clip_black_inplace(out)
+    return out
 
 
 def clamp_high_channels(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
     """Scale all levels so the brightest channel value becomes 100%."""
-    out = np.asarray(data, dtype=np.float32)
-    peak = float(_channel_array(out, is_grayscale).max())
-    if peak > 1.0 + 1e-6:
-        out = out / peak
-    return out.astype(np.float32)
+    out = np.array(data, dtype=np.float32, copy=True)
+    _clamp_inplace(out, is_grayscale, low=False)
+    return out
 
 
 def clamp_range_channels(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
     """Scale all levels so the darkest channel becomes 0% and brightest 100%."""
-    out = np.asarray(data, dtype=np.float32)
-    ch = _channel_array(out, is_grayscale)
-    lo, hi = float(ch.min()), float(ch.max())
-    span = hi - lo
-    if hi > 1.0 + 1e-6 and span > 1e-6:
-        out = (out - lo) / span
-    return out.astype(np.float32)
+    out = np.array(data, dtype=np.float32, copy=True)
+    _clamp_inplace(out, is_grayscale, low=True)
+    return out
 
 
 def apply_channel_post_process(
@@ -114,15 +126,14 @@ def apply_channel_post_process(
     clamp_low: bool = False,
 ) -> np.ndarray:
     """Apply clip-black flooring and/or highlight clamping to 100%."""
-    out = np.asarray(data, dtype=np.float32)
+    # Own one result buffer, including for a no-op; never mutate the source
+    # shared by a document, preview worker or undo snapshot.
+    out = np.array(data, dtype=np.float32, copy=True)
     if clip_black and would_clip_low(out, is_grayscale):
-        out = clip_black_channels(out, is_grayscale)
-    if clamp_high and would_clip_high(out, is_grayscale):
-        if clamp_low:
-            out = clamp_range_channels(out, is_grayscale)
-        else:
-            out = clamp_high_channels(out, is_grayscale)
-    return out.astype(np.float32)
+        _clip_black_inplace(out)
+    if clamp_high:
+        _clamp_inplace(out, is_grayscale, low=clamp_low)
+    return out
 
 
 def clamp_channels(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
