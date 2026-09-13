@@ -1660,6 +1660,9 @@ def edit_filter_params(
     ``preset_name`` is the selected saved preset, or ``None`` if parameters
     were hand-edited away from a named preset.
     """
+    if filter_id == "curves":
+        from planetary_tools.ui.curves_dialog import edit_curves_params
+        return edit_curves_params(params, is_grayscale, parent, preset_name)
     fdef = FILTERS[filter_id]
     dlg = QDialog(parent)
     dlg.setWindowTitle(fdef.label)

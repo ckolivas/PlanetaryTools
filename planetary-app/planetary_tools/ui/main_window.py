@@ -46,6 +46,7 @@ from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.animate_dialog import AnimateDialog
 from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
 from planetary_tools.ui.compose_dialog import RGBComposeDialog
+from planetary_tools.ui.curves_dialog import CurvesDialog
 from planetary_tools.ui.dialogs import (
     FILTER_PANEL_WIDTH,
     AdaptiveDeconvDialog,
@@ -306,6 +307,11 @@ class MainWindow(QMainWindow):
         self._levels_act.triggered.connect(self._run_levels)
         colours_menu.addAction(self._levels_act)
 
+        self._curves_act = QAction("&Curves…", self)
+        self._curves_act.setToolTip("Adjust Value and colour channels using editable tonal curves.")
+        self._curves_act.triggered.connect(self._run_curves)
+        colours_menu.addAction(self._curves_act)
+
         self._extract_component_act = QAction("E&xtract Component…", self)
         self._extract_component_act.setToolTip(
             "Extract BT.709 or OKLab luminance, RGB mean, RGB, or CMY as a greyscale image."
@@ -411,7 +417,7 @@ class MainWindow(QMainWindow):
             self._sharpen_act, self._denoise_act, self._deconv_act,
             self._moon_enhance_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
-            self._levels_act, self._extract_component_act, self._rgb_decompose_act,
+            self._levels_act, self._curves_act, self._extract_component_act, self._rgb_decompose_act,
             self._align_rgb_act,
             # self._lum_act, self._decompose_act,
         ):
@@ -1028,6 +1034,18 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Levels", "This filter requires an RGB image.")
             return
         self._run_filter_dialog(LevelsDialog(self), "Levels")
+
+    def _run_curves(self) -> None:
+        if self._document is None:
+            return
+        if self._guard_filter_dialog("Curves", self._run_curves):
+            return
+        dlg = CurvesDialog(self)
+        dlg.attach_canvas(self._canvas)
+        try:
+            self._run_filter_dialog(dlg, "Curves")
+        finally:
+            dlg.detach_canvas()
 
     def _run_extract_component(self) -> None:
         if self._document is None:

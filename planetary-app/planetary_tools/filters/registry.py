@@ -26,6 +26,7 @@ from planetary_tools.filters.colour_matrix import (
 )
 # from planetary_tools.filters.oklab_filters import oklab_luminance
 from planetary_tools.filters.levels import apply_levels, default_levels_params
+from planetary_tools.filters.curves import apply_curves, default_curves_params
 from planetary_tools.core.crop import (
     DEFAULT_BORDER_PX,
     DEFAULT_MIN_BRIGHTNESS_PCT,
@@ -172,6 +173,12 @@ class SaturationVibranceDef(FilterDef):
             params.get("saturation", 1.0),
             params.get("vibrance", 1.0),
         )
+
+
+@dataclass
+class CurvesDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        return apply_curves(data, params)
 
 
 @dataclass
@@ -403,6 +410,11 @@ FILTERS: dict[str, FilterDef] = {
         label="Saturation & Vibrance",
         requires_rgb=True,
         default_params=_with_defaults({"saturation": 1.0, "vibrance": 1.0}),
+    ),
+    "curves": CurvesDef(
+        id="curves",
+        label="Curves",
+        default_params=default_curves_params(),
     ),
     "levels": LevelsDef(
         id="levels",
