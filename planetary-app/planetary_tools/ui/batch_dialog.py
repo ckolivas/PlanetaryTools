@@ -42,6 +42,7 @@ from planetary_tools.batch.pipeline import (
 from planetary_tools.core.presets import ensure_builtin_presets
 from planetary_tools.filters.registry import FILTERS, batch_filters
 from planetary_tools.ui.dialogs import edit_filter_params
+from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 
 
@@ -288,7 +289,7 @@ class BatchDialog(QDialog):
 
     def _add_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Add input images", self._input_start_directory()
+            self, "Add input images", self._input_start_directory(), image_file_filters()
         )
         if not paths:
             return

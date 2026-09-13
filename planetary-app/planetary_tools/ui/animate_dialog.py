@@ -37,6 +37,7 @@ from planetary_tools.core.animate import (
     write_animation,
 )
 from planetary_tools.io.loader import supported_extensions
+from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import (
     last_open_directory,
     last_save_directory,
@@ -45,11 +46,6 @@ from planetary_tools.ui.recent_files import (
 )
 
 _COL_FILE = 0
-
-
-def _image_filter() -> str:
-    exts = " ".join(f"*{e}" for e in supported_extensions())
-    return f"Images ({exts});;All files (*)"
 
 
 class _RunWorker(QThread):
@@ -226,7 +222,7 @@ class AnimateDialog(QDialog):
         if self._busy():
             return
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Add animation frames", last_open_directory(), _image_filter()
+            self, "Add animation frames", last_open_directory(), image_file_filters()
         )
         if not paths:
             return
@@ -354,7 +350,7 @@ class AnimateDialog(QDialog):
         if not start:
             start = last_save_directory()
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save animation", start, filters[fmt]
+            self, "Save animation", start, filters[fmt] + ";;All Files (*)"
         )
         if not path:
             return

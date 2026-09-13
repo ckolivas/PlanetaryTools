@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from planetary_tools.io.loader import supported_extensions
+from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 
 _CHANNELS = ("Red", "Green", "Blue")
@@ -46,11 +46,6 @@ def detect_channel(path: Path) -> str | None:
         if word in lowered:
             return word.capitalize()
     return None
-
-
-def _image_filter() -> str:
-    exts = " ".join(f"*{e}" for e in supported_extensions())
-    return f"Images ({exts});;All Files (*)"
 
 
 class RGBComposeDialog(QDialog):
@@ -162,7 +157,7 @@ class RGBComposeDialog(QDialog):
             self,
             f"Select {channel} channel image",
             self._browse_start_dir(channel),
-            _image_filter(),
+            image_file_filters(),
         )
         if not path:
             return
@@ -174,7 +169,7 @@ class RGBComposeDialog(QDialog):
             self,
             "Add channel files",
             self._browse_start_dir(),
-            _image_filter(),
+            image_file_filters(),
         )
         if not paths:
             return

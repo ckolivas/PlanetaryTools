@@ -39,6 +39,7 @@ from planetary_tools.core.field_derotate import (
     plan_output_paths,
 )
 from planetary_tools.io.loader import load_image, supported_extensions
+from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 
 _COL_FILE = 0
@@ -49,11 +50,6 @@ _COL_SCORE = 4
 _COL_STATUS = 5
 
 _TITLE = "Derotate/Align"
-
-
-def _image_filter() -> str:
-    exts = " ".join(f"*{e}" for e in supported_extensions())
-    return f"Images ({exts});;All files (*)"
 
 
 @dataclass
@@ -304,7 +300,7 @@ class FieldDerotateDialog(QDialog):
         if self._busy():
             return
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Add images", last_open_directory(), _image_filter()
+            self, "Add images", last_open_directory(), image_file_filters()
         )
         if not paths:
             return

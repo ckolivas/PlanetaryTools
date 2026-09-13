@@ -39,9 +39,9 @@ from planetary_tools.io.loader import (
     load_image,
     save_channel,
     save_image,
-    supported_extensions,
 )
 from planetary_tools.ui.batch_dialog import BatchDialog
+from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.animate_dialog import AnimateDialog
 from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
@@ -503,8 +503,7 @@ class MainWindow(QMainWindow):
         )
 
     def _file_filter(self) -> str:
-        exts = " ".join(f"*{e}" for e in supported_extensions())
-        return f"Images ({exts});;All Files (*)"
+        return image_file_filters()
 
     def _save_as_filters(self) -> str:
         return (
