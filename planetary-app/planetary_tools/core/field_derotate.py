@@ -94,23 +94,38 @@ def phase_correlation_shift(
     tgt = np.asarray(target, dtype=np.float64)
     if ref.shape != tgt.shape:
         raise ValueError("phase_correlation_shift requires matching shapes.")
-    a = ref - ref.mean()
-    b = tgt - tgt.mean()
-    na = float(np.sqrt(np.sum(a * a)))
-    nb = float(np.sqrt(np.sum(b * b)))
-    if na < 1e-12 or nb < 1e-12:
-        return 0, 0, 0.0
-    corr = np.fft.ifft2(np.fft.fft2(a) * np.conj(np.fft.fft2(b))).real
-    corr /= na * nb
-    peak_idx = np.unravel_index(int(np.argmax(corr)), corr.shape)
-    dy = int(peak_idx[0])
-    dx = int(peak_idx[1])
-    h, w = corr.shape
-    if dy > h // 2:
-        dy -= h
-    if dx > w // 2:
-        dx -= w
-    return dy, dx, float(corr[peak_idx])
+    return _PreparedPhaseCorrelation(ref).shift(tgt)
+
+
+class _PreparedPhaseCorrelation:
+    """One reference FFT and norm, owned only for the current angle sweep."""
+
+    def __init__(self, reference: np.ndarray):
+        ref = np.asarray(reference, dtype=np.float64)
+        self.shape = ref.shape
+        a = ref - ref.mean()
+        self.norm = float(np.sqrt(np.sum(a * a)))
+        self.spectrum = None if self.norm < 1e-12 else np.fft.fft2(a)
+
+    def shift(self, target: np.ndarray) -> tuple[int, int, float]:
+        tgt = np.asarray(target, dtype=np.float64)
+        if self.shape != tgt.shape:
+            raise ValueError("phase_correlation_shift requires matching shapes.")
+        b = tgt - tgt.mean()
+        nb = float(np.sqrt(np.sum(b * b)))
+        if self.norm < 1e-12 or nb < 1e-12:
+            return 0, 0, 0.0
+        corr = np.fft.ifft2(self.spectrum * np.conj(np.fft.fft2(b))).real
+        corr /= self.norm * nb
+        peak_idx = np.unravel_index(int(np.argmax(corr)), corr.shape)
+        dy = int(peak_idx[0])
+        dx = int(peak_idx[1])
+        h, w = corr.shape
+        if dy > h // 2:
+            dy -= h
+        if dx > w // 2:
+            dx -= w
+        return dy, dx, float(corr[peak_idx])
 
 
 def _rotate_luma(arr: np.ndarray, angle_deg: float) -> np.ndarray:
@@ -138,9 +153,10 @@ def _best_angle(
     best_score = -np.inf
     best = (0.0, 0.0, 0, 0)
     second: tuple[float, float] | None = None
+    reference = _PreparedPhaseCorrelation(ref)
     for theta in angles:
         rotated = _rotate_luma(tgt, float(theta))
-        dy, dx, score = phase_correlation_shift(ref, rotated)
+        dy, dx, score = reference.shift(rotated)
         if score > best_score:
             if math.isfinite(best_score):
                 second = (best[0], best_score)
@@ -155,7 +171,7 @@ def _best_angle(
         if abs(_wrap_180(t2 - theta)) > 150.0 and s2 > 0.95 * score:
             if abs(_wrap_180(t2)) < abs(_wrap_180(theta)):
                 rotated = _rotate_luma(tgt, t2)
-                dy, dx, score = phase_correlation_shift(ref, rotated)
+                dy, dx, score = reference.shift(rotated)
                 theta = t2
     return float(theta), float(score), int(dy), int(dx)
 

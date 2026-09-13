@@ -405,12 +405,13 @@ Remaining candidates to evaluate, not established gains:
 
 - Levels channel selection and joint percentiles: completed in the eighth
   pass below.
-- Alignment angle sweeps repeatedly compute the unchanged reference FFT and
-  normalization. Preparing those once per sweep may avoid redundant work.
+- Alignment reference FFT reuse: completed in the ninth pass below.
 - Alignment refinement allocates coordinates for every signal pixel to find
   the bounding box; row/column masks may save allocation while preserving it.
 - Curves mapping and noise median/percentile temporaries may have redundant
   copies; evaluate complete operations before retaining small local changes.
+- Deglow calculates the same full-resolution median twice for the first
+  grayscale channel; consider retaining that model until its channel is used.
 - OKLab matrix arithmetic changes can alter rounding. Avoid changing its
   equations or claiming equivalence without exact pixel verification.
 
@@ -456,4 +457,49 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/levels_performance.py widefield.png
 PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/levels_performance.py 3moons.png --repeats 5
+```
+
+## Alignment reference FFT reuse
+
+Each angle sweep prepares the unchanged reference mean, norm and FFT once.
+All candidate rotations, target FFTs, correlation normalization and peak/tie
+selection use the original arithmetic and ordering. Preparation is local to
+the sweep, holding one complex spectrum and scalar/shape metadata; no frame
+cache persists across calls. Subpixel refinement and final resampling remain
+unchanged.
+
+### Ninth-pass measurements
+
+Compared against `48fc394`, medians of three paired runs with alternating
+order after warmup. Fixtures apply a 1.37-degree rotation and (0.38, -0.71)
+pixel shift to a loaded image before timing. Both paths use the default ±45°
+search. Loading and fixture creation are excluded; complete matching includes
+luminance, structure preparation, search and native-resolution refinement.
+
+| Operation | Saturn 917 × 556 before → after | Speedup | Widefield 3088 × 1600 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Angle search | 1807.94 → 1381.78 ms | 1.31× | 1376.53 → 1102.98 ms | 1.25× |
+| Complete match | 2044.99 → 1632.53 ms | 1.25× | 3280.37 → 2996.35 ms | 1.09× |
+
+The search planes are 422 × 256 and 494 × 256 respectively. The paired
+benchmark verifies identical angle searches, full match records and rendered
+pixels. These timings establish preserved behavior, not increased alignment
+accuracy: Saturn recovers -1.3699946°, while both old and new widefield
+searches return the same alternate -3.15° match.
+
+Four new tests check exact correlation scores and shifts for odd/even shapes,
+wrap boundaries, weak signals and readonly/strided/Fortran inputs; reference
+FFT counts; rival-angle ordering; and complete matches/rendering with rotation,
+shift-only and search-limit settings. A nine-angle sweep now uses ten forward
+FFTs instead of eighteen. All 127 tests pass, including the existing real
+Saturn fixture and alignment quality regressions.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/alignment_performance.py \
+  align/2026-09-11-1552_0-CK-L3-Sat-planetrecon_processed_derot.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/alignment_performance.py widefield.png
 ```
