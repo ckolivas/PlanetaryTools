@@ -7,6 +7,7 @@ from PyQt6.QtGui import (
     QBrush,
     QColor,
     QImage,
+    QMouseEvent,
     QPainter,
     QPainterPath,
     QPen,
@@ -30,6 +31,7 @@ class ImageCanvas(QGraphicsView):
     """Scrollable view with zoom support, defaulting to 100%."""
 
     zoom_changed = pyqtSignal(float)
+    crop_selected = pyqtSignal(int, int, int, int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -74,12 +76,65 @@ class ImageCanvas(QGraphicsView):
 
         self._zoom = 1.0
         self._document: ImageDocument | None = None
+        self._crop_selection_enabled = False
+        self._crop_drag_start: tuple[int, int] | None = None
+
+    def set_crop_selection_enabled(self, enabled: bool) -> None:
+        self._crop_selection_enabled = enabled
+        self._crop_drag_start = None
+        self.viewport().setCursor(
+            Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.OpenHandCursor
+        )
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if (self._crop_selection_enabled and self._document is not None
+                and event.button() == Qt.MouseButton.LeftButton
+                and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            point = self.mapToScene(event.position().toPoint())
+            if (0 <= point.x() <= self._document.width
+                    and 0 <= point.y() <= self._document.height):
+                self._crop_drag_start = (round(point.x()), round(point.y()))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def _emit_drag_crop(self, event: QMouseEvent, *, finish: bool = False) -> None:
+        if self._crop_drag_start is None or self._document is None:
+            return
+        point = self.mapToScene(event.position().toPoint())
+        x = max(0, min(self._document.width, round(point.x())))
+        y = max(0, min(self._document.height, round(point.y())))
+        start_x, start_y = self._crop_drag_start
+        if finish:
+            self._crop_drag_start = None
+        if x == start_x or y == start_y:
+            return
+        self.crop_selected.emit(min(x, start_x), min(y, start_y),
+                                abs(x - start_x), abs(y - start_y))
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._crop_drag_start is not None:
+            self._emit_drag_crop(event)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._crop_drag_start is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._emit_drag_crop(event, finish=True)
+            self._crop_drag_start = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+        if self._crop_selection_enabled:
+            self.viewport().setCursor(Qt.CursorShape.CrossCursor)
 
     @property
     def zoom(self) -> float:
         return self._zoom
 
     def set_document(self, doc: ImageDocument | None) -> None:
+        self.set_crop_selection_enabled(False)
         self._document = doc
         self.clear_crop_overlay()
         if doc is None:
@@ -131,7 +186,10 @@ class ImageCanvas(QGraphicsView):
         top = min(0, y)
         right = max(img_w, x + width)
         bottom = max(img_h, y + height)
-        self._scene.setSceneRect(QRectF(left, top, right - left, bottom - top))
+        # Keep the image stationary while replacing an expanded rectangle by
+        # dragging. Updating the scrollable bounds mid-drag can shift the view.
+        if self._crop_drag_start is None:
+            self._scene.setSceneRect(QRectF(left, top, right - left, bottom - top))
 
     def clear_crop_overlay(self) -> None:
         self._crop_dim.hide()

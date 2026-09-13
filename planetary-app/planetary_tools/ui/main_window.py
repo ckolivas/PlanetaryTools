@@ -1382,6 +1382,8 @@ class MainWindow(QMainWindow):
             self._filter_dock.show()
 
             dlg.rect_changed.connect(self._canvas.set_crop_overlay)
+            self._canvas.crop_selected.connect(dlg.set_selected_rect)
+            self._canvas.set_crop_selection_enabled(True)
             self._filter_dock.visibilityChanged.connect(self._on_filter_dock_visibility)
 
             def on_accept() -> None:
@@ -1446,6 +1448,11 @@ class MainWindow(QMainWindow):
                         f"32-bit float linear"
                     )
         finally:
+            self._canvas.set_crop_selection_enabled(False)
+            try:
+                self._canvas.crop_selected.disconnect(dlg.set_selected_rect)
+            except (TypeError, RuntimeError):
+                pass
             self._canvas.clear_crop_overlay()
             self._clear_filter_panel()
             self._filter_dock.hide()

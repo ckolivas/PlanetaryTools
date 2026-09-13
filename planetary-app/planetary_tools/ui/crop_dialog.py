@@ -54,6 +54,7 @@ class CropImageDialog(QWidget):
 
         layout.addWidget(QLabel(f"Original size: {self._img_w} × {self._img_h} px"))
         hint = QLabel(
+            "Drag on the image to select a crop. Hold Shift and drag to pan. "
             "The dashed outline is the proposed canvas. Sizes larger than the "
             "image expand it (new pixels are black). Offsets are from the "
             "image centre (positive = right / down)."
@@ -169,6 +170,9 @@ class CropImageDialog(QWidget):
     def emit_current_rect(self) -> None:
         rect = self.crop_rect()
         self.rect_changed.emit(rect.x, rect.y, rect.width, rect.height)
+
+    def set_selected_rect(self, x: int, y: int, width: int, height: int) -> None:
+        self._apply_rect(CropRect(x, y, width, height), emit=True)
 
     def _accept(self) -> None:
         self.accepted.emit()
