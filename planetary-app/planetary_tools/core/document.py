@@ -85,4 +85,4 @@ class ImageDocument:
 
     def title(self) -> str:
         name = self.path.name if self.path else "Untitled"
-        return f"{name}{'*' if self.modified else ''}"
+        return f"{name}{'*' if self.modified else ''} — {self.width} × {self.height} px"
