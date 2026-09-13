@@ -362,6 +362,21 @@ def _reference_index(
     return 0
 
 
+def plan_output_paths(paths: list[Path], output_dir: Path, suffix: str) -> list[Path]:
+    """Use the same distinct filenames for overwrite checks and actual exports."""
+    used: set[str] = set()
+    outputs = []
+    for path in paths:
+        name = f"{path.stem}{suffix}{path.suffix}"
+        number = 2
+        while name.casefold() in used:
+            name = f"{path.stem}{suffix}_{number}{path.suffix}"
+            number += 1
+        used.add(name.casefold())
+        outputs.append(Path(output_dir) / name)
+    return outputs
+
+
 def derotate_set(
     items: list[tuple[Path, np.ndarray, RigidMatch]],
     output_dir: Path,
@@ -388,7 +403,9 @@ def derotate_set(
     ref_path = items[_reference_index(items, ref_index)][0]
     valid: list[tuple[Path, np.ndarray, RigidMatch]] = []
     bounds: list[np.ndarray] = []
-    for (path, _old, match), data in zip(items, padded):
+    destinations: list[Path] = []
+    planned = plan_output_paths([path for path, _data, _match in items], output_dir, suffix)
+    for (path, _old, match), data, destination in zip(items, padded, planned):
         try:
             if not subpixel:
                 match = replace(match, dy=round(match.dy), dx=round(match.dx))
@@ -397,6 +414,7 @@ def derotate_set(
                 raise ValueError("Alignment transform must be finite.")
             valid.append((path, data, match))
             bounds.append(corners)
+            destinations.append(destination)
         except Exception as exc:
             result.failed.append((str(path), str(exc)))
     if not valid:
@@ -419,12 +437,11 @@ def derotate_set(
     result.canvas_size = (int(canvas_w), int(canvas_h))
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    for i, (path, data, match) in enumerate(valid):
+    for i, ((path, data, match), out_path) in enumerate(zip(valid, destinations)):
         if on_progress:
             on_progress(i, len(valid), f"Aligning and saving {path.name}")
         try:
             canvas = _render_rigid(data, match, (int(canvas_h), int(canvas_w)), origin)
-            out_path = output_dir / f"{path.stem}{suffix}{path.suffix}"
             doc = ImageDocument(
                 data=canvas, path=out_path, is_grayscale=canvas.ndim == 2,
                 modified=True, storage_bits=bit_depth,

@@ -141,6 +141,16 @@ class AlignmentTests(unittest.TestCase):
                                 (Path('tgt.tif'), tgt, match)], subpixel=True)
         np.testing.assert_allclose(saved['ref_derot'], saved['tgt_derot'], atol=.018)
 
+    def test_same_filename_from_different_folders_saves_both_images(self):
+        ref = planet()
+        saved, result = self.export([
+            (Path('first/saturn.tif'), ref, IDENTITY_MATCH),
+            (Path('second/saturn.tif'), ref * .5, IDENTITY_MATCH),
+        ], subpixel=True)
+        self.assertEqual([frame.output_path.name for frame in result.frames],
+                         ['saturn_derot.tif', 'saturn_derot_2.tif'])
+        np.testing.assert_array_equal(saved['saturn_derot_2'], saved['saturn_derot'] * .5)
+
     def test_invalid_transform_does_not_abort_other_exports(self):
         ref = planet()
         with tempfile.TemporaryDirectory() as directory, patch(

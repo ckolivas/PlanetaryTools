@@ -36,6 +36,7 @@ from planetary_tools.core.field_derotate import (
     derotate_set,
     estimate_rigid,
     pad_to_common,
+    plan_output_paths,
 )
 from planetary_tools.io.loader import load_image, supported_extensions
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
@@ -166,7 +167,8 @@ class FieldDerotateDialog(QDialog):
         root.addWidget(
             QLabel(
                 "Align stacked stills to a chosen reference image by best "
-                "luminance match. Frames may differ in size; smaller ones are "
+                "luminance match. Add files from different folders to the same list. "
+                "Frames may differ in size; smaller ones are "
                 "centred on a black canvas that fits the largest. Rotation "
                 "(derotation) is optional. This is not WinJUPOS CM / longitude "
                 "derotation, and it does not use site or sky coordinates."
@@ -176,16 +178,12 @@ class FieldDerotateDialog(QDialog):
         files = QGroupBox("Files")
         fl = QVBoxLayout(files)
         pick = QHBoxLayout()
-        btn_files = QPushButton("Select files…")
-        btn_files.setToolTip("Replace the current file list.")
-        btn_files.clicked.connect(self._pick_files)
         btn_add = QPushButton("Add files…")
-        btn_add.setToolTip("Append images without clearing the current list.")
+        btn_add.setToolTip("Add images from any folder, keeping the files already selected.")
         btn_add.clicked.connect(self._add_files)
-        btn_folder = QPushButton("Select folder…")
-        btn_folder.setToolTip("Replace the list with every image in a folder.")
+        btn_folder = QPushButton("Add folder…")
+        btn_folder.setToolTip("Add every image in another folder, keeping the current list.")
         btn_folder.clicked.connect(self._pick_folder)
-        pick.addWidget(btn_files)
         pick.addWidget(btn_add)
         pick.addWidget(btn_folder)
         pick.addStretch()
@@ -293,16 +291,6 @@ class FieldDerotateDialog(QDialog):
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
 
-    def _pick_files(self) -> None:
-        if self._busy():
-            return
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select stacked images", last_open_directory(), _image_filter()
-        )
-        if paths:
-            remember_open_path(paths[0])
-            self._set_paths([Path(p) for p in paths])
-
     def _add_files(self) -> None:
         if self._busy():
             return
@@ -312,10 +300,12 @@ class FieldDerotateDialog(QDialog):
         if not paths:
             return
         remember_open_path(paths[0])
+        self._append_paths([Path(p) for p in paths])
+
+    def _append_paths(self, paths: list[Path]) -> None:
         existing = {r.path.resolve() for r in self._rows}
         added = 0
-        for raw in paths:
-            path = Path(raw)
+        for path in paths:
             key = path.resolve()
             if key in existing:
                 continue
@@ -333,7 +323,7 @@ class FieldDerotateDialog(QDialog):
         if self._busy():
             return
         folder = QFileDialog.getExistingDirectory(
-            self, "Select folder of stacked images", last_open_directory()
+            self, "Add folder of stacked images", last_open_directory()
         )
         if not folder:
             return
@@ -342,20 +332,12 @@ class FieldDerotateDialog(QDialog):
         paths = sorted(
             p for p in Path(folder).iterdir() if p.is_file() and p.suffix.lower() in exts
         )
-        self._set_paths(paths)
+        self._append_paths(paths)
 
     def _pick_output(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select output folder")
         if folder:
             self._output_dir.setText(folder)
-
-    def _set_paths(self, paths: list[Path]) -> None:
-        self._rows = [_Row(path=p, status="") for p in paths]
-        self._ref_index = 0
-        if paths and not self._output_dir.text().strip():
-            self._output_dir.setText(str(paths[0].parent))
-        self._invalidate_estimate()
-        self._refresh_table()
 
     def _selected_rows(self) -> list[int]:
         return sorted({idx.row() for idx in self._table.selectedIndexes()})
@@ -523,9 +505,7 @@ class FieldDerotateDialog(QDialog):
             return
         output_dir = Path(out_text)
         suffix = self._suffix.text().strip() or "_derot"
-        planned = [
-            output_dir / f"{r.path.stem}{suffix}{r.path.suffix}" for r in self._rows
-        ]
+        planned = plan_output_paths([r.path for r in self._rows], output_dir, suffix)
         existing = [p for p in planned if p.exists()]
         if existing:
             sample = "\n".join(str(p) for p in existing[:12])
