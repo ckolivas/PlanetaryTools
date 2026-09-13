@@ -411,9 +411,10 @@ Remaining candidates to evaluate, not established gains:
 - Curves mapping and noise median/percentile temporaries may have redundant
   copies; evaluate complete operations before retaining small local changes.
 - Deglow median and identical-channel reuse: completed in the tenth pass below.
-- Batch, animation and alignment workers load and pin noise context that they
-  never consume. Consider an explicit loader option for those callers while
-  retaining eager pinning for editing documents and all existing defaults.
+- Unused worker noise-context loading: completed in the eleventh pass below.
+- Untagged image normalization and float TIFF saving still copy owned float32
+  arrays unnecessarily; profile those allocations without changing tagged
+  TIFF handling, scaling heuristics, clipping or returned-buffer ownership.
 - OKLab matrix arithmetic changes can alter rounding. Avoid changing its
   equations or claiming equivalence without exact pixel verification.
 
@@ -554,4 +555,55 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/deglow_performance.py widefield.png
 PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/deglow_performance.py 3moons.png --repeats 5
+```
+
+## Skip unused worker noise-context analysis
+
+`load_image` has an explicit `pin_noise=False` option for callers that do not
+consume editing noise context. Batch processing, animation encoding and both
+alignment workers use it. Normal image opening keeps the existing default:
+source noise context is pinned immediately and survives subsequent edits.
+The deferred document can still calculate context on demand if needed.
+
+Batch Auto continues to analyse the current step's pixels using its existing
+code; it never consumed the context attached to the loaded document. Pixel
+decoding, normalization, colour profiles, storage precision and output paths
+are unchanged.
+
+### Eleventh-pass measurements
+
+Compared against `0c2c7f2`, medians of three paired runs on `widefield.png`
+(3088 × 1600) and five on `3moons.png` (704 × 464), alternating order after
+warmup. Pixel-load timings read the named PNG. Complete workflows use two
+float32 TIFF fixtures created before timing from that image and a two-pixel
+horizontal roll. The batch applies a non-identity colour matrix and writes
+32-bit TIFF; animation writes best-quality GIF; alignment loads both TIFFs
+and performs shift-only matching.
+
+| Operation | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Pixel-only PNG load | 368.72 → 276.91 ms | 1.33× | 45.14 → 21.13 ms | 2.14× |
+| Two-frame TIFF batch | 509.11 → 351.06 ms | 1.45× | 76.06 → 14.02 ms | 5.43× |
+| Two TIFFs → GIF | 692.69 → 496.01 ms | 1.40× | 114.02 → 62.45 ms | 1.83× |
+| Load and match, shift-only | 1893.86 → 1660.48 ms | 1.14× | 137.34 → 76.32 ms | 1.80× |
+
+Workflow timings include input reads, processing and output writes, plus
+reading exported batch pixels/GIF bytes for comparison. PNG-load traced peak
+allocations are unchanged (197.9 and 13.1 MiB), since normalization still
+dominates the peak. These improvements apply to the opted-in workers; ordinary
+editing-document load timing and pinned-context behavior are unchanged.
+
+Four new tests verify default and deferred context behavior, source pinning
+after edits, batch Auto results, all three animation formats, both alignment
+workers and their progress updates. Export files match byte-for-byte in these
+regressions. The paired benchmarks also check decoded pixels/metadata, batch
+pixels, GIF bytes and matches against Git. All 134 tests pass.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/worker_loading_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/worker_loading_performance.py 3moons.png --repeats 5
 ```

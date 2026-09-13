@@ -84,7 +84,7 @@ class _EstimateWorker(QThread):
             loaded: list = []
             for i, path in enumerate(self._paths):
                 self.progress.emit(i, n * 2, f"Loading {path.name}")
-                loaded.append(load_image(path).data)
+                loaded.append(load_image(path, pin_noise=False).data)
             padded = pad_to_common(loaded)
             ref = padded[self._ref_index]
             matches: list[RigidMatch] = [IDENTITY_MATCH] * n
@@ -134,7 +134,7 @@ class _RunWorker(QThread):
             total = len(self._paths)
             for i, (path, match) in enumerate(zip(self._paths, self._matches)):
                 self.progress.emit(i, total, f"Loading {path.name}")
-                doc = load_image(path)
+                doc = load_image(path, pin_noise=False)
                 items.append((path, doc.data, match))
             result = derotate_set(
                 items,

@@ -182,7 +182,11 @@ def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool, int
     return f, grayscale, storage_bits
 
 
-def load_image(path: str | Path) -> ImageDocument:
+def load_image(path: str | Path, *, pin_noise: bool = True) -> ImageDocument:
+    """Load pixels and metadata, pinning editing noise context by default.
+
+    Workers that only consume pixels can skip that analysis explicitly.
+    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
@@ -198,7 +202,8 @@ def load_image(path: str | Path) -> ImageDocument:
     )
     # Pin noise residual probes to the loaded stack so later enhance applies
     # do not re-estimate texture scale and change the absolute noise score.
-    doc.pin_noise_context()
+    if pin_noise:
+        doc.pin_noise_context()
     return doc
 
 

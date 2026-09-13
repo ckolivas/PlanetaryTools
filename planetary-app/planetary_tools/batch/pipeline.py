@@ -357,7 +357,8 @@ def run_batch(
         if on_progress:
             on_progress(i, total, msg)
         try:
-            doc = load_image(in_path)
+            # Batch Auto measures its current step input, not document context.
+            doc = load_image(in_path, pin_noise=False)
             processed = apply_pipeline(doc.data, doc.is_grayscale, steps)
             doc.set_data(processed)
 

@@ -256,7 +256,7 @@ def write_animation(
     for i, path in enumerate(files):
         if on_progress is not None:
             on_progress(i, total, f"Loading {path.name}")
-        doc = load_image(path)
+        doc = load_image(path, pin_noise=False)
         loaded.append(_to_uint8_srgb(doc.data))
 
     padded = pad_frames(loaded)
