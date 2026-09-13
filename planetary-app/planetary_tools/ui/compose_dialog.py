@@ -106,9 +106,9 @@ class RGBComposeDialog(QDialog):
 
         self._align_check = QCheckBox("Align channels")
         self._align_check.setToolTip(
-            "Enlarge each channel 3×, align them by best luma match, then\n"
-            "resize back down before combining. Corrects small misregistration\n"
-            "between separately captured channels."
+            "Align channel detail with fractional-pixel precision before combining.\n"
+            "Corrects up to five pixels of misregistration between separately\n"
+            "captured channels, with one resampling step."
         )
         layout.addWidget(self._align_check)
 

@@ -2,29 +2,25 @@
 
 Rigid registration in the style of WaveSharp Align/Rotate: no astrometry.
 Rotation is optional; shift-only matching skips the angle search. Angle and
-shift both come from the planet’s luminance structure. Shift uses a
-low-passed luma match so compact moons cannot pull the translation.
-Optional subpixel lock uses the Align RGB 3× cross-correlation against the
-chosen reference after the integer match.
+shift are refined together against native-resolution limbs, rings and belts.
+All output frames share reference coordinates and are resampled only once.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from scipy.ndimage import gaussian_filter, rotate as ndi_rotate
-from scipy.ndimage import shift as ndi_shift
+from scipy.ndimage import affine_transform, gaussian_filter, rotate as ndi_rotate
 
-from planetary_tools.core.align import align_to_reference
+from planetary_tools.core.align import _refine_alignment, _registration_structure
 from planetary_tools.core.colour import linear_luminance
 from planetary_tools.core.rotate import (
     geometric_centre,
     paste_into_canvas,
-    rotate_image,
 )
 from planetary_tools.core.scale import scale_image
 
@@ -37,8 +33,6 @@ _FINE_SPAN = 1.0
 _FINE_STEP = 0.05
 _POLISH_SPAN = 0.1
 _POLISH_STEP = 0.01
-_SHIFT_SIGMA_FRAC = 0.03
-_SHIFT_SIGMA_MIN = 6.0
 _WEAK_SCORE = 0.15
 _CORE_FRAC = 0.2
 
@@ -169,28 +163,32 @@ def _best_angle(
 def _search_angle(
     ref: np.ndarray, tgt: np.ndarray, max_angle: float
 ) -> tuple[float, float, bool]:
-    max_angle = abs(float(max_angle))
-    coarse = np.arange(-max_angle, max_angle + 0.5 * _COARSE_STEP, _COARSE_STEP)
+    max_angle = min(180.0, abs(float(max_angle)))
+    coarse = np.unique(np.clip(
+        np.r_[np.arange(-max_angle, max_angle, _COARSE_STEP), 0.0, max_angle],
+        -max_angle, max_angle,
+    ))
     theta, score, _dy, _dx = _best_angle(ref, tgt, coarse)
-    fine = np.arange(theta - _FINE_SPAN, theta + _FINE_SPAN + 0.5 * _FINE_STEP, _FINE_STEP)
+    fine = np.arange(
+        max(-max_angle, theta - _FINE_SPAN),
+        min(max_angle, theta + _FINE_SPAN) + 0.5 * _FINE_STEP, _FINE_STEP,
+    )
+    fine = np.clip(fine, -max_angle, max_angle)
     theta, score, _dy, _dx = _best_angle(ref, tgt, fine)
     polish = np.arange(
-        theta - _POLISH_SPAN, theta + _POLISH_SPAN + 0.5 * _POLISH_STEP, _POLISH_STEP
+        max(-max_angle, theta - _POLISH_SPAN),
+        min(max_angle, theta + _POLISH_SPAN) + 0.5 * _POLISH_STEP, _POLISH_STEP
     )
-    theta, score, _dy, _dx = _best_angle(ref, tgt, polish)
+    theta, score, _dy, _dx = _best_angle(ref, tgt, np.clip(polish, -max_angle, max_angle))
     theta = _wrap_180(theta)
     rival = _wrap_180(theta + 180.0)
-    if abs(rival) < abs(theta):
+    if abs(rival) <= max_angle and abs(rival) < abs(theta):
         rot_r = _rotate_luma(tgt, rival)
         _dyr, _dxr, score_r = phase_correlation_shift(ref, rot_r)
         if score_r > 0.95 * score:
             theta, score = rival, score_r
     on_limit = abs(theta) >= max_angle - _COARSE_STEP
     return theta, score, on_limit
-
-
-def _shift_sigma(shape: tuple[int, ...]) -> float:
-    return max(_SHIFT_SIGMA_MIN, _SHIFT_SIGMA_FRAC * min(shape[0], shape[1]))
 
 
 def _luma_centroid(lum: np.ndarray) -> tuple[float, float]:
@@ -242,7 +240,7 @@ def estimate_rigid(
     When ``rotate`` is true, search a rigid rotation + translation.
     ``angle_deg`` is CCW (Pillow). ``(dy, dx)`` shifts the *rotated* target
     onto the reference (scipy.ndimage.shift convention, original-pixel units).
-    When ``rotate`` is false, only the low-pass translation is estimated.
+    Translation is fractional; when ``rotate`` is false its angle stays zero.
     Frames of different size are centre-padded to a shared canvas first.
     """
     reference, target = pad_to_common(
@@ -251,65 +249,77 @@ def estimate_rigid(
     ref_l = luma(reference)
     tgt_l = luma(target)
 
-    sigma = _shift_sigma(ref_l.shape)
-    if not rotate:
-        dy, dx, shift_score = phase_correlation_shift(
-            gaussian_filter(ref_l, sigma=sigma),
-            gaussian_filter(tgt_l, sigma=sigma),
+    ref_s = _registration_structure(ref_l)
+    tgt_s = _registration_structure(tgt_l)
+    if not np.any(ref_s) or not np.any(tgt_s):
+        return RigidMatch(0.0, 0.0, 0.0, 0.0, "Weak match")
+    if not math.isfinite(max_angle):
+        raise ValueError("Maximum alignment angle must be finite.")
+    max_angle = min(180.0, abs(float(max_angle)))
+    rotate = rotate and max_angle > 0.0
+    theta = 0.0
+    if rotate:
+        theta, _score, _on_limit = _search_angle(
+            _structure(_search_downsample(ref_l)),
+            _structure(_search_downsample(tgt_l)), max_angle,
         )
-        status = "OK" if shift_score >= _WEAK_SCORE else "Weak match"
-        return RigidMatch(
-            angle_deg=0.0,
-            dy=float(dy),
-            dx=float(dx),
-            score=float(shift_score),
-            status=status,
-        )
-
-    ref_s = _structure(_search_downsample(ref_l))
-    tgt_s = _structure(_search_downsample(tgt_l))
-    theta, score, on_limit = _search_angle(ref_s, tgt_s, max_angle)
-
-    status = "OK"
-    if score < _WEAK_SCORE:
-        status = "Weak match"
-
-    rotated = rotate_image(target, theta, expand=False, crop_to_original=False)
-    rot_l = luma(rotated)
-    # Planet-only shift (low-pass) — compact moons must not drive this.
-    dy, dx, shift_score = phase_correlation_shift(
-        gaussian_filter(ref_l, sigma=sigma),
-        gaussian_filter(rot_l, sigma=sigma),
+    dy, dx, _score = phase_correlation_shift(ref_s, _rotate_luma(tgt_s, theta))
+    theta, dy, dx, score = _refine_alignment(
+        ref_s, tgt_s, (theta, dy, dx), max_angle=max_angle if rotate else 0.0,
     )
-    score = max(score, float(shift_score))
-    if on_limit and status == "OK":
-        status = "Hit search limit"
-
-    return RigidMatch(
-        angle_deg=float(theta),
-        dy=float(dy),
-        dx=float(dx),
-        score=float(score),
-        status=status,
-    )
+    on_limit = rotate and abs(theta) >= max_angle - 0.01
+    status = "Weak match" if score < _WEAK_SCORE else "Hit search limit" if on_limit else "OK"
+    return RigidMatch(theta, dy, dx, score, status)
 
 
-def apply_rigid(
-    data: np.ndarray,
-    match: RigidMatch,
+def _rotation_matrix(angle_deg: float) -> np.ndarray:
+    c, s = math.cos(math.radians(angle_deg)), math.sin(math.radians(angle_deg))
+    return np.array([[c, -s], [s, c]])
+
+
+def _transformed_bounds(data: np.ndarray, match: RigidMatch) -> np.ndarray:
+    h, w = data.shape[:2]
+    centre = (np.array([h, w]) - 1) / 2.0
+    corners = np.array([[0, 0], [0, w - 1], [h - 1, 0], [h - 1, w - 1]])
+    return (corners - centre) @ _rotation_matrix(match.angle_deg).T + centre + [match.dy, match.dx]
+
+
+def _render_rigid(
+    data: np.ndarray, match: RigidMatch, shape: tuple[int, int], origin: np.ndarray,
 ) -> np.ndarray:
-    """Rotate (expand) then shift. Output may be larger than the input."""
-    rotated = rotate_image(data, match.angle_deg, expand=True, crop_to_original=False)
-    if abs(match.dy) < 1e-6 and abs(match.dx) < 1e-6:
-        return rotated
-    if rotated.ndim == 2:
-        shift = (match.dy, match.dx)
-    else:
-        shift = (match.dy, match.dx, 0.0)
-    return np.asarray(
-        ndi_shift(rotated, shift=shift, order=1, mode="constant", cval=0.0),
-        dtype=np.float32,
-    )
+    """Sample directly from the original into one shared reference canvas."""
+    if abs(match.angle_deg) < 1e-9 and all(
+        abs(v - round(v)) < 1e-9 for v in (match.dy, match.dx)
+    ):
+        # Keep the reference and integer translations bit-exact.
+        cx, cy = geometric_centre(data.shape)
+        return paste_into_canvas(
+            data, shape[1], shape[0], (cx, cy),
+            (cx + round(match.dx) - origin[1], cy + round(match.dy) - origin[0]),
+        )
+    centre = (np.array(data.shape[:2]) - 1) / 2.0
+    inverse = _rotation_matrix(match.angle_deg).T
+    offset = centre + inverse @ (origin - centre - [match.dy, match.dx])
+
+    def render(plane: np.ndarray) -> np.ndarray:
+        return affine_transform(
+            plane, inverse, offset=offset, output_shape=shape,
+            order=3, mode="constant", cval=0.0, output=np.float32,
+        )
+
+    if data.ndim == 2:
+        return render(data)
+    return np.stack([render(data[..., c]) for c in range(data.shape[2])], axis=-1)
+
+
+def apply_rigid(data: np.ndarray, match: RigidMatch) -> np.ndarray:
+    """Apply rotation and translation once, expanding to retain the full frame."""
+    arr = np.asarray(data, dtype=np.float32)
+    bounds = _transformed_bounds(arr, match)
+    origin = np.floor(np.minimum(bounds.min(axis=0), [0, 0]))
+    end = np.ceil(np.maximum(bounds.max(axis=0), np.array(arr.shape[:2]) - 1))
+    shape = tuple((end - origin + 1).astype(int))
+    return _render_rigid(arr, match, shape, origin)
 
 
 def reference_pivot(data: np.ndarray) -> tuple[float, float]:
@@ -362,14 +372,11 @@ def derotate_set(
     ref_index: int | None = None,
     on_progress: ProgressCb | None = None,
 ) -> DerotateSetResult:
-    """Apply matches, paste onto a common centred canvas, and save.
+    """Save each original through one transform onto a shared reference canvas.
 
-    ``items`` is ``(path, pixels, match)``. The first item whose match is the
-    identity (or the first item) supplies the canvas-centre pivot.
-
-    When ``subpixel`` is true, each non-reference canvas is locked to the
-    reference with the Align RGB 3× cross-correlation after the integer
-    rigid match.
+    ``subpixel=False`` rounds translations to whole pixels. The selected
+    reference determines the common centre; other frames are never recentred
+    independently by brightness, which would invalidate their measured shifts.
     """
     from planetary_tools.core.document import ImageDocument
     from planetary_tools.io.loader import save_image
@@ -377,94 +384,56 @@ def derotate_set(
     result = DerotateSetResult()
     if not items:
         return result
-
     padded = pad_to_common([data for _path, data, _match in items])
-    items = [
-        (path, arr, match) for (path, _old, match), arr in zip(items, padded)
-    ]
-
-    applied: list[tuple[Path, np.ndarray, RigidMatch]] = []
-    total = len(items)
-    for i, (path, data, match) in enumerate(items):
-        if on_progress:
-            on_progress(i, total, f"Applying {path.name}")
+    ref_path = items[_reference_index(items, ref_index)][0]
+    valid: list[tuple[Path, np.ndarray, RigidMatch]] = []
+    bounds: list[np.ndarray] = []
+    for (path, _old, match), data in zip(items, padded):
         try:
-            applied.append((path, apply_rigid(data, match), match))
+            if not subpixel:
+                match = replace(match, dy=round(match.dy), dx=round(match.dx))
+            corners = _transformed_bounds(data, match)
+            if not np.isfinite(corners).all():
+                raise ValueError("Alignment transform must be finite.")
+            valid.append((path, data, match))
+            bounds.append(corners)
         except Exception as exc:
             result.failed.append((str(path), str(exc)))
-
-    if not applied:
+    if not valid:
         return result
-
-    # Canvas: large enough that each pivot can sit at the centre.
-    pivots: list[tuple[float, float]] = []
-    for _path, arr, match in applied:
-        if abs(match.angle_deg) < 1e-9 and abs(match.dx) < 1e-9 and abs(match.dy) < 1e-9:
-            pivots.append(reference_pivot(arr))
-        else:
-            # After rot+shift the planet should sit where the reference planet
-            # sits in a same-size frame; on an expanded frame it is near centre
-            # plus the applied shift, which is already in the pixels. Use luma
-            # centroid of the aligned frame.
-            pivots.append(reference_pivot(arr))
-
-    max_left = max(px for px, _py in pivots)
-    max_right = max(arr.shape[1] - 1 - px for (_p, arr, _m), (px, _py) in zip(applied, pivots))
-    max_top = max(py for _px, py in pivots)
-    max_bottom = max(arr.shape[0] - 1 - py for (_p, arr, _m), (_px, py) in zip(applied, pivots))
-    canvas_w = int(math.ceil(max_left + max_right + 1))
-    canvas_h = int(math.ceil(max_top + max_bottom + 1))
-    canvas_w = max(canvas_w, max(arr.shape[1] for _p, arr, _m in applied))
-    canvas_h = max(canvas_h, max(arr.shape[0] for _p, arr, _m in applied))
-    result.canvas_size = (canvas_w, canvas_h)
-
+    ref_i = next((i for i, (path, _data, _match) in enumerate(valid) if path == ref_path), 0)
+    ref_data, ref_match = valid[ref_i][1:]
+    pivot = np.array(reference_pivot(ref_data)[::-1])
+    centre = (np.array(ref_data.shape[:2]) - 1) / 2.0
+    pivot = (
+        _rotation_matrix(ref_match.angle_deg) @ (pivot - centre)
+        + centre + [ref_match.dy, ref_match.dx]
+    )
+    corners = np.concatenate(bounds)
+    # A single integer canvas origin preserves the reference's original pixels,
+    # and prevents half-pixel offsets from differing expanded-frame parities.
+    anchor = np.floor(pivot)
+    radius = np.ceil(np.maximum(anchor - corners.min(axis=0), corners.max(axis=0) - anchor))
+    origin = anchor - radius
+    canvas_h, canvas_w = (2 * radius + 1).astype(int)
+    result.canvas_size = (int(canvas_w), int(canvas_h))
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    canvases: list[tuple[Path, np.ndarray, RigidMatch]] = []
-    for (path, arr, match), pivot in zip(applied, pivots):
-        canvases.append((path, paste_into_canvas(arr, canvas_w, canvas_h, pivot), match))
-
-    if subpixel and len(canvases) >= 2:
-        ref_path = items[_reference_index(items, ref_index)][0]
-        ref_i = next((i for i, (path, _c, _m) in enumerate(canvases) if path == ref_path), 0)
-        ref_canvas = canvases[ref_i][1]
-        for i, (path, canvas, match) in enumerate(canvases):
-            if i == ref_i:
-                continue
-            if on_progress:
-                on_progress(i, total, f"Subpixel {path.name}")
-            try:
-                canvases[i] = (path, align_to_reference(ref_canvas, canvas), match)
-            except Exception as exc:
-                result.failed.append((str(path), str(exc)))
-
-    failed_paths = {p for p, _exc in result.failed}
-    for i, (path, canvas, match) in enumerate(canvases):
-        if str(path) in failed_paths:
-            continue
+    for i, (path, data, match) in enumerate(valid):
         if on_progress:
-            on_progress(i, total, f"Saving {path.name}")
+            on_progress(i, len(valid), f"Aligning and saving {path.name}")
         try:
+            canvas = _render_rigid(data, match, (int(canvas_h), int(canvas_w)), origin)
             out_path = output_dir / f"{path.stem}{suffix}{path.suffix}"
-            is_gray = canvas.ndim == 2
             doc = ImageDocument(
-                data=np.asarray(canvas, dtype=np.float32),
-                path=out_path,
-                is_grayscale=is_gray,
-                modified=True,
-                storage_bits=bit_depth,
+                data=canvas, path=out_path, is_grayscale=canvas.ndim == 2,
+                modified=True, storage_bits=bit_depth,
             )
-            if canvas.ndim == 3:
-                doc.is_grayscale = False
             save_image(doc, out_path, bit_depth=bit_depth)
             result.processed += 1
-            result.frames.append(
-                DerotateFrameResult(path=path, output_path=out_path, match=match)
-            )
+            result.frames.append(DerotateFrameResult(path=path, output_path=out_path, match=match))
         except Exception as exc:
             result.failed.append((str(path), str(exc)))
-
     return result
 
 

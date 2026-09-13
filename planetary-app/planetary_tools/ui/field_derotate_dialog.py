@@ -248,9 +248,9 @@ class FieldDerotateDialog(QDialog):
         self._subpixel = QCheckBox("Subpixel alignment")
         self._subpixel.setChecked(True)
         self._subpixel.setToolTip(
-            "After the integer luminance match, enlarge each frame 3× and lock "
-            "it to the reference by the same cross-correlation Align RGB uses "
-            "(about ⅓ pixel)."
+            "Apply the measured fractional-pixel translation. Rotation and "
+            "translation are refined against the planet’s limbs, rings and belts, "
+            "then applied in one resampling step. Uncheck to round shifts to whole pixels."
         )
         of.addRow(self._subpixel)
         root.addWidget(opts)
