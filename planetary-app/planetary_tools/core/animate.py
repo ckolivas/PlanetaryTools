@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, TypeVar
 
 import numpy as np
 from PIL import Image
@@ -14,6 +14,7 @@ from planetary_tools.core.colour import linear_to_srgb
 from planetary_tools.io.loader import load_image
 
 ProgressFn = Callable[[int, int, str], None]
+Frame = TypeVar("Frame")
 
 FORMATS = ("gif", "apng", "webp")
 GIF_QUALITIES = ("best", "high", "medium", "low")
@@ -117,7 +118,7 @@ def pad_frames(frames: Iterable[np.ndarray]) -> list[np.ndarray]:
     return [centre_pad_uint8(a, canvas_w, canvas_h) for a in arrays]
 
 
-def expand_back_and_forth(frames: list[np.ndarray]) -> list[np.ndarray]:
+def expand_back_and_forth(frames: list[Frame]) -> list[Frame]:
     """Append the sequence in reverse, omitting both endpoints so a loop does not hitch.
 
     ``A B C D E`` becomes ``A B C D E D C B``, which loops as a ping-pong.
@@ -158,8 +159,6 @@ def encode_frames(
     fmt = fmt.lower()
     if fmt not in FORMATS:
         raise ValueError(f"Unknown animation format: {fmt}")
-    if back_and_forth:
-        frames = expand_back_and_forth(frames)
     delay = duration_ms(fmt, fps)
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,6 +172,11 @@ def encode_frames(
             raise ValueError(f"Unknown GIF quality: {gif_quality}")
         colors, dither = _GIF_PRESETS[quality]
         paletted = [_quantize_gif(im, colors, dither) for im in pil_rgb]
+        # Prepare each source once; the return trip reuses the same pixels
+        # and palette rather than repeating expensive GIF quantization.
+        if back_and_forth:
+            paletted = expand_back_and_forth(paletted)
+        frame_count = len(paletted)
         delays = [delay] * len(paletted)
         paletted[0].save(
             path,
@@ -187,6 +191,9 @@ def encode_frames(
             disposal=1,
         )
     elif fmt == "apng":
+        if back_and_forth:
+            pil_rgb = expand_back_and_forth(pil_rgb)
+        frame_count = len(pil_rgb)
         delays = [delay] * len(pil_rgb)
         pil_rgb[0].save(
             path,
@@ -199,6 +206,9 @@ def encode_frames(
             disposal=0,
         )
     else:
+        if back_and_forth:
+            pil_rgb = expand_back_and_forth(pil_rgb)
+        frame_count = len(pil_rgb)
         delays = [delay] * len(pil_rgb)
         pil_rgb[0].save(
             path,
@@ -214,7 +224,7 @@ def encode_frames(
 
     return AnimationResult(
         path=path,
-        frames=len(frames),
+        frames=frame_count,
         width=w,
         height=h,
         duration_ms=delay,

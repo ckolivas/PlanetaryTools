@@ -354,3 +354,61 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
 The benchmark loads the previous noise and Auto modules from Git, checking
 luminance pixels, classifications, scores, Auto settings and progress values
 for exact equality.
+
+## Back-and-forth animation preparation
+
+Return-trip animation frames now reuse the prepared Pillow images. GIF palette
+quantization runs once per source frame instead of again for each returning
+frame. APNG and WebP similarly reuse RGB images. The encoder still receives
+the same expanded sequence, durations, loop/disposal options and quality.
+There is no persistent cache or change to forward-only exports.
+
+### Seventh-pass measurements
+
+Compared against `f64f351`, medians of three paired runs, alternating order
+after warmup. Five source frames produce eight displayed frames. Fixtures
+use the loaded sample shifted horizontally by two pixels per frame, prepared
+before timing. Measurements include complete encoding, temporary-file writes
+and reading the bytes for equality; source loading and conversion are excluded.
+
+| GIF quality | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Best | 501.49 → 332.36 ms | 1.51× | 161.64 → 103.90 ms | 1.56× |
+| Low | 1081.79 → 921.34 ms | 1.17× | 113.82 → 89.98 ms | 1.26× |
+
+Complete GIF files and result metadata match exactly. Two new tests also
+compare bytes across GIF's four qualities, APNG and WebP; two, three and five
+source frames; forward-only/return-trip sequences; repeated, readonly and
+strided frames. Decoded GIF frame order, duration and looping are checked,
+and a five-frame return trip requires five quantizations rather than eight.
+All 119 tests pass.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/animation_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/animation_performance.py 3moons.png
+```
+
+### Timed audit continuation
+
+The user authorized continued work until 2026-09-13 22:45:15 UTC, with an early
+stop when no obvious worthwhile improvements remain. Follow-ups use the
+`planetarytools-performance-audit-10-hours` heartbeat in the existing task.
+Preserve the separate user Save As edit in `ui/main_window.py` and untracked
+sample/configuration files. Benchmark serially; retain measured improvements
+with exact output parity and commit each completed step.
+
+Remaining candidates to evaluate, not established gains:
+
+- Levels auto-balance currently converts all RGB channels three times through
+  `_channel_values`; selecting the requested channel before the transfer may
+  remove redundant work. Joint percentile evaluation is another candidate.
+- Alignment refinement allocates coordinates for every signal pixel to find
+  the bounding box; row/column masks may save allocation while preserving it.
+- Curves mapping and noise median/percentile temporaries may have redundant
+  copies; evaluate complete operations before retaining small local changes.
+- OKLab matrix arithmetic changes can alter rounding. Avoid changing its
+  equations or claiming equivalence without exact pixel verification.
