@@ -55,6 +55,7 @@ from planetary_tools.ui.dialogs import (
     LevelsDialog,
     MergeWaveletDetailDialog,
     MoonEnhanceDialog,
+    DeglowDialog,
     # InstantFilterDialog,
     SaturationVibranceDialog,
     StretchContrastDialog,
@@ -260,6 +261,11 @@ class MainWindow(QMainWindow):
         self._moon_enhance_act.triggered.connect(self._run_moon_enhance)
         enhance_menu.addAction(self._moon_enhance_act)
 
+        self._deglow_act = QAction("Deglow…", self)
+        self._deglow_act.setToolTip("Reduce diffuse glow around the planet while protecting the disk and rings.")
+        self._deglow_act.triggered.connect(self._run_deglow)
+        enhance_menu.addAction(self._deglow_act)
+
         # Wiener deconvolution is implemented but not exposed: weaker denoise
         # than wavelet for typical planetary stacks. Re-enable when improved.
         self._wiener_act = QAction("&Wiener Deconvolution…", self)
@@ -415,7 +421,7 @@ class MainWindow(QMainWindow):
             self._save_act, self._save_as_act, self._scale_act, self._rotate_act,
             self._crop_act,
             self._sharpen_act, self._denoise_act, self._deconv_act,
-            self._moon_enhance_act, self._merge_detail_act,
+            self._moon_enhance_act, self._deglow_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
             self._levels_act, self._curves_act, self._extract_component_act, self._rgb_decompose_act,
             self._align_rgb_act,
@@ -972,6 +978,9 @@ class MainWindow(QMainWindow):
 
     def _run_moon_enhance(self) -> None:
         self._run_filter_dialog(MoonEnhanceDialog(self), "Moon Enhance")
+
+    def _run_deglow(self) -> None:
+        self._run_filter_dialog(DeglowDialog(self), "Deglow")
 
     def _run_wiener_deconv(self) -> None:
         if self._document is None:

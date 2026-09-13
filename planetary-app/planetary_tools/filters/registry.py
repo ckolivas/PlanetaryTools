@@ -37,6 +37,7 @@ from planetary_tools.core.crop import (
 from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
 from planetary_tools.filters.moon_enhance import moon_enhance
+from planetary_tools.filters.deglow import DEFAULT_DEGLOW_PARAMS, deglow
 from planetary_tools.filters.saturation import apply_saturation_vibrance
 from planetary_tools.filters.stretch import stretch_contrast_oklab
 from planetary_tools.filters.wavelet import merge_wavelet_detail, wavelet_denoise, wavelet_sharpen
@@ -138,6 +139,15 @@ class WienerDeconvDef(FilterDef):
             params.get("adaptive", True),
             oklab,
         )
+
+
+@dataclass
+class DeglowDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        return deglow(data, is_grayscale, **{
+            key: float(params.get(key, default))
+            for key, default in DEFAULT_DEGLOW_PARAMS.items()
+        })
 
 
 @dataclass
@@ -380,6 +390,9 @@ FILTERS: dict[str, FilterDef] = {
         # Kept for a future reimplementation; not listed in batch or the Enhance menu.
         batch_enabled=False,
         default_params=_with_defaults({"amount": 10.0, "adaptive": True, "oklab": True}),
+    ),
+    "deglow": DeglowDef(
+        id="deglow", label="Deglow", default_params=dict(DEFAULT_DEGLOW_PARAMS),
     ),
     "moon_enhance": MoonEnhanceDef(
         id="moon_enhance",

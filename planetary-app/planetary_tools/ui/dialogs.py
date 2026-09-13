@@ -34,6 +34,7 @@ from planetary_tools.core.presets import (
     save_presets,
 )
 from planetary_tools.filters.colour_matrix import IDENTITY_MATRIX
+from planetary_tools.filters.deglow import DEGLOW_CONTROLS
 from planetary_tools.filters.levels import (
     LEVEL_CHANNELS,
     auto_balance_levels,
@@ -1139,6 +1140,43 @@ class WienerDeconvDialog(_FilterDialog):
         self.oklab.blockSignals(False)
 
 
+class DeglowDialog(_FilterDialog):
+    filter_id = "deglow"
+    supports_presets = True
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Deglow", parent)
+        self.set_help_text(
+            "Reduces diffuse sky glow while protecting the bright disk and rings. "
+            "Lower Protect above or increase Protection margin to protect more of "
+            "the subject. Glow scale follows the diffuse halo; single-pixel "
+            "moons and stars are excluded from its estimate. "
+            "Toggle Preview on canvas to compare with the original."
+        )
+
+    def _build_filter_params(self) -> None:
+        self._deglow_spins = {}
+        for key, label, lo, hi, decimals, suffix, tip in DEGLOW_CONTROLS:
+            spin = self._add_double(label, FILTERS[self.filter_id].default_params[key],
+                                    lo, hi, step=1.0, decimals=decimals)
+            spin.setSuffix(suffix)
+            spin.setToolTip(tip)
+            spin.setKeyboardTracking(False)
+            self._deglow_spins[key] = spin
+
+    def get_params(self) -> dict[str, Any]:
+        params = super().get_params()
+        params.update({key: spin.value() for key, spin in self._deglow_spins.items()})
+        return params
+
+    def set_params(self, params: dict[str, Any]) -> None:
+        super().set_params(params)
+        for key, spin in self._deglow_spins.items():
+            spin.blockSignals(True)
+            spin.setValue(float(params.get(key, FILTERS[self.filter_id].default_params[key])))
+            spin.blockSignals(False)
+
+
 class StretchContrastDialog(_FilterDialog):
     """Stretch Contrast OKLab — preview only, no presets or clamp."""
 
@@ -2201,6 +2239,17 @@ def edit_filter_params(
         autocrop.toggled.connect(_sync_crop_mode)
         _sync_crop_mode()
         widgets["_sync_auto"] = _sync_crop_mode
+    elif filter_id == "deglow":
+        for key, label, lo, hi, decimals, suffix, tip in DEGLOW_CONTROLS:
+            spin = QDoubleSpinBox()
+            spin.setRange(lo, hi)
+            spin.setDecimals(decimals)
+            spin.setSuffix(suffix)
+            spin.setToolTip(tip)
+            spin.setKeyboardTracking(False)
+            spin.setValue(float(params.get(key, fdef.default_params[key])))
+            form.addRow(label, spin)
+            widgets[key] = spin
     elif filter_id == "moon_enhance":
         specs = (
             ("brightness", "Moon brightness", 0.0, 100.0, 0, " %"),
