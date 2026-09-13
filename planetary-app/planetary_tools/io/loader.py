@@ -159,23 +159,27 @@ def _normalize_array(arr: np.ndarray, path: Path) -> tuple[np.ndarray, bool, int
     linear_input = _is_probably_linear(path, arr)
 
     if arr.dtype == np.uint8:
-        f = arr.astype(np.float32) / 255.0
+        f = arr.astype(np.float32)
+        f /= 255.0
         if not linear_input:
             f = srgb_to_linear(f)
     elif arr.dtype == np.uint16:
-        f = arr.astype(np.float32) / 65535.0
+        f = arr.astype(np.float32)
+        f /= 65535.0
         if not linear_input:
             f = srgb_to_linear(f)
     elif arr.dtype in (np.float32, np.float64):
         f = arr.astype(np.float32)
         if f.max() > 1.5:
-            f = f / 65535.0
+            f /= 65535.0
     else:
         f = arr.astype(np.float32)
-        if f.max() > 1.0:
-            f = f / f.max()
+        peak = f.max()
+        if peak > 1.0:
+            f /= peak
 
-    f = np.clip(f, 0.0, None).astype(np.float32)
+    # Every branch above owns its float32 result, so clipping needs no copy.
+    np.clip(f, 0.0, None, out=f)
     if grayscale:
         f = np.stack([f, f, f], axis=-1)
         grayscale = False
@@ -240,9 +244,9 @@ def save_image(doc: ImageDocument, path: str | Path, *, bit_depth: int | None = 
 
     if suffix in {".tif", ".tiff"} and depth == 32:
         if doc.is_grayscale:
-            tifffile.imwrite(path, doc.data.astype(np.float32), photometric="minisblack")
+            tifffile.imwrite(path, np.asarray(doc.data, dtype=np.float32), photometric="minisblack")
         else:
-            tifffile.imwrite(path, doc.data.astype(np.float32))
+            tifffile.imwrite(path, np.asarray(doc.data, dtype=np.float32))
         _finalize_save(doc, path, depth)
         return
 

@@ -412,9 +412,8 @@ Remaining candidates to evaluate, not established gains:
   copies; evaluate complete operations before retaining small local changes.
 - Deglow median and identical-channel reuse: completed in the tenth pass below.
 - Unused worker noise-context loading: completed in the eleventh pass below.
-- Untagged image normalization and float TIFF saving still copy owned float32
-  arrays unnecessarily; profile those allocations without changing tagged
-  TIFF handling, scaling heuristics, clipping or returned-buffer ownership.
+- Untagged normalization and float TIFF output buffers: completed in the
+  twelfth pass below.
 - OKLab matrix arithmetic changes can alter rounding. Avoid changing its
   equations or claiming equivalence without exact pixel verification.
 
@@ -606,4 +605,65 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/worker_loading_performance.py widefield.png
 PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/worker_loading_performance.py 3moons.png --repeats 5
+```
+
+## Normalization and float-TIFF buffers
+
+Untagged normalization now divides and clips its owned float32 work buffer in
+place, avoiding additional full-image copies. Fallback normalization calculates
+its unchanged peak once. The returned array remains independent and writable;
+input arrays are never modified. Tagged TIFF conversion takes its existing
+separate path, retaining all colour-profile and HDR behavior.
+
+Float32 TIFF saving passes the existing array to the synchronous TIFF writer
+instead of first copying it. Other dtypes still convert to float32. The writer
+handles strided/Fortran/readonly inputs with the same file layout, and document
+metadata is finalized only after a successful write.
+
+### Twelfth-pass measurements
+
+Compared against `1245038`, medians of three paired runs on `widefield.png`
+(3088 × 1600 RGB) and five on `3moons.png` (704 × 464 RGB), alternating order
+after warmup. Both source PNGs contain uint16 samples. Normalization fixtures
+are prepared before timing. PNG loads include default editing noise context;
+float-TIFF pixel loads explicitly skip it as processing workers do.
+
+| Operation | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Encoded-sample normalization | 175.24 → 182.43 ms | 0.96× | 11.96 → 11.48 ms | 1.04× |
+| PNG editing-document load | 366.28 → 354.49 ms | 1.03× | 45.88 → 45.52 ms | 1.01× |
+| Float32 normalization | 25.26 → 13.13 ms | 1.92× | 1.48 → 0.76 ms | 1.96× |
+| Float-TIFF pixel load | 31.32 → 20.48 ms | 1.53× | 2.53 → 1.51 ms | 1.67× |
+| Float-TIFF write | 16.32 → 9.13 ms | 1.79× | 10.07 → 10.13 ms | 0.99× |
+
+PNG/encoded-sample timing changes are small and inconsistent; no PNG speedup
+is claimed. The retained gains are float normalization/loading and allocation
+reduction. File-write timings include temporary-file writes without fsync and
+are sensitive to storage variability; small-image write speed is unchanged.
+File-byte verification is outside timed writes.
+
+Large-image traced peaks, excluding existing input buffers:
+
+| Operation | Before → after |
+|---|---:|
+| Encoded normalization | 169.6 → 116.2 MiB |
+| PNG editing load | 197.9 → 164.9 MiB |
+| Float32 normalization | 169.6 → 56.5 MiB |
+| Float-TIFF pixel load | 226.2 → 113.1 MiB |
+| Float-TIFF write | 56.6 → 0.013 MiB |
+
+Four new tests cover exact normalized float32 bits, all uint16 code values,
+integer/float dtypes, scaling thresholds, nonfinite/signed-zero data, returned
+buffer ownership, readonly/strided/Fortran inputs, byte-identical TIFF files
+and metadata preservation after write failure. All 138 tests pass, including
+the existing TIFF profile regressions. Benchmarks compare loaded metadata and
+pinned noise context as well as pixels and TIFF bytes.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/io_buffer_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/io_buffer_performance.py 3moons.png --repeats 5
 ```
