@@ -109,22 +109,37 @@ class BatchDialog(QDialog):
         in_layout = QFormLayout(in_group)
         self._input_label = QLabel(str(self._input_folder) if self._input_folder else "No input selected")
         self._input_label.setWordWrap(True)
-        pick_files = QPushButton("Select files…")
-        pick_files.setToolTip("Replace the current input selection.")
-        pick_files.clicked.connect(self._pick_files)
         add_files = QPushButton("Add files…")
         add_files.setToolTip("Add images from any folder to the current input selection.")
         add_files.clicked.connect(self._add_files)
-        pick_folder = QPushButton("Select folder…")
+        pick_folder = QPushButton("Add folder…")
         pick_folder.clicked.connect(self._pick_folder)
         in_btns = QHBoxLayout()
-        in_btns.addWidget(pick_files)
         in_btns.addWidget(add_files)
         in_btns.addWidget(pick_folder)
         in_layout.addRow(self._input_label)
         in_layout.addRow(in_btns)
         self._recursive = QCheckBox("Include subfolders")
+        self._recursive.setChecked(self._settings.value("batch/recursive", False, type=bool))
+        self._recursive.setToolTip("Include subfolders when adding a folder. Updates the list while a single folder is selected.")
+        self._recursive.toggled.connect(self._refresh_folder_inputs)
         in_layout.addRow(self._recursive)
+        self._input_list = QListWidget()
+        self._input_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self._input_list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self._input_list.setMinimumHeight(90)
+        self._input_list.setMaximumHeight(160)
+        in_layout.addRow(self._input_list)
+        remove_files = QPushButton("Remove")
+        remove_files.clicked.connect(self._remove_input_files)
+        clear_files = QPushButton("Clear")
+        clear_files.clicked.connect(self._clear_input_files)
+        edit_inputs = QHBoxLayout()
+        edit_inputs.addWidget(remove_files)
+        edit_inputs.addWidget(clear_files)
+        edit_inputs.addStretch()
+        in_layout.addRow(edit_inputs)
+        self._refresh_folder_inputs()
         root.addWidget(in_group)
 
         # Pipeline
@@ -229,17 +244,47 @@ class BatchDialog(QDialog):
 
         self._refresh_step_list()
 
-    def _pick_files(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select input images", self._input_start_directory()
-        )
-        if paths:
-            remember_open_path(paths[0])
-            self._input_files = [Path(p) for p in paths]
-            self._input_folder = None
-            self._input_label.setText(f"{len(paths)} file(s) selected")
-            self._input_label.setToolTip("\n".join(str(p) for p in self._input_files))
-            self._remember_input_directory(Path(paths[0]).parent, selected_folder=False)
+    def _refresh_input_list(self) -> None:
+        self._input_list.clear()
+        for path in self._input_files:
+            item = QListWidgetItem(f"{path.name} — {path.parent}")
+            item.setToolTip(str(path))
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
+            self._input_list.addItem(item)
+        self._input_label.setText(str(self._input_folder) if self._input_folder
+                                  else f"{len(self._input_files)} file(s) added")
+        self._input_label.setToolTip("")
+
+    def _refresh_folder_inputs(self) -> None:
+        self._settings.setValue("batch/recursive", self._recursive.isChecked())
+        if self._input_folder is not None:
+            self._input_files = collect_paths(folder=self._input_folder,
+                                              recursive=self._recursive.isChecked())
+        self._refresh_input_list()
+
+    def _append_input_files(self, paths: list[Path]) -> None:
+        seen = {p.resolve() for p in self._input_files}
+        for path in paths:
+            if path.resolve() not in seen:
+                self._input_files.append(path)
+                seen.add(path.resolve())
+        self._refresh_input_list()
+
+    def _remove_input_files(self) -> None:
+        rows = sorted((self._input_list.row(item) for item in self._input_list.selectedItems()), reverse=True)
+        if not rows:
+            return
+        for row in rows:
+            del self._input_files[row]
+        self._input_folder = None
+        self._settings.remove("batch/inputFolder")
+        self._refresh_input_list()
+
+    def _clear_input_files(self) -> None:
+        self._input_files = []
+        self._input_folder = None
+        self._settings.remove("batch/inputFolder")
+        self._refresh_input_list()
 
     def _add_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -247,32 +292,18 @@ class BatchDialog(QDialog):
         )
         if not paths:
             return
-        inputs = collect_paths(
-            files=self._input_files or None,
-            folder=self._input_folder,
-            recursive=self._recursive.isChecked(),
-        )
-        seen = {p.resolve() for p in inputs}
-        for path in paths:
-            resolved = Path(path).resolve()
-            if resolved not in seen:
-                inputs.append(Path(path))
-                seen.add(resolved)
-        self._input_files = inputs
         self._input_folder = None
-        self._input_label.setText(f"{len(inputs)} file(s) selected")
-        self._input_label.setToolTip("\n".join(str(p) for p in inputs))
+        self._append_input_files([Path(p) for p in paths])
         remember_open_path(paths[0])
         self._remember_input_directory(Path(paths[0]).parent, selected_folder=False)
 
     def _pick_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select input folder", self._input_start_directory())
+        folder = QFileDialog.getExistingDirectory(self, "Add input folder", self._input_start_directory())
         if folder:
-            self._input_folder = Path(folder)
-            self._input_files = []
-            self._input_label.setText(str(self._input_folder))
-            self._input_label.setToolTip(str(self._input_folder))
-            self._remember_input_directory(self._input_folder, selected_folder=True)
+            path = Path(folder)
+            self._input_folder = path if not self._input_files or self._input_folder == path else None
+            self._append_input_files(collect_paths(folder=path, recursive=self._recursive.isChecked()))
+            self._remember_input_directory(path, selected_folder=self._input_folder is not None)
 
     def _pick_output(self) -> None:
         start = self._output_dir.text().strip()
@@ -509,13 +540,9 @@ class BatchDialog(QDialog):
             QMessageBox.warning(self, "Batch", "Add at least one filter to the pipeline.")
             return
 
-        paths = collect_paths(
-            files=self._input_files or None,
-            folder=self._input_folder,
-            recursive=self._recursive.isChecked(),
-        )
+        paths = list(self._input_files)
         if not paths:
-            QMessageBox.warning(self, "Batch", "Select input files or a folder containing images.")
+            QMessageBox.warning(self, "Batch", "Add input files or a folder containing images.")
             return
 
         out_text = self._output_dir.text().strip()

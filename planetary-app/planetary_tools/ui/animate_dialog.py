@@ -113,7 +113,7 @@ class AnimateDialog(QDialog):
         pick = QHBoxLayout()
         btn_add = QPushButton("Add files…")
         btn_add.clicked.connect(self._add_files)
-        btn_folder = QPushButton("Select folder…")
+        btn_folder = QPushButton("Add folder…")
         btn_folder.clicked.connect(self._pick_folder)
         pick.addWidget(btn_add)
         pick.addWidget(btn_folder)
@@ -231,9 +231,11 @@ class AnimateDialog(QDialog):
         if not paths:
             return
         remember_open_path(paths[0])
+        self._append_paths([Path(raw) for raw in paths])
+
+    def _append_paths(self, paths: list[Path]) -> None:
         existing = {p.resolve() for p in self._paths}
-        for raw in paths:
-            path = Path(raw)
+        for path in paths:
             key = path.resolve()
             if key in existing:
                 continue
@@ -247,7 +249,7 @@ class AnimateDialog(QDialog):
         if self._busy():
             return
         folder = QFileDialog.getExistingDirectory(
-            self, "Select folder of frames", last_open_directory()
+            self, "Add folder of frames", last_open_directory()
         )
         if not folder:
             return
@@ -259,10 +261,7 @@ class AnimateDialog(QDialog):
             if p.is_file() and p.suffix.lower() in exts
         ]
         paths.sort(key=natural_sort_key)
-        self._paths = paths
-        self._auto_output = True
-        self._refresh_table()
-        self._maybe_default_output()
+        self._append_paths(paths)
 
     def _move(self, delta: int) -> None:
         if self._busy():

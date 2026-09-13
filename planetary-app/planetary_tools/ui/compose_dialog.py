@@ -62,6 +62,7 @@ class RGBComposeDialog(QDialog):
         self.setMinimumWidth(560)
         self._paths: dict[str, Path | None] = {ch: None for ch in _CHANNELS}
         self._edits: dict[str, QLineEdit] = {}
+        self._browse_buttons: dict[str, QPushButton] = {}
 
         layout = QVBoxLayout(self)
         layout.addWidget(
@@ -70,6 +71,14 @@ class RGBComposeDialog(QDialog):
                 "folders. A missing third channel is calculated from the other two."
             )
         )
+
+        add_multi = QPushButton("Add files…")
+        add_multi.setToolTip(
+            "Add channel images from any folder, keeping assigned channels. "
+            "Channel assignment is guessed from filenames (e.g. jupiter_R.tif)."
+        )
+        add_multi.clicked.connect(self._add_multiple_files)
+        layout.addWidget(add_multi)
 
         form = QFormLayout()
         for channel in _CHANNELS:
@@ -80,7 +89,8 @@ class RGBComposeDialog(QDialog):
             self._edits[channel] = edit
             row.addWidget(edit, stretch=1)
 
-            browse = QPushButton("Browse…")
+            browse = QPushButton("Add…")
+            self._browse_buttons[channel] = browse
             browse.setToolTip(f"Select the {channel} channel image from any folder.")
             browse.clicked.connect(lambda _=False, ch=channel: self._browse(ch))
             row.addWidget(browse)
@@ -91,14 +101,6 @@ class RGBComposeDialog(QDialog):
             row.addWidget(clear)
             form.addRow(f"{channel}", row)
         layout.addLayout(form)
-
-        add_multi = QPushButton("Add multiple files")
-        add_multi.setToolTip(
-            "Select two or three images from the same folder. Channel "
-            "assignment is guessed from filenames (e.g. jupiter_R.tif)."
-        )
-        add_multi.clicked.connect(self._add_multiple_files)
-        layout.addWidget(add_multi)
 
         self._hint = QLabel("")
         self._hint.setWordWrap(True)
@@ -137,6 +139,7 @@ class RGBComposeDialog(QDialog):
     def _refresh_row(self, channel: str) -> None:
         path = self._paths[channel]
         edit = self._edits[channel]
+        self._browse_buttons[channel].setText("Change…" if path is not None else "Add…")
         if path is None:
             edit.clear()
             edit.setToolTip("")
@@ -169,27 +172,26 @@ class RGBComposeDialog(QDialog):
     def _add_multiple_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Add multiple files",
+            "Add channel files",
             self._browse_start_dir(),
             _image_filter(),
         )
         if not paths:
             return
         remember_open_path(paths[0])
-        files = [Path(p) for p in paths]
-        if len(files) > 3:
-            QMessageBox.warning(
-                self,
-                "RGB Compose from Files",
-                "Select at most three files. Using the first three.",
-            )
-            files = files[:3]
-
+        seen = {p.resolve() for p in self._assigned().values()}
         claimed: dict[str, Path] = {}
         leftover: list[Path] = []
-        for path in files:
+        skipped: list[Path] = []
+        for raw in paths:
+            path = Path(raw)
+            if path.resolve() in seen:
+                continue
+            seen.add(path.resolve())
             guess = detect_channel(path)
-            if guess is not None and guess not in claimed:
+            if guess is not None and (guess in claimed or self._paths[guess] is not None):
+                skipped.append(path)
+            elif guess is not None:
                 claimed[guess] = path
             else:
                 leftover.append(path)
@@ -198,8 +200,16 @@ class RGBComposeDialog(QDialog):
         for path in leftover:
             empty = next((ch for ch in _CHANNELS if self._paths[ch] is None), None)
             if empty is None:
-                break
-            self._set_channel(empty, path)
+                skipped.append(path)
+            else:
+                self._set_channel(empty, path)
+        if skipped:
+            QMessageBox.information(
+                self, "RGB Compose from Files",
+                "These files could not be added because their channel is already assigned "
+                "or all three channels are filled. Use Change or Clear on a channel to replace it.\n\n"
+                + "\n".join(str(path) for path in skipped),
+            )
 
     def _assigned(self) -> dict[str, Path]:
         return {ch: path for ch, path in self._paths.items() if path is not None}

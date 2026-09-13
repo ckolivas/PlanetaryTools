@@ -69,7 +69,7 @@ class BatchDirectoryTests(unittest.TestCase):
             self.assertEqual(picker.call_args.args[2], str(self.output_dir))
         with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
                    return_value=([], '')) as picker:
-            reopened._pick_files()
+            reopened._add_files()
             self.assertEqual(picker.call_args.args[2], str(self.input_dir))
         # Cancelling a picker must leave saved selections intact.
         after_cancel = self.dialog()
@@ -105,7 +105,7 @@ class BatchDirectoryTests(unittest.TestCase):
         path.touch()
         with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
                    return_value=([str(path)], '')):
-            dialog._pick_files()
+            dialog._add_files()
         dialog.reject()
         # Workflows and ordinary Open share lastOpenDir; batch history is separate.
         from planetary_tools.ui.recent_files import remember_open_path
@@ -130,13 +130,14 @@ class BatchDirectoryTests(unittest.TestCase):
         second = self.output_dir/'saturn.png'
         with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
                    return_value=([str(first)], '')):
-            dialog._pick_files()
+            dialog._add_files()
         with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
                    return_value=([str(second), str(first)], '')):
             dialog._add_files()
         self.assertEqual(dialog._input_files, [first, second])
-        self.assertEqual(dialog._input_label.text(), '2 file(s) selected')
-        self.assertIn(str(second), dialog._input_label.toolTip())
+        self.assertEqual(dialog._input_label.text(), '2 file(s) added')
+        self.assertEqual(dialog._input_list.count(), 2)
+        self.assertEqual(dialog._input_list.item(1).toolTip(), str(second))
         self.assertEqual(dialog._input_start_directory(), str(self.output_dir))
         with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
                    return_value=([], '')):
@@ -144,8 +145,8 @@ class BatchDirectoryTests(unittest.TestCase):
         self.assertEqual(dialog._input_files, [first, second])
         with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
                    return_value=([str(second)], '')):
-            dialog._pick_files()
-        self.assertEqual(dialog._input_files, [second])
+            dialog._add_files()
+        self.assertEqual(dialog._input_files, [first, second])
 
     def test_add_files_keeps_selected_folder_and_recursive_images(self):
         dialog = self.dialog()
