@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -90,17 +90,23 @@ class BatchDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Batch Processing")
         self.setMinimumWidth(520)
+        self._settings = QSettings()
+        self._input_directory = str(self._settings.value("batch/lastInputDir", "") or "")
+        self.finished.connect(lambda _result: self._settings.sync())
         self._steps: list[PipelineStep] = []
         self._input_files: list[Path] = []
         self._input_folder: Path | None = None
         self._worker: _BatchWorker | None = None
+        saved_folder = self._settings.value("batch/inputFolder", "")
+        if saved_folder and Path(str(saved_folder)).is_dir():
+            self._input_folder = Path(str(saved_folder))
 
         root = QVBoxLayout(self)
 
         # Input
         in_group = QGroupBox("Input")
         in_layout = QFormLayout(in_group)
-        self._input_label = QLabel("No input selected")
+        self._input_label = QLabel(str(self._input_folder) if self._input_folder else "No input selected")
         self._input_label.setWordWrap(True)
         pick_files = QPushButton("Select files…")
         pick_files.clicked.connect(self._pick_files)
@@ -180,7 +186,9 @@ class BatchDialog(QDialog):
         # Output
         out_group = QGroupBox("Output")
         out_layout = QFormLayout(out_group)
-        self._output_dir = QLineEdit()
+        self._output_dir = QLineEdit(str(self._settings.value("batch/lastOutputDir", "") or ""))
+        self._output_dir.textChanged.connect(self._remember_output_directory)
+        self._output_dir.editingFinished.connect(self._settings.sync)
         browse_out = QPushButton("Browse…")
         browse_out.clicked.connect(self._pick_output)
         out_row = QHBoxLayout()
@@ -217,25 +225,55 @@ class BatchDialog(QDialog):
 
     def _pick_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select input images", last_open_directory()
+            self, "Select input images", self._input_start_directory()
         )
         if paths:
             remember_open_path(paths[0])
             self._input_files = [Path(p) for p in paths]
             self._input_folder = None
             self._input_label.setText(f"{len(paths)} file(s) selected")
+            self._remember_input_directory(Path(paths[0]).parent, selected_folder=False)
 
     def _pick_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select input folder")
+        folder = QFileDialog.getExistingDirectory(self, "Select input folder", self._input_start_directory())
         if folder:
             self._input_folder = Path(folder)
             self._input_files = []
             self._input_label.setText(str(self._input_folder))
+            self._remember_input_directory(self._input_folder, selected_folder=True)
 
     def _pick_output(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
+        start = self._output_dir.text().strip()
+        directory = Path(start).expanduser() if start else Path(self._input_start_directory())
+        while not directory.is_dir() and directory.parent != directory:
+            directory = directory.parent
+        folder = QFileDialog.getExistingDirectory(self, "Select output folder", str(directory))
         if folder:
             self._output_dir.setText(folder)
+            self._settings.sync()
+
+    def _input_start_directory(self) -> str:
+        if self._input_directory:
+            directory = Path(self._input_directory).expanduser()
+            if directory.is_dir():
+                return str(directory)
+        return last_open_directory()
+
+    def _remember_input_directory(self, directory: Path, *, selected_folder: bool) -> None:
+        self._input_directory = str(directory.expanduser().resolve())
+        self._settings.setValue("batch/lastInputDir", self._input_directory)
+        if selected_folder:
+            self._settings.setValue("batch/inputFolder", self._input_directory)
+        else:
+            # Remember where the file picker was, without silently turning a
+            # selected subset of files into the entire folder on reopening.
+            self._settings.remove("batch/inputFolder")
+        self._settings.sync()
+
+    def _remember_output_directory(self, text: str) -> None:
+        text = text.strip()
+        directory = str(Path(text).expanduser().resolve()) if text else ""
+        self._settings.setValue("batch/lastOutputDir", directory)
 
     def _refresh_step_list(self) -> None:
         self._step_list.clear()
@@ -452,7 +490,7 @@ class BatchDialog(QDialog):
         if not out_text:
             QMessageBox.warning(self, "Batch", "Select an output folder.")
             return
-        output_dir = Path(out_text)
+        output_dir = Path(out_text).expanduser()
 
         suffix = self._suffix.text().strip() or "_processed"
         preserve_tree = self._preserve_tree.isChecked()
