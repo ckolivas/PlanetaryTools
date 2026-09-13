@@ -194,7 +194,16 @@ class FieldDerotateDialog(QDialog):
             ["File", "Δ°", "dx", "dy", "Score", "Status"]
         )
         header = self._table.horizontalHeader()
-        header.setSectionResizeMode(_COL_FILE, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(False)
+        header.setToolTip("Drag column dividers to resize; double-click a divider to fit the contents.")
+        header.sectionHandleDoubleClicked.connect(self._table.resizeColumnToContents)
+        header.resizeSection(_COL_FILE, 320)
+        for column in (_COL_ANGLE, _COL_DX, _COL_DY, _COL_SCORE):
+            header.resizeSection(column, 72)
+        header.resizeSection(
+            _COL_STATUS, max(150, self._table.fontMetrics().horizontalAdvance("Hit search limit") + 24),
+        )
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         fl.addWidget(self._table)
@@ -447,6 +456,7 @@ class FieldDerotateDialog(QDialog):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self._table.setItem(i, col, item)
             st = QTableWidgetItem(status)
+            st.setToolTip(status)
             st.setFlags(st.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(i, _COL_STATUS, st)
 
