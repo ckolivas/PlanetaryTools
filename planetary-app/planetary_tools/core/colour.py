@@ -8,6 +8,52 @@ import numpy as np
 _SRGB_BREAK = 0.0031308
 
 
+# Keep floating transfer intermediates bounded, including for large RGB frames.
+_TRANSFER_BLOCK_SIZE = 65536
+
+
+def _transfer_block(v: np.ndarray, *, encode: bool, clamp: bool) -> np.ndarray:
+    if clamp:
+        v = np.clip(v, 0.0, 1.0)
+    else:
+        sign = np.sign(v)
+        v = np.abs(v)
+    if encode:
+        converted = np.where(
+            v <= _SRGB_BREAK,
+            v * 12.92,
+            1.055 * np.power(v, 1.0 / 2.4) - 0.055,
+        )
+    else:
+        converted = np.where(
+            v <= 0.04045,
+            v / 12.92,
+            np.power((v + 0.055) / 1.055, 2.4),
+        )
+    return converted if clamp else sign * converted
+
+
+def _transfer(value: np.ndarray, *, encode: bool, clamp: bool) -> np.ndarray:
+    source = np.asarray(value)
+    if source.size <= _TRANSFER_BLOCK_SIZE:
+        return _transfer_block(
+            np.asarray(source, dtype=np.float64), encode=encode, clamp=clamp,
+        ).astype(np.float32)
+    result = np.empty(source.shape, dtype=np.float32)
+    # Casting and traversal are buffered, so strided inputs need no full-frame
+    # float64 copy. Every arithmetic operation still runs in float64 before
+    # the original final float32 rounding.
+    with np.nditer(
+        [source, result], flags=['external_loop', 'buffered', 'refs_ok'],
+        op_flags=[['readonly'], ['writeonly']],
+        op_dtypes=[np.float64, np.float32], casting='unsafe',
+        buffersize=_TRANSFER_BLOCK_SIZE,
+    ) as blocks:
+        for values, output in blocks:
+            output[...] = _transfer_block(values, encode=encode, clamp=clamp)
+    return result
+
+
 def srgb_to_linear(value: np.ndarray, *, clamp: bool = False) -> np.ndarray:
     """Convert sRGB-encoded values to linear light.
 
@@ -15,24 +61,7 @@ def srgb_to_linear(value: np.ndarray, *, clamp: bool = False) -> np.ndarray:
     transfer) so intermediate filter results can report highlight overshoot.
     Pass ``clamp=True`` to force the classic display range first.
     """
-    v = np.asarray(value, dtype=np.float64)
-    if clamp:
-        v = np.clip(v, 0.0, 1.0)
-        linear = np.where(
-            v <= 0.04045,
-            v / 12.92,
-            np.power((v + 0.055) / 1.055, 2.4),
-        )
-        return linear.astype(np.float32)
-
-    sign = np.sign(v)
-    av = np.abs(v)
-    linear = np.where(
-        av <= 0.04045,
-        av / 12.92,
-        np.power((av + 0.055) / 1.055, 2.4),
-    )
-    return (sign * linear).astype(np.float32)
+    return _transfer(value, encode=False, clamp=clamp)
 
 
 def linear_to_srgb(value: np.ndarray, *, clamp: bool = True) -> np.ndarray:
@@ -41,24 +70,7 @@ def linear_to_srgb(value: np.ndarray, *, clamp: bool = True) -> np.ndarray:
     Default ``clamp=True`` matches display/export (values forced into [0, 1]).
     Pass ``clamp=False`` to preserve overshoot/undershoot for processing.
     """
-    v = np.asarray(value, dtype=np.float64)
-    if clamp:
-        v = np.clip(v, 0.0, 1.0)
-        encoded = np.where(
-            v <= _SRGB_BREAK,
-            v * 12.92,
-            1.055 * np.power(v, 1.0 / 2.4) - 0.055,
-        )
-        return encoded.astype(np.float32)
-
-    sign = np.sign(v)
-    av = np.abs(v)
-    encoded = np.where(
-        av <= _SRGB_BREAK,
-        av * 12.92,
-        1.055 * np.power(av, 1.0 / 2.4) - 0.055,
-    )
-    return (sign * encoded).astype(np.float32)
+    return _transfer(value, encode=True, clamp=clamp)
 
 
 # OKLab matrices (Björn Ottosson, https://bottosson.github.io/posts/oklab/)

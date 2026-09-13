@@ -18,23 +18,30 @@ def _chunk(chunk_type: bytes, data: bytes) -> bytes:
 def _write_png16(path: str | Path, arr: np.ndarray, *, colour_type: int, channels: int) -> None:
     height, width = arr.shape[:2]
     bpp = channels * 2
-    rows: list[bytes] = []
+    # One contiguous scanline buffer instead of retaining row bytes and then
+    # joining them into a second full-image allocation.
+    raw = np.empty((height, width * bpp + 1), dtype=np.uint8)
+    raw[:, 0] = 0  # PNG filter type: None (same encoding as before).
     for y in range(height):
         row = arr[y].astype(">u2", copy=False).tobytes()
         if len(row) != width * bpp:
             raise ValueError("Unexpected row size for PNG encode")
-        rows.append(b"\x00" + row)
+        raw[y, 1:] = np.frombuffer(row, dtype=np.uint8)
 
-    raw = b"".join(rows)
     compressed = zlib.compress(raw, level=6)
+    del raw
     ihdr = struct.pack(">IIBBBBB", width, height, 16, colour_type, 0, 0, 0)
-    png = (
-        b"\x89PNG\r\n\x1a\n"
-        + _chunk(b"IHDR", ihdr)
-        + _chunk(b"IDAT", compressed)
-        + _chunk(b"IEND", b"")
-    )
-    Path(path).write_bytes(png)
+    # Validate/encode before opening the destination, just as before. Write
+    # the already-compressed payload directly without assembling another PNG
+    # or IDAT-sized bytes object. Chunk contents and CRCs are unchanged.
+    crc = zlib.crc32(compressed, zlib.crc32(b"IDAT")) & 0xFFFFFFFF
+    with Path(path).open('wb') as stream:
+        stream.write(b"\x89PNG\r\n\x1a\n")
+        stream.write(_chunk(b"IHDR", ihdr))
+        stream.write(struct.pack(">I", len(compressed)) + b"IDAT")
+        stream.write(compressed)
+        stream.write(struct.pack(">I", crc))
+        stream.write(_chunk(b"IEND", b""))
 
 
 def write_png_rgb16(path: str | Path, rgb: np.ndarray) -> None:

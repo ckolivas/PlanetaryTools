@@ -235,3 +235,64 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
 The benchmark loads the previous PNG reader, loader and brightness functions
 from Git. It checks decoded uint16 samples, linear document pixels, storage
 precision, noise context and postprocessed float32 pixels for exact equality.
+
+## Bounded colour transfers and PNG output buffers
+
+sRGB-to-linear and linear-to-sRGB transfers now process large arrays in blocks
+of at most 65,536 channel samples. Conversion and arithmetic remain float64,
+with the same final float32 rounding, clamping and signed HDR extension. Small
+arrays retain direct evaluation. Buffered traversal handles strided inputs
+without creating a full-frame float64 copy; the full-sized allocation is the
+float32 output buffer.
+
+The 16-bit PNG writer now prepares one contiguous scanline buffer, frees it
+after compression, and writes the existing compressed payload directly into
+its IDAT chunk. This removes the retained row list and whole-PNG concatenation.
+It retains the same row filters, compression level, chunk layout and CRCs,
+producing byte-identical files. Validation and compression still finish before
+the destination is opened.
+
+### Fifth-pass measurements
+
+Compared against `91aeb13`, medians of three paired runs on `widefield.png`
+(3088 × 1600 RGB) and five on `3moons.png` (704 × 464 RGB). Timing order alternates
+after warmup. Conversion inputs are normalized encoded samples or their linear
+counterparts; fixture creation and verification are excluded. PNG-write timings
+include compression and temporary-file writes. Peak allocations use
+`tracemalloc`, exclude existing inputs, and include returned output buffers.
+
+| Operation | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| sRGB → linear, clamped | 319.80 → 182.98 ms | 1.75× | 17.20 → 11.16 ms | 1.54× |
+| sRGB → linear, HDR allowed | 374.94 → 171.06 ms | 2.19× | 20.26 → 12.14 ms | 1.67× |
+| Linear → sRGB, clamped | 281.41 → 146.14 ms | 1.93× | 16.42 → 9.61 ms | 1.71× |
+| Linear → sRGB, HDR allowed | 341.60 → 173.84 ms | 1.97× | 20.09 → 11.11 ms | 1.81× |
+| 16-bit RGB PNG write | 1895.63 → 1816.47 ms | 1.04× | 86.27 → 84.39 ms | 1.02× |
+
+On the larger image, clamped-transfer peak allocations fell from
+466.5 MiB to 59.1 MiB; transfers allowing HDR fell from
+692.7 MiB to 59.6 MiB. PNG-write peak allocations fell from
+89.3 MiB to 52.5 MiB.
+
+PNG compression remains the main cost of writing; the measured speed change
+was small. These measurements describe individual transfers and PNG encoding,
+not the total time of every filter or save workflow.
+
+Eight new tests verify exact float32 bits across every 16-bit level, transfer
+breakpoints, near-halfway rounding cases, HDR/nonfinite values, awkward block
+boundaries, readonly/strided/Fortran arrays and large wavelet filter results.
+They also check PNG byte equality for RGB/grayscale and different input dtypes,
+scanline samples/CRCs, and preservation of an existing file if validation or
+compression fails. All 112 tests pass.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/transfer_write_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/transfer_write_performance.py 3moons.png --repeats 5
+```
+
+The benchmark loads the previous colour-transfer and PNG-writing modules from
+Git, comparing all converted pixels and complete PNG files for exact equality.
