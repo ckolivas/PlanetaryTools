@@ -410,8 +410,10 @@ Remaining candidates to evaluate, not established gains:
   the bounding box; row/column masks may save allocation while preserving it.
 - Curves mapping and noise median/percentile temporaries may have redundant
   copies; evaluate complete operations before retaining small local changes.
-- Deglow calculates the same full-resolution median twice for the first
-  grayscale channel; consider retaining that model until its channel is used.
+- Deglow median and identical-channel reuse: completed in the tenth pass below.
+- Batch, animation and alignment workers load and pin noise context that they
+  never consume. Consider an explicit loader option for those callers while
+  retaining eager pinning for editing documents and all existing defaults.
 - OKLab matrix arithmetic changes can alter rounding. Avoid changing its
   equations or claiming equivalence without exact pixel verification.
 
@@ -502,4 +504,54 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   align/2026-09-11-1552_0-CK-L3-Sat-planetrecon_processed_derot.png
 PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/alignment_performance.py widefield.png
+```
+
+## Deglow grayscale preparation and channel reuse
+
+When luminance is the first image channel, Deglow retains its peak-measurement
+median for that channel's glow model. It also reuses a completed channel
+correction when the next source channel is bit-identical. This benefits the
+R=G=B layout used for loaded grayscale files. A one-ULP difference or different
+signed zero prevents sharing. Colour luminance is still measured independently,
+and unequal colour channels retain separate models.
+
+Peak measurement, connected-region protection, single-pixel source removal,
+inpainting, smoothing, pedestal and correction arithmetic are unchanged. Reuse
+is local to the current call; alpha and source buffers are untouched.
+
+### Tenth-pass measurements
+
+Compared against `ab55be9`, medians of three paired runs on `widefield.png`
+(3088 × 1600) and five on `3moons.png` (704 × 464), alternating order after
+warmup. All calls use the default Deglow parameters. Loading and fixture
+creation are excluded. Grayscale fixtures use the source R plane, either alone
+or repeated as R=G=B. The RGB mono-context fixture keeps the source channels
+but explicitly chooses first-channel luminance, exercising that API branch.
+
+| Operation | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Single-plane grayscale | 1188.04 → 809.43 ms | 1.47× | 77.87 → 52.83 ms | 1.47× |
+| RGB with mono context | 2287.82 → 1924.03 ms | 1.19× | 151.86 → 124.68 ms | 1.22× |
+| Loaded-grayscale RGB layout | 2294.86 → 1229.51 ms | 1.87× | 152.01 → 79.58 ms | 1.91× |
+| Colour | 2331.02 → 2337.79 ms | 1.00× | 153.37 → 152.76 ms | 1.00× |
+
+Colour timing is unchanged within variability. The large grayscale-RGB
+fixture's traced peak allocations fell from 275.5 to 256.7 MiB. Retaining the
+single-plane peak median increases that path's peak slightly, from 200.1 to
+202.6 MiB (small fixture: 13.23 to 13.40 MiB). Other peaks are unchanged.
+Allocation measurements exclude existing source arrays.
+
+Three new tests verify independent-model output parity, median counts, alpha,
+readonly/strided/Fortran inputs, different glow scales, compact moons/stars,
+and exact-bit guards for nearly equal channels. Full benchmarks compare every
+output pixel against Git. All 130 tests pass, including the original Deglow
+moon protection, preview, Apply/Cancel and undo/redo regressions.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/deglow_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/deglow_performance.py 3moons.png --repeats 5
 ```

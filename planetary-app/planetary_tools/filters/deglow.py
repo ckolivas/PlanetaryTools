@@ -68,7 +68,12 @@ def deglow(
            else linear_luminance(colour))
     sky = float(np.percentile(lum, 10))
     # Suppress isolated hot pixels when measuring the subject peak.
-    peak = float(ndimage.median_filter(lum, size=3, mode='nearest').max())
+    peak_model = ndimage.median_filter(lum, size=3, mode='nearest')
+    peak = float(peak_model.max())
+    # In mono, luminance is exactly the first channel. Its median is also
+    # the first channel's glow-model source; avoid filtering it a second time.
+    if not (is_grayscale or colour.shape[2] == 1):
+        peak_model = None
     if peak <= sky:
         return arr.copy()
     bright = lum >= sky + (peak - sky)*threshold/100
@@ -100,12 +105,23 @@ def deglow(
     kernel = max(3, 2*int(round(radius/factor)) + 1)
     sigma = max(0.5, radius/(3*factor))
     out = planes.copy()
+    previous_source = None
     for channel in range(colour.shape[2]):
         source = colour[..., channel]
+        # Loaded grayscale files use R=G=B. Exactly equal source channels
+        # receive identical models and corrections under the shared mask.
+        if previous_source is not None and np.array_equal(
+            source.view(np.uint32), previous_source.view(np.uint32),
+        ):
+            out[..., channel] = out[..., channel - 1]
+            continue
         # Remove single-pixel sources from the MODEL before downsampling can
         # spread their flux into surrounding samples. The output still uses
         # the untouched source pixels, minus only the smooth glow estimate.
-        model_source = ndimage.median_filter(source, size=3, mode='nearest')
+        model_source = (peak_model if peak_model is not None
+                        else ndimage.median_filter(source, size=3, mode='nearest'))
+        peak_model = None
+        previous_source = source
         small = _resize(model_source, shape).copy()
         # Inpainting before the median keeps bright disk/ring light out of
         # the glow model; otherwise an ordinary blur creates dark edge halos.
