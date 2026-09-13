@@ -56,19 +56,25 @@ def compute_rgb_histograms(
     readouts match the image, not the sample.
     """
     rgb = np.asarray(data, dtype=np.float32)
-    if rgb.ndim == 2:
-        rgb = np.stack([rgb, rgb, rgb], axis=-1)
-    else:
-        rgb = rgb[..., :3]
-
     n_pixels = int(rgb.shape[0]) * int(rgb.shape[1])
+    if rgb.ndim == 2:
+        # Sample before expanding a monochrome image into RGB or applying the
+        # pointwise display transfer. The selected pixels/bins are unchanged.
+        flat = rgb.reshape(-1)
+        if flat.size > _MAX_SAMPLES:
+            idx = np.linspace(0, flat.size - 1, _MAX_SAMPLES, dtype=np.int64)
+            flat = flat[idx]
+        samples = flat[:, None]
+    else:
+        samples = _subsample_rgb(rgb[..., :3])
     if perceptual:
-        rgb = linear_to_srgb(rgb)
+        samples = linear_to_srgb(samples)
 
-    samples = _subsample_rgb(np.clip(rgb, 0.0, 1.0))
     counts = np.zeros((3, HISTOGRAM_BINS), dtype=np.float32)
-    for ch in range(3):
+    for ch in range(samples.shape[1]):
         counts[ch] = _count_level_bins(samples[:, ch])
+    if samples.shape[1] == 1:
+        counts[1:] = counts[0]
     n_samples = max(int(samples.shape[0]), 1)
     if n_pixels > n_samples:
         counts *= n_pixels / n_samples

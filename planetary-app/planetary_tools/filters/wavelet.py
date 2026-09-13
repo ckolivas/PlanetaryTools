@@ -221,6 +221,10 @@ def merge_wavelet_detail(
     ``MERGE_SCALES`` (4). Default is 3. The secondary is reduced to
     luminance so it can drive all colour channels of the main image.
     """
+    n = min(max(int(n_secondary_scales), 0), MERGE_SCALES)
+    if n <= 0:
+        return np.asarray(main_data, dtype=np.float32)
+
     # Reduce secondary to a single luminance channel (NIR is typically grey)
     if secondary_data.ndim == 3 and secondary_data.shape[2] >= 3:
         sec_lin: np.ndarray = (
@@ -237,12 +241,7 @@ def merge_wavelet_detail(
     main_h, main_w = main_data.shape[:2]
     if sec_lin.shape != (main_h, main_w):
         from planetary_tools.core.scale import scale_image  # avoid circular
-        sec_3ch = np.stack([sec_lin, sec_lin, sec_lin], axis=-1)
-        sec_lin = scale_image(sec_3ch, main_w, main_h)[..., 0]
-
-    n = min(max(int(n_secondary_scales), 0), MERGE_SCALES)
-    if n <= 0:
-        return np.asarray(main_data, dtype=np.float32)
+        sec_lin = scale_image(sec_lin, main_w, main_h)
 
     # Decompose secondary once; reuse its scales for every main channel
     sec_perc = linear_to_srgb(sec_lin, clamp=False).astype(np.float64)

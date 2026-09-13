@@ -26,7 +26,11 @@ class BrightnessInfo:
 
 
 def _channel_array(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
-    arr = np.asarray(data, dtype=np.float64)
+    arr = np.asarray(data)
+    # Image buffers already have enough precision for min/max. Convert only
+    # other dtypes, retaining the historical float64 interpretation of them.
+    if arr.dtype not in (np.dtype(np.float32), np.dtype(np.float64)):
+        arr = np.asarray(arr, dtype=np.float64)
     if is_grayscale:
         return arr if arr.ndim == 2 else arr[..., 0]
     return arr
@@ -55,8 +59,9 @@ def would_clip_channels(data: np.ndarray, is_grayscale: bool) -> bool:
 
 
 def measure_brightness(data: np.ndarray, is_grayscale: bool) -> BrightnessInfo:
-    lo, hi = channel_range(data, is_grayscale)
-    return BrightnessInfo(lo, hi, would_clip_channels(data, is_grayscale))
+    ch = _channel_array(data, is_grayscale)
+    lo, hi = float(ch.min()), float(ch.max())
+    return BrightnessInfo(lo * 100.0, hi * 100.0, lo < -1e-6 or hi > 1.0 + 1e-6)
 
 
 def brightness_increase_pct(
@@ -65,8 +70,8 @@ def brightness_increase_pct(
     is_grayscale: bool,
 ) -> float | None:
     """Peak channel increase (%) from input to output; None when input peak is ~0."""
-    _, in_max = channel_range(input_data, is_grayscale)
-    _, out_max = channel_range(output_data, is_grayscale)
+    in_max = float(_channel_array(input_data, is_grayscale).max()) * 100.0
+    out_max = float(_channel_array(output_data, is_grayscale).max()) * 100.0
     if in_max < 1e-6:
         return None
     return (out_max / in_max - 1.0) * 100.0

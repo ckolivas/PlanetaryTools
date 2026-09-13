@@ -554,6 +554,24 @@ def output_filter_stats(
                            texture_scale=texture_scale, chromatic=chromatic)
 
 
+def _near_identity(raw: np.ndarray, source: np.ndarray) -> bool:
+    """Check the original float64 tolerance with bounded temporary buffers."""
+    raw, source = np.asarray(raw), np.asarray(source)
+    if raw.shape != source.shape:
+        return False
+    # Buffered iteration also handles strided inputs without flattening/copying
+    # the whole frame. Changed images usually fail on the first block.
+    blocks = np.nditer(
+        [raw, source], flags=['external_loop', 'buffered'],
+        op_dtypes=[np.float64, np.float64], casting='unsafe',
+        buffersize=65536,
+    )
+    for output_block, source_block in blocks:
+        if not float(np.max(np.abs(output_block - source_block))) < 1e-5:
+            return False
+    return True
+
+
 def _stats_from_raw(
     filter_id: str, data: np.ndarray, raw: np.ndarray, is_grayscale: bool,
     *, texture_scale: float | None = None, chromatic: bool | None = None,
@@ -578,12 +596,9 @@ def _stats_from_raw(
         # Near-identity filters (e.g. all amounts 0): report source noise
         # exactly so enhance dialogs agree on the same document despite tiny
         # wavelet/deconv floating-point round-trip differences.
-        raw_f = np.asarray(raw, dtype=np.float64)
-        src_f = np.asarray(data, dtype=np.float64)
         if (
             source_noise is not None
-            and raw_f.shape == src_f.shape
-            and float(np.max(np.abs(raw_f - src_f))) < 1e-5
+            and _near_identity(raw, data)
         ):
             noise = source_noise
         else:
