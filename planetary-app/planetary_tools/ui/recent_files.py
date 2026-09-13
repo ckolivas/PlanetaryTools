@@ -72,14 +72,28 @@ def remember_save_path(path: str | Path) -> None:
 
 
 def last_save_filter() -> str | None:
-    """Return the file-type filter used for the last successful save, if any."""
+    """Return the last confirmed image file-type choice, if any."""
     raw = _settings().value("lastSaveFilter")
     return str(raw) if raw else None
 
 
 def remember_save_filter(filter_str: str) -> None:
-    """Store the file-type filter used for a successful save."""
-    _settings().setValue("lastSaveFilter", filter_str)
+    """Store the last confirmed file-type choice, including across restarts."""
+    settings = _settings()
+    settings.setValue("lastSaveFilter", filter_str)
+    settings.sync()
+
+
+def last_output_option(key: str, default: str, choices: tuple[str, ...]) -> str:
+    """Restore an export option, falling back if a stored value is invalid."""
+    value = str(_settings().value(f"outputOptions/{key}", default))
+    return value if value in choices else default
+
+
+def remember_output_option(key: str, value: str | int) -> None:
+    settings = _settings()
+    settings.setValue(f"outputOptions/{key}", str(value))
+    settings.sync()
 
 
 def add_recent(path: str | Path) -> None:

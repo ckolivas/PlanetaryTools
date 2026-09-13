@@ -41,6 +41,7 @@ from planetary_tools.core.field_derotate import (
 from planetary_tools.io.loader import load_image, supported_extensions
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
+from planetary_tools.ui.recent_files import last_output_option, remember_output_option
 
 _COL_FILE = 0
 _COL_ANGLE = 1
@@ -273,6 +274,11 @@ class FieldDerotateDialog(QDialog):
         self._bit_depth.addItem("32-bit float", 32)
         self._bit_depth.addItem("16-bit", 16)
         self._bit_depth.addItem("8-bit", 8)
+        depth = int(last_output_option("alignDepth", "32", ("8", "16", "32")))
+        self._bit_depth.setCurrentIndex(self._bit_depth.findData(depth))
+        self._bit_depth.currentIndexChanged.connect(
+            lambda _index: remember_output_option("alignDepth", self._bit_depth.currentData())
+        )
         ouf.addRow("Bit depth", self._bit_depth)
         root.addWidget(out)
 

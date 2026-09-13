@@ -44,6 +44,7 @@ from planetary_tools.filters.registry import FILTERS, batch_filters
 from planetary_tools.ui.dialogs import edit_filter_params
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
+from planetary_tools.ui.recent_files import last_output_option, remember_output_option
 
 
 class _BatchWorker(QThread):
@@ -223,6 +224,11 @@ class BatchDialog(QDialog):
         self._bit_depth.addItem("32-bit float TIFF", 32)
         self._bit_depth.addItem("16-bit TIFF / PNG", 16)
         self._bit_depth.addItem("8-bit PNG / JPEG", 8)
+        depth = int(last_output_option("batchDepth", "32", ("8", "16", "32")))
+        self._bit_depth.setCurrentIndex(self._bit_depth.findData(depth))
+        self._bit_depth.currentIndexChanged.connect(
+            lambda _index: remember_output_option("batchDepth", self._bit_depth.currentData())
+        )
         out_layout.addRow("Output depth", self._bit_depth)
         self._preserve_tree = QCheckBox("Preserve subfolder structure")
         out_layout.addRow(self._preserve_tree)

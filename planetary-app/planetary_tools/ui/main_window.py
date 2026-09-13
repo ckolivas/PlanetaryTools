@@ -41,7 +41,7 @@ from planetary_tools.io.loader import (
     save_image,
 )
 from planetary_tools.ui.batch_dialog import BatchDialog
-from planetary_tools.ui.file_filters import image_file_filters
+from planetary_tools.ui.file_filters import image_file_filters, save_path_for_filter
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.animate_dialog import AnimateDialog
 from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
@@ -517,7 +517,7 @@ class MainWindow(QMainWindow):
 
     def _default_save_as_filter(self) -> str:
         remembered = last_save_filter()
-        if remembered:
+        if remembered in self._save_as_filters().split(";;"):
             return remembered
         if self._document is None:
             return "PNG 16-bit (*.png)"
@@ -633,18 +633,21 @@ class MainWindow(QMainWindow):
             return False
         if selected:
             selected_filter = selected
-        if not Path(path).suffix:
-            if "png" in selected_filter.lower():
-                path += ".png"
-            elif "jpeg" in selected_filter.lower() or "jpg" in selected_filter.lower():
-                path += ".jpg"
-            elif "tiff" in selected_filter.lower() or "tif" in selected_filter.lower():
-                path += ".tif"
+        remember_save_filter(selected_filter)
+        chosen_path = path
+        path = save_path_for_filter(path, selected_filter)
+        if path != chosen_path and Path(path).exists():
+            reply = QMessageBox.question(
+                self, "Overwrite existing file?", f"{path} already exists. Overwrite it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return False
         bit_depth = self._bit_depth_for_save(path, selected_filter)
         try:
             self._write_document(path, bit_depth)
             remember_save_path(path)
-            remember_save_filter(selected_filter)
             return True
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", str(exc))
@@ -1087,13 +1090,8 @@ class MainWindow(QMainWindow):
             return
         if selected:
             selected_filter = selected
-        if not Path(path).suffix:
-            if "png" in selected_filter.lower():
-                path += ".png"
-            elif "jpeg" in selected_filter.lower() or "jpg" in selected_filter.lower():
-                path += ".jpg"
-            elif "tiff" in selected_filter.lower() or "tif" in selected_filter.lower():
-                path += ".tif"
+        remember_save_filter(selected_filter)
+        path = save_path_for_filter(path, selected_filter)
         bit_depth = self._bit_depth_for_save(path, selected_filter)
         base = Path(path)
         out_paths = {
@@ -1117,7 +1115,6 @@ class MainWindow(QMainWindow):
             for name, idx in (("red", 0), ("green", 1), ("blue", 2)):
                 save_channel(self._document.data[..., idx], out_paths[name], bit_depth=bit_depth)
             remember_save_path(base)
-            remember_save_filter(selected_filter)
             self._status.showMessage(f"Saved RGB channels to {base.parent}")
         except Exception as exc:
             QMessageBox.critical(self, "RGB Decompose failed", str(exc))

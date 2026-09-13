@@ -39,6 +39,8 @@ from planetary_tools.core.animate import (
 from planetary_tools.io.loader import supported_extensions
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import (
+    last_output_option,
+    remember_output_option,
     last_open_directory,
     last_save_directory,
     remember_open_path,
@@ -46,6 +48,11 @@ from planetary_tools.ui.recent_files import (
 )
 
 _COL_FILE = 0
+_FORMAT_FILTERS = {
+    "gif": "GIF (*.gif)",
+    "apng": "Animated PNG (*.png)",
+    "webp": "WebP (*.webp)",
+}
 
 
 class _RunWorker(QThread):
@@ -165,6 +172,8 @@ class AnimateDialog(QDialog):
         self._format.addItem("GIF", "gif")
         self._format.addItem("Animated PNG", "apng")
         self._format.addItem("WebP", "webp")
+        fmt = last_output_option("animationFormat", "gif", tuple(_FORMAT_FILTERS))
+        self._format.setCurrentIndex(self._format.findData(fmt))
         self._format.currentIndexChanged.connect(self._on_format_changed)
         of.addRow("Format", self._format)
 
@@ -210,7 +219,7 @@ class AnimateDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
-        self._update_delay_hint()
+        self._on_format_changed()
 
     def _fmt(self) -> str:
         return str(self._format.currentData())
@@ -311,6 +320,7 @@ class AnimateDialog(QDialog):
         self._auto_output = False
 
     def _on_format_changed(self) -> None:
+        remember_output_option("animationFormat", self._fmt())
         current = self._output.text().strip()
         if current:
             self._output.setText(str(apply_format_suffix(current, self._fmt())))
@@ -340,23 +350,23 @@ class AnimateDialog(QDialog):
         if self._busy():
             return
         fmt = self._fmt()
-        suffix = FORMAT_SUFFIX[fmt]
-        filters = {
-            "gif": "GIF (*.gif)",
-            "apng": "Animated PNG (*.png)",
-            "webp": "WebP (*.webp)",
-        }
         start = self._output.text().strip()
         if not start:
             start = last_save_directory()
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save animation", start, filters[fmt] + ";;All Files (*)"
+        path, selected = QFileDialog.getSaveFileName(
+            self, "Save animation", start,
+            ";;".join([*_FORMAT_FILTERS.values(), "All Files (*)"]), _FORMAT_FILTERS[fmt],
         )
         if not path:
             return
+        fmt = next((key for key, value in _FORMAT_FILTERS.items() if value == selected), fmt)
+        if selected == "All Files (*)":
+            fmt = next((key for key, ext in FORMAT_SUFFIX.items()
+                        if Path(path).suffix.lower() == ext), fmt)
+        self._format.setCurrentIndex(self._format.findData(fmt))
         out = apply_format_suffix(path, fmt)
         if not out.suffix:
-            out = out.with_suffix(suffix)
+            out = out.with_suffix(FORMAT_SUFFIX[fmt])
         self._auto_output = False
         self._output.setText(str(out))
 
