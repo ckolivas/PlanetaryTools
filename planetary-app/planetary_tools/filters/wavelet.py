@@ -134,10 +134,20 @@ def _unsharp_mask(layer: np.ndarray, std_dev: float, amount: float) -> np.ndarra
     """
     if amount == 0.0:
         return np.asarray(layer, dtype=np.float32)
+    layer_lin, detail = _prepare_unsharp_mask(layer, std_dev)
+    return _apply_prepared_unsharp_mask(layer_lin, detail, amount)
+
+
+def _prepare_unsharp_mask(layer: np.ndarray, std_dev: float) -> tuple[np.ndarray, np.ndarray]:
+    """Amount-independent linear-light input and high-pass detail."""
     layer_f32 = np.asarray(layer, dtype=np.float32)
     layer_lin = srgb_to_linear(layer_f32, clamp=False).astype(np.float64)
     blurred = gaussian_filter(layer_lin, std_dev)
-    usm_lin = layer_lin + amount * (layer_lin - blurred)
+    return layer_lin, layer_lin - blurred
+
+
+def _apply_prepared_unsharp_mask(layer_lin: np.ndarray, detail: np.ndarray, amount: float) -> np.ndarray:
+    usm_lin = layer_lin + amount * detail
     return linear_to_srgb(usm_lin, clamp=False)
 
 

@@ -20,7 +20,8 @@ from planetary_tools.filters.wavelet import (
     _from_perceptual,
     _merge_wavelet,
     _to_perceptual,
-    _unsharp_mask,
+    _prepare_unsharp_mask,
+    _apply_prepared_unsharp_mask,
     _wavelet_decompose,
     wavelet_sharpen,
 )
@@ -49,7 +50,7 @@ def _round_step(value: float) -> float:
 
 
 class _SharpenTrialEngine:
-    """Decompose once; cache unsharp results per (channel, scale, amount)."""
+    """Decompose/blur once; retain only the latest result per channel/scale."""
 
     def __init__(
         self,
@@ -91,8 +92,10 @@ class _SharpenTrialEngine:
                 work = _to_perceptual(self.src[..., c])
                 scales, residual = _wavelet_decompose(work, SHARPEN_SCALES)
                 self._prepared.append((scales, residual))
-        # (channel_index, scale_index, amount_key) -> sharpened scale layer
-        self._usm_cache: dict[tuple[int, int, int], np.ndarray] = {}
+        self._unsharp_prepared: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+        # Bound the cache: a long search must not retain a full image for
+        # every tested amount. Unchanged scales still reuse their last result.
+        self._usm_cache: dict[tuple[int, int], tuple[int, np.ndarray]] = {}
 
     def _amount_key(self, amount: float) -> int:
         return int(round(float(amount) * 10.0 + 1e-9))
@@ -103,16 +106,21 @@ class _SharpenTrialEngine:
         scale_index: int,
         amount: float,
     ) -> np.ndarray:
-        key = (channel_index, scale_index, self._amount_key(amount))
+        key = (channel_index, scale_index)
+        amount_key = self._amount_key(amount)
         cached = self._usm_cache.get(key)
-        if cached is not None:
-            return cached
+        if cached is not None and cached[0] == amount_key:
+            return cached[1]
         scale = self._prepared[channel_index][0][scale_index]
         if amount <= 0.0:
             out = np.asarray(scale, dtype=np.float32)
         else:
-            out = _unsharp_mask(scale, _UNSHARP_STD, amount)
-        self._usm_cache[key] = out
+            prepared = self._unsharp_prepared.get(key)
+            if prepared is None:
+                prepared = _prepare_unsharp_mask(scale, _UNSHARP_STD)
+                self._unsharp_prepared[key] = prepared
+            out = _apply_prepared_unsharp_mask(*prepared, amount)
+        self._usm_cache[key] = (amount_key, out)
         return out
 
     def apply(

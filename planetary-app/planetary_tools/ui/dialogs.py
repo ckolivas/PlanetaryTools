@@ -50,6 +50,7 @@ from planetary_tools.filters.registry import (
     ENHANCE_FILTER_IDS,
     FILTERS,
     apply_filter,
+    apply_filter_and_output_stats,
 )
 from planetary_tools.ui.histogram import RgbHistogramWidget
 
@@ -289,9 +290,7 @@ class _FilterDialog(QWidget):
         self.preview = QCheckBox("Preview on canvas")
         self.preview.setChecked(True)
         self.preview.toggled.connect(self.preview_toggled.emit)
-        # Preview visibility is not a preset parameter — don't let its
-        # params_changed emission flip the preset combo to (None).
-        self.preview.toggled.connect(lambda _: self._emit_params_changed_quietly())
+        # Visibility does not change filter parameters or invalidate its result.
         self._form.addRow(self.preview)
 
         buttons = QDialogButtonBox(
@@ -541,6 +540,26 @@ class _FilterDialog(QWidget):
 
         def func(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
             return apply_filter(self.filter_id, data, is_grayscale, params)
+
+        return func
+
+    def build_preview_func(self):
+        """Capture controls on the UI thread; evaluate pixels/readouts together."""
+        if not self.filter_id:
+            return self.build_filter_func()
+        from planetary_tools.ui.preview import PreviewResult
+
+        filter_id = self.filter_id
+        params = self.get_params()
+        texture_scale = getattr(self, "_noise_texture_scale", None)
+        chromatic = getattr(self, "_noise_chromatic", None)
+
+        def func(data: np.ndarray, is_grayscale: bool) -> PreviewResult:
+            pixels, stats = apply_filter_and_output_stats(
+                filter_id, data, is_grayscale, params,
+                texture_scale=texture_scale, chromatic=chromatic,
+            )
+            return PreviewResult(pixels, stats)
 
         return func
 

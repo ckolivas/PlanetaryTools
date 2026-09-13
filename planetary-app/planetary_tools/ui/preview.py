@@ -2,52 +2,61 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
 from planetary_tools.core.colour import linear_to_srgb
+from planetary_tools.filters.registry import FilterOutputStats
 
-FilterFunc = Callable[[np.ndarray, bool], np.ndarray]
+
+@dataclass
+class PreviewResult:
+    data: np.ndarray
+    stats: FilterOutputStats | None = None
+
+
+FilterFunc = Callable[[np.ndarray, bool], np.ndarray | PreviewResult]
+
+
+def _evaluate(func: FilterFunc, data: np.ndarray, grayscale: bool) -> PreviewResult:
+    result = func(data, grayscale)
+    return result if isinstance(result, PreviewResult) else PreviewResult(result)
 
 
 class _PreviewWorker(QThread):
     result_ready = pyqtSignal(int, object)
-    failed = pyqtSignal(str)
+    failed = pyqtSignal(int, str)
 
     def __init__(self) -> None:
         super().__init__()
-        self._func: FilterFunc | None = None
-        self._data: np.ndarray | None = None
-        self._is_grayscale = False
-        self._generation = 0
+        self._job: tuple[FilterFunc, np.ndarray, bool, int] | None = None
+        self.completed: tuple[int, PreviewResult] | None = None
 
-    def configure(
-        self,
-        func: FilterFunc,
-        data: np.ndarray,
-        is_grayscale: bool,
-        generation: int,
-    ) -> None:
-        self._func = func
-        self._data = data
-        self._is_grayscale = is_grayscale
-        self._generation = generation
+    def configure(self, func: FilterFunc, data: np.ndarray,
+                  is_grayscale: bool, generation: int) -> None:
+        # Only configure an idle worker. A running job must keep its snapshot.
+        self._job = (func, data, is_grayscale, generation)
+        self.completed = None
 
     def run(self) -> None:
-        if self._func is None or self._data is None:
+        if self._job is None:
             return
-        gen = self._generation
+        func, data, grayscale, generation = self._job
         try:
-            result = self._func(self._data, self._is_grayscale)
-            self.result_ready.emit(gen, result)
+            result = _evaluate(func, data, grayscale)
+            self.completed = (generation, result)
+            self.result_ready.emit(generation, result)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(generation, str(exc))
+        finally:
+            self._job = None
 
 
 class PreviewController(QObject):
-    """Debounced background preview; restores original on cancel."""
+    """Debounced worker with one cached result for the current input/settings."""
 
     preview_updated = pyqtSignal()
     preview_failed = pyqtSignal(str)
@@ -59,9 +68,9 @@ class PreviewController(QObject):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._run_preview)
-
         self._original: np.ndarray | None = None
-        self._preview_result: np.ndarray | None = None
+        self._evaluation: PreviewResult | None = None
+        self._result_generation = -1
         self._is_grayscale = False
         self._active = False
         self._preview_enabled = True
@@ -71,6 +80,7 @@ class PreviewController(QObject):
         self._worker = _PreviewWorker()
         self._worker.result_ready.connect(self._on_worker_result)
         self._worker.failed.connect(self._on_worker_failed)
+        self._worker.finished.connect(self._on_worker_finished)
 
     @property
     def is_active(self) -> bool:
@@ -79,32 +89,44 @@ class PreviewController(QObject):
     def display_data(self) -> np.ndarray | None:
         if not self._active:
             return None
-        if self._preview_enabled and self._preview_result is not None:
-            return self._preview_result
+        if self._preview_enabled and self._evaluation is not None:
+            return self._evaluation.data
         return self._original
+
+    def output_stats(self) -> FilterOutputStats | None:
+        if not self._active or not self._preview_enabled or self._evaluation is None:
+            return None
+        return self._evaluation.stats
 
     def start(self, data: np.ndarray, is_grayscale: bool) -> None:
         self._original = data.copy()
-        self._preview_result = None
+        self._evaluation = None
         self._is_grayscale = is_grayscale
         self._active = True
-        self._generation = 0
+        self._needs_rerun = False
+        self._generation += 1
 
     def set_preview_enabled(self, enabled: bool) -> None:
         self._preview_enabled = enabled
         if enabled:
             self.schedule_update()
         else:
-            self._preview_result = None
-            self.preview_updated.emit()
+            self._timer.stop()
+            self._needs_rerun = False
+            self.busy_changed.emit(False)
+        self.preview_updated.emit()
 
     def set_filter_func(self, func: FilterFunc) -> None:
-        self._filter_func = func
+        if func is not self._filter_func:
+            self._filter_func = func
+            # Invalidate immediately, including while waiting for debounce.
+            self._generation += 1
 
     def schedule_update(self) -> None:
-        if not self._active or not self._preview_enabled or self._filter_func is None:
-            return
-        self._timer.start(self._debounce_ms)
+        if self._active and self._preview_enabled and self._filter_func is not None:
+            if self._evaluation is not None and self._result_generation == self._generation:
+                return
+            self._timer.start(self._debounce_ms)
 
     def update_now(self) -> None:
         if not self._active or not self._preview_enabled or self._filter_func is None:
@@ -113,60 +135,68 @@ class PreviewController(QObject):
         self._run_preview()
 
     def _run_preview(self) -> None:
-        if self._original is None or self._filter_func is None:
+        if not self._active or not self._preview_enabled:
             return
-        self._generation += 1
-        self._preview_result = None
-        self.preview_updated.emit()
+        if self._evaluation is not None and self._result_generation == self._generation:
+            self.preview_updated.emit()
+            return
         self.busy_changed.emit(True)
         self._start_worker()
 
     def _start_worker(self) -> None:
         if self._original is None or self._filter_func is None:
             return
-        self._worker.configure(
-            self._filter_func,
-            self._original,
-            self._is_grayscale,
-            self._generation,
-        )
         if self._worker.isRunning():
             self._needs_rerun = True
-        else:
-            self._needs_rerun = False
-            self._worker.start()
-
-    def _on_worker_result(self, generation: int, result: object) -> None:
-        if generation != self._generation:
-            if not self._worker.isRunning():
-                self._start_worker()
             return
-        self._preview_result = result  # type: ignore[assignment]
+        self._needs_rerun = False
+        self._worker.configure(self._filter_func, self._original,
+                               self._is_grayscale, self._generation)
+        self._worker.start()
+
+    def _on_worker_result(self, generation: int, result: PreviewResult) -> None:
+        if not self._active or generation != self._generation:
+            return
+        self._evaluation = result
+        self._result_generation = generation
         self.busy_changed.emit(False)
         self.preview_updated.emit()
-        if self._needs_rerun and not self._worker.isRunning():
-            self._needs_rerun = False
-            self._start_worker()
 
-    def _on_worker_failed(self, message: str) -> None:
-        self.busy_changed.emit(False)
-        self.preview_failed.emit(message)
+    def _on_worker_failed(self, generation: int, message: str) -> None:
+        if self._active and generation == self._generation:
+            self.busy_changed.emit(False)
+            self.preview_failed.emit(message)
+
+    def _on_worker_finished(self) -> None:
+        if self._active and self._preview_enabled and self._needs_rerun:
+            self._needs_rerun = False
+            self._run_preview()
 
     def finish(self, apply: bool) -> np.ndarray | None:
         self._timer.stop()
-        if self._worker.isRunning():
-            self._worker.wait(60000)
-
-        result: np.ndarray | None = None
-        if apply and self._original is not None and self._filter_func is not None:
-            result = self._filter_func(self._original, self._is_grayscale)
-
         self._active = False
-        self._original = None
-        self._preview_result = None
-        self._filter_func = None
-        self.busy_changed.emit(False)
-        return result
+        self._needs_rerun = False
+        # Wait for an immutable in-flight snapshot before reading its result.
+        self._worker.wait()
+        result = None
+        try:
+            if apply and self._original is not None and self._filter_func is not None:
+                evaluation = self._evaluation if self._result_generation == self._generation else None
+                if evaluation is None and self._worker.completed is not None:
+                    generation, completed = self._worker.completed
+                    if generation == self._generation:
+                        evaluation = completed
+                if evaluation is None:
+                    evaluation = _evaluate(self._filter_func, self._original, self._is_grayscale)
+                result = evaluation.data
+            return result
+        finally:
+            self._original = None
+            self._evaluation = None
+            self._worker.completed = None
+            self._filter_func = None
+            self._generation += 1
+            self.busy_changed.emit(False)
 
     def original_data(self) -> np.ndarray | None:
         return self._original

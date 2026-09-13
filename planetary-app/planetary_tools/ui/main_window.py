@@ -34,7 +34,6 @@ from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import UndoManager
 # from planetary_tools.filters import oklab_compose, oklab_decompose
-from planetary_tools.filters.registry import output_filter_stats
 from planetary_tools.io.loader import (
     load_image,
     save_channel,
@@ -814,14 +813,12 @@ class MainWindow(QMainWindow):
             )
 
             self._preview.start(self._document.data, self._document.is_grayscale)
-            self._preview.set_filter_func(dlg.build_filter_func())
+            self._preview.set_filter_func(dlg.build_preview_func())
             self._preview.set_preview_enabled(dlg.preview.isChecked())
 
             dlg.params_changed.connect(self._on_dialog_params_changed)
             dlg.preview_now.connect(self._preview.update_now)
             dlg.preview_toggled.connect(self._preview.set_preview_enabled)
-            dlg.preview_toggled.connect(self._refresh_canvas_display)
-            dlg.preview_toggled.connect(self._update_dialog_brightness)
             self._preview.preview_updated.connect(self._update_dialog_brightness)
             self._filter_dock.visibilityChanged.connect(self._on_filter_dock_visibility)
 
@@ -849,8 +846,6 @@ class MainWindow(QMainWindow):
             dlg.params_changed.disconnect(self._on_dialog_params_changed)
             dlg.preview_now.disconnect(self._preview.update_now)
             dlg.preview_toggled.disconnect(self._preview.set_preview_enabled)
-            dlg.preview_toggled.disconnect(self._refresh_canvas_display)
-            dlg.preview_toggled.disconnect(self._update_dialog_brightness)
             self._preview.preview_updated.disconnect(self._update_dialog_brightness)
             self._filter_dock.visibilityChanged.disconnect(self._on_filter_dock_visibility)
             dlg.accepted.disconnect(on_accept)
@@ -886,18 +881,9 @@ class MainWindow(QMainWindow):
             dlg.update_output_brightness(None)
             dlg.update_histogram_display(None)
             return
-        original = self._preview.original_data()
-        if original is None:
+        stats = self._preview.output_stats()
+        if stats is None:
             return
-        tex, chroma = self._document.noise_context()
-        stats = output_filter_stats(
-            dlg.filter_id,
-            original,
-            self._document.is_grayscale,
-            dlg.get_params(),
-            texture_scale=tex,
-            chromatic=chroma,
-        )
         dlg.update_output_brightness(
             stats.brightness,
             stats.brightness_increase_pct,
@@ -913,7 +899,7 @@ class MainWindow(QMainWindow):
     def _on_dialog_params_changed(self) -> None:
         sender = self.sender()
         if isinstance(sender, _FilterDialog):
-            self._preview.set_filter_func(sender.build_filter_func())
+            self._preview.set_filter_func(sender.build_preview_func())
         self._preview.schedule_update()
 
     def _commit_filter(

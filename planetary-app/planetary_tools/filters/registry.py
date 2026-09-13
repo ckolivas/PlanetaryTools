@@ -550,6 +550,14 @@ def output_filter_stats(
     """
     merged = _merge_params(FILTERS[filter_id], params)
     raw = run_filter_raw(filter_id, data, is_grayscale, merged)
+    return _stats_from_raw(filter_id, data, raw, is_grayscale,
+                           texture_scale=texture_scale, chromatic=chromatic)
+
+
+def _stats_from_raw(
+    filter_id: str, data: np.ndarray, raw: np.ndarray, is_grayscale: bool,
+    *, texture_scale: float | None = None, chromatic: bool | None = None,
+) -> FilterOutputStats:
     brightness = measure_brightness(raw, is_grayscale)
 
     increase: float | None = None
@@ -587,6 +595,19 @@ def output_filter_stats(
             )
 
     return FilterOutputStats(brightness, increase, noise, source_noise)
+
+
+def apply_filter_and_output_stats(
+    filter_id: str, data: np.ndarray, is_grayscale: bool,
+    params: dict[str, Any] | None = None,
+    *, texture_scale: float | None = None, chromatic: bool | None = None,
+) -> tuple[np.ndarray, FilterOutputStats]:
+    """Evaluate once for both display pixels and pre-clamp preview readouts."""
+    merged = _merge_params(FILTERS[filter_id], params)
+    raw = run_filter_raw(filter_id, data, is_grayscale, merged)
+    stats = _stats_from_raw(filter_id, data, raw, is_grayscale,
+                            texture_scale=texture_scale, chromatic=chromatic)
+    return post_process(raw, is_grayscale, merged, filter_id=filter_id), stats
 
 
 def apply_filter_with_stats(
