@@ -112,3 +112,63 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
 The benchmark loads the previous brightness, histogram and wavelet modules
 from Git, and reproduces the previous full-buffer identity expression for
 comparison. Outputs, histogram bins and brightness statistics match exactly.
+
+## Deconvolution preparation reuse
+
+Adaptive deconvolution Auto now prepares the local-contrast map, source
+channels/luminance and Moffat correction fields once per search. Trial amounts
+reuse those fields with the original multiplication order and float32
+rounding. Prepared fields live only for that search; trials do not accumulate
+cached result images. The search limits, rounding, progress events and chosen
+parameters are unchanged.
+
+Single-filter runs also avoid redundant channel copies and luminance work.
+Disabling Adaptive skips the unused local-contrast calculation. Wiener RGB
+denoising computes its frequency-domain kernel gain once per image, sharing
+it across the three channels (four forward FFTs instead of six). The gain is
+released with the filter call, so processing more files does not grow a cache.
+
+### Third-pass measurements
+
+Compared against `20c0c16`, median of seven paired runs after warmup, alternating
+timing order. Timings include preparation, and Auto includes all trial noise
+and brightness calculations. File loading and UI display are excluded.
+The contrast target is 15%, texture scale is pinned at 2 and chromatic noise
+is disabled. Noise targets are 8 for `3moons.png` and 10 for `4moons.png`, so
+both samples exercise a complete search. These are benchmark settings; the
+application's defaults are unchanged.
+
+| Operation | 704 × 464 before → after | Speedup | 1920 × 320 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Auto, luminance | 432.99 → 178.89 ms | 2.42× | 813.32 → 276.78 ms | 2.94× |
+| Auto, RGB | 717.92 → 256.43 ms | 2.80× | 1280.74 → 364.33 ms | 3.52× |
+| Single luminance, Adaptive on | 22.90 → 20.34 ms | 1.13× | 53.93 → 41.08 ms | 1.31× |
+| Single RGB, Adaptive on | 41.32 → 39.88 ms | 1.04× | 83.08 → 86.87 ms | 0.96× |
+| Single luminance, Adaptive off | 33.65 → 17.86 ms | 1.88× | 42.42 → 23.04 ms | 1.84× |
+| Single RGB, Adaptive off | 41.49 → 30.64 ms | 1.35× | 96.66 → 64.16 ms | 1.51× |
+| Wiener RGB | 49.64 → 39.01 ms | 1.27× | 104.81 → 86.18 ms | 1.22× |
+| Wiener OKLab | 72.58 → 76.31 ms | 0.95× | 141.24 → 139.45 ms | 1.01× |
+
+Pixel arrays, Auto results and every progress event compare exactly against
+the previous implementation. Six new regression tests cover RGB/grayscale,
+luminance/independent channels, Adaptive on/off, zero and high amounts, HDR
+values, strided input, bounded preparation state, repeated trials, an input
+already over the noise limit, zero search range and shared kernel transforms.
+The complete suite passes all 94 tests.
+
+A sample already exceeding Auto's noise target still returns after the
+initial trial and gets no multi-trial reuse benefit. Single adaptive RGB
+runs showed variable timings around their previous performance; the main
+gain is eliminating preparation from subsequent Auto trials.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/deconvolution_performance.py 3moons.png --repeats 7
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/deconvolution_performance.py 4moons.png --target-noise 10 --repeats 7
+```
+
+The benchmark loads the previous filter and search modules from Git, including
+the previous local-contrast helper, to compare the complete implementations.

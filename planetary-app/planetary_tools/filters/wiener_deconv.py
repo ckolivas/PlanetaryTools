@@ -33,17 +33,24 @@ def _pad_psf(psf: np.ndarray, height: int, width: int) -> np.ndarray:
     return np.fft.ifftshift(out)
 
 
-def _wiener_channel(channel: np.ndarray, nsr: float) -> np.ndarray:
-    """Frequency-domain Wiener denoise of a single 2D channel (gain ≤ 1)."""
-    img = np.asarray(channel, dtype=np.float64)
-    height, width = img.shape
+def _wiener_gain(height: int, width: int, nsr: float) -> np.ndarray:
+    """Kernel response shared by all channels of one image."""
     h_freq = np.fft.rfft2(_pad_psf(_PSF, height, width))
-    g_freq = np.fft.rfft2(img)
     h_abs2 = (h_freq.real * h_freq.real) + (h_freq.imag * h_freq.imag)
     # Denoise form: attenuate frequencies poorly supported by the PSF.
     # (Full inverse Wiener conj(H)/(|H|²+K) with this tiny Moffat is ~identity
     # after DC renorm and does not track amount usefully.)
-    w_freq = h_abs2 / (h_abs2 + nsr)
+    return h_abs2 / (h_abs2 + nsr)
+
+
+def _wiener_channel(
+    channel: np.ndarray, nsr: float, *, gain: np.ndarray | None = None,
+) -> np.ndarray:
+    """Frequency-domain Wiener denoise of a single 2D channel (gain ≤ 1)."""
+    img = np.asarray(channel, dtype=np.float64)
+    height, width = img.shape
+    w_freq = _wiener_gain(height, width, nsr) if gain is None else gain
+    g_freq = np.fft.rfft2(img)
     restored = np.fft.irfft2(g_freq * w_freq, s=(height, width))
     return restored.astype(np.float32)
 
@@ -104,8 +111,7 @@ def wiener_deconvolution(
             filtered = _blend(ch, filtered, weight)
         return filtered.astype(np.float32)
 
-    lum = linear_luminance(src)
-    apply_weight = _adaptive_apply_weight(lum) if adaptive else None
+    apply_weight = _adaptive_apply_weight(linear_luminance(src)) if adaptive else None
 
     if oklab:
         lab = rgb_to_oklab(src)
@@ -117,9 +123,10 @@ def wiener_deconvolution(
         return oklab_to_rgb(lab).astype(np.float32)
 
     out = np.empty_like(src, dtype=np.float32)
+    gain = _wiener_gain(src.shape[0], src.shape[1], nsr)
     for c in range(3):
         ch = src[..., c]
-        filtered = _wiener_channel(ch, nsr)
+        filtered = _wiener_channel(ch, nsr, gain=gain)
         if apply_weight is not None:
             filtered = _blend(ch, filtered, apply_weight)
         out[..., c] = filtered

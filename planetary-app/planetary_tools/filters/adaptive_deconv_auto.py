@@ -13,7 +13,7 @@ from planetary_tools.core.noise import (
     estimate_texture_scale,
     is_chromatic,
 )
-from planetary_tools.filters.adaptive_deconv import adaptive_deconvolution
+from planetary_tools.filters.adaptive_deconv import _PreparedDeconvolution
 
 _MAX_AMOUNT = 100.0
 _STEP = 0.1
@@ -65,14 +65,12 @@ def auto_adaptive_deconv_params(
     if chromatic is None:
         chromatic = is_chromatic(src, is_grayscale)
 
+    engine = _PreparedDeconvolution(
+        src, is_grayscale, bool(adaptive), bool(luminance) and not is_grayscale,
+    )
+
     def metrics(amount: float) -> tuple[float, float]:
-        out = adaptive_deconvolution(
-            src,
-            is_grayscale,
-            float(amount),
-            bool(adaptive),
-            luminance=bool(luminance) and not is_grayscale,
-        )
+        out = engine.apply(float(amount))
         noise = absolute_noise(
             out,
             is_grayscale,
