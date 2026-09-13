@@ -22,7 +22,7 @@ from planetary_tools.filters.curves import (
     identity_curve, map_samples, normalize_curves_params,
 )
 from planetary_tools.filters.registry import apply_filter, batch_filters
-from planetary_tools.ui.curves_dialog import CurvesDialog
+from planetary_tools.ui.curves_dialog import CurvesDialog, histogram_display_heights
 
 
 class CurvesTests(unittest.TestCase):
@@ -108,6 +108,36 @@ class CurvesTests(unittest.TestCase):
         ):
             with self.subTest(curve=curve), self.assertRaises(ValueError):
                 apply_curves(np.zeros((2, 2)), {'channels': {'Value': curve}})
+
+
+class HistogramScaleTests(unittest.TestCase):
+    def test_linear_sky_spikes_do_not_hide_stretched_tones(self):
+        counts = np.zeros(256, dtype=np.int64)
+        counts[0:3] = [1_000_000, 100_000, 25_000]
+        counts[16:255] = np.tile([50, 100, 150], 80)[:239]
+        original = counts.copy()
+        heights, clipped = histogram_display_heights(counts, False)
+        self.assertTrue(clipped)
+        self.assertEqual(heights[0], 1)
+        self.assertGreaterEqual(heights[16], 1/3)
+        self.assertEqual(heights[17] / heights[16], 2)
+        self.assertEqual(heights[18] / heights[16], 3)
+        self.assertEqual(heights[8], 0)
+        np.testing.assert_array_equal(counts, original)
+
+    def test_logarithmic_counts_are_not_changed(self):
+        counts = np.arange(256, dtype=float)
+        counts[0] = 1_000_000
+        heights, clipped = histogram_display_heights(counts, True)
+        np.testing.assert_allclose(heights, np.log1p(counts)/np.log1p(counts.max()))
+        self.assertFalse(clipped)
+
+    def test_empty_sparse_and_balanced_histograms_keep_their_scale(self):
+        for counts in (np.zeros(256), np.ones(256), np.arange(256),
+                       np.r_[1000, np.zeros(254), 500]):
+            heights, clipped = histogram_display_heights(counts, False)
+            self.assertFalse(clipped)
+            np.testing.assert_allclose(heights, counts/max(float(counts.max()), 1))
 
 
 class GimpParityTests(unittest.TestCase):
@@ -218,6 +248,28 @@ class CurvesUiTests(unittest.TestCase):
         self.assertNotEqual(dialog.get_params()['channels']['Red'], identity_curve())
         dialog._reset_all()
         self.assertEqual(dialog.get_params(), default_curves_params())
+
+    def test_linear_histogram_toggle_renders_tones_on_black_background(self):
+        from PyQt6.QtGui import QColor
+        source = np.zeros((256, 256), dtype=np.float32)
+        source[100:132, :] = np.linspace(0, 1, 256)
+        dialog = CurvesDialog()
+        self.addCleanup(dialog.close)
+        dialog.set_input_brightness(source, True)
+        dialog.trc.setCurrentIndex(1)
+        before = dialog.get_params()
+        counts = dialog.editor.histogram.copy()
+        dialog.log_hist.setChecked(False)
+        dialog.show()
+        self.app.processEvents()
+        self.assertFalse(dialog.editor.logarithmic)
+        self.assertEqual(dialog.get_params(), before)
+        np.testing.assert_array_equal(dialog.editor.histogram, counts)
+        # Away from the diagonal and grid, histogram fill must be visible well
+        # above the baseline despite the large black-background population.
+        image = dialog.editor.grab().toImage()
+        pos = dialog.editor._position(.3, .6).toPoint()
+        self.assertEqual(image.pixelColor(pos), QColor('#3d424d'))
 
     def test_params_are_snapshot_and_presets_roundtrip(self):
         dialog = CurvesDialog()

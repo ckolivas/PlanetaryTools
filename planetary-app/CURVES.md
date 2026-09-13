@@ -22,6 +22,10 @@ for a Curves step in Batch Processing, and settings can be saved as presets.
   Output value to adjust that tone.
 - The graph shows the original input histogram for the selected channel.
   **Log histogram** changes only the histogram's vertical display scale.
+  Linear mode automatically zooms the count axis when a few sky bins would
+  hide a broad tonal distribution. Heights remain proportional to counts,
+  with oversized peaks capped and marked **Tall peaks clipped**. Pixel data
+  and histogram counts are unchanged.
 - **Reset channel** clears the selected curve; **Reset all** restores all
   curves and the default perceptual mode. OK applies the result as one undo
   step. Cancel restores the original. OK also works with preview disabled.

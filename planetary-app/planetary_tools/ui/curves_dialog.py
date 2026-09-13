@@ -23,6 +23,30 @@ _COLOURS = {"Value": "#dedede", "Red": "#ef6868", "Green": "#73d985",
             "Blue": "#80a9ff", "Alpha": "#b4b4b4"}
 
 
+def histogram_display_heights(counts: np.ndarray, logarithmic: bool) -> tuple[np.ndarray, bool]:
+    """Fit histogram counts to the graph without letting sky spikes hide tones.
+
+    Linear mode zooms the count axis only when a few bins dominate a broad
+    distribution. Heights below the ceiling remain proportional to counts;
+    clipped peaks are indicated in the graph. Sparse histograms keep their
+    true maximum, so flat images and isolated tones still draw normally.
+    """
+    heights = np.asarray(counts, dtype=np.float64).copy()
+    if logarithmic:
+        heights = np.log1p(heights)
+    ceiling = float(heights.max())
+    if ceiling <= 0:
+        return heights, False
+    if not logarithmic:
+        populated = heights[heights > 0]
+        if populated.size >= 20:
+            typical_peak = float(np.percentile(populated, 95))
+            if ceiling > 5 * typical_peak:
+                ceiling = typical_peak
+    clipped = bool(np.any(heights > ceiling))
+    return np.minimum(heights / ceiling, 1.0), clipped
+
+
 class CurveEditor(QWidget):
     changed = pyqtSignal()
     selection_changed = pyqtSignal()
@@ -46,7 +70,7 @@ class CurveEditor(QWidget):
         return QSize(360, 280)
 
     def plot_rect(self):
-        return QRectF(32, 12, max(1, self.width()-48), max(1, self.height()-42))
+        return QRectF(32, 24, max(1, self.width()-48), max(1, self.height()-54))
 
     def _position(self, x, y):
         r = self.plot_rect()
@@ -167,12 +191,13 @@ class CurveEditor(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = self.plot_rect()
         painter.fillRect(r, QColor('#171a20'))
-        heights = np.log1p(self.histogram) if self.logarithmic else self.histogram.copy()
+        heights, clipped = histogram_display_heights(self.histogram, self.logarithmic)
         if heights.max() > 0:
-            heights = heights/heights.max()
             path = QPainterPath(self._position(0, 0))
             for i, height in enumerate(heights):
-                path.lineTo(self._position(i/255, float(height)))
+                # Draw full bin widths, including the black and white bins.
+                path.lineTo(self._position(i/N_SAMPLES, float(height)))
+                path.lineTo(self._position((i+1)/N_SAMPLES, float(height)))
             path.lineTo(self._position(1, 0))
             painter.fillPath(path, QColor('#3d424d'))
         painter.setPen(QPen(QColor('#555a64'), 1))
@@ -196,6 +221,9 @@ class CurveEditor(QWidget):
                 else:
                     painter.drawEllipse(pos, 5, 5)
         painter.setPen(self.palette().color(self.foregroundRole()))
+        if clipped:
+            painter.drawText(QRectF(r.left(), 0, r.width(), 20),
+                             Qt.AlignmentFlag.AlignRight, "Tall peaks clipped")
         painter.drawText(QRectF(r.left(), r.bottom()+5, r.width(), 22), Qt.AlignmentFlag.AlignCenter, 'Input')
         painter.drawText(QRectF(0, r.bottom()-16, 28, 20), Qt.AlignmentFlag.AlignRight, '0')
         painter.drawText(QRectF(0, r.top(), 28, 20), Qt.AlignmentFlag.AlignRight, '255')
@@ -238,6 +266,11 @@ class CurvesDialog(_FilterDialog):
         self.mode.currentIndexChanged.connect(self._mode_changed)
         self.log_hist = QCheckBox('Log histogram')
         self.log_hist.setChecked(True)
+        self.log_hist.setToolTip(
+            'Logarithmic count scale. When unchecked, linear heights automatically '
+            'zoom to show the tonal distribution if a few sky bins dominate. '
+            'Tall peaks are capped and labelled; image pixels and counts are unchanged.'
+        )
         self.log_hist.toggled.connect(self._hist_scale_changed)
         row = QHBoxLayout()
         row.addWidget(self.mode)
