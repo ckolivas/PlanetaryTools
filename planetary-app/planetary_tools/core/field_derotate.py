@@ -2,7 +2,10 @@
 
 Rigid registration in the style of WaveSharp Align/Rotate: no astrometry.
 Rotation is optional; shift-only matching skips the angle search. Angle and
-shift are refined together against native-resolution limbs, rings and belts.
+shift are refined together on a shared structural band sized to the planet,
+so changes in seeing or sharpening do not dominate the match.
+When both disk limbs are visible, their sharper edge structure refines vertical
+translation without following changes in the bright rings or diffuse glow.
 All output frames share reference coordinates and are resampled only once.
 """
 
@@ -16,8 +19,10 @@ from typing import Callable
 import numpy as np
 from scipy.ndimage import affine_transform, gaussian_filter, rotate as ndi_rotate
 
-from planetary_tools.core.align import _refine_alignment, _registration_structure
-from planetary_tools.core.colour import linear_luminance
+from planetary_tools.core.align import (
+    _refine_alignment, _seeing_structure_pair, _vertical_limb_correction,
+)
+from planetary_tools.core.colour import linear_luminance, linear_to_srgb
 from planetary_tools.core.rotate import (
     geometric_centre,
     paste_into_canvas,
@@ -56,6 +61,23 @@ def luma(data: np.ndarray) -> np.ndarray:
     if arr.ndim == 3 and arr.shape[2] == 1:
         return arr[..., 0]
     raise ValueError(f"Unsupported image shape: {arr.shape}")
+
+
+def mask_alignment_background(data: np.ndarray, fraction: float = .25) -> np.ndarray:
+    """Mask the bottom fraction of this image's perceptual min/max range.
+
+    Apply before common-canvas padding, to registration copies only. Rendering
+    must still use the original images so masking never removes output pixels.
+    """
+    if not math.isfinite(fraction) or not 0 <= fraction <= 1:
+        raise ValueError("Alignment mask fraction must be between 0 and 1.")
+    arr = np.asarray(data, dtype=np.float32)
+    if not arr.size or not np.isfinite(arr).all():
+        raise ValueError("Alignment requires non-empty, finite image planes.")
+    brightness = luma(linear_to_srgb(arr))
+    low, high = float(brightness.min()), float(brightness.max())
+    keep = brightness >= low + fraction * (high - low)
+    return np.where(keep[..., None] if arr.ndim == 3 else keep, arr, 0)
 
 
 def _wrap_180(angle: float) -> float:
@@ -265,8 +287,7 @@ def estimate_rigid(
     ref_l = luma(reference)
     tgt_l = luma(target)
 
-    ref_s = _registration_structure(ref_l)
-    tgt_s = _registration_structure(tgt_l)
+    ref_s, tgt_s = _seeing_structure_pair(ref_l, tgt_l)
     if not np.any(ref_s) or not np.any(tgt_s):
         return RigidMatch(0.0, 0.0, 0.0, 0.0, "Weak match")
     if not math.isfinite(max_angle):
@@ -276,13 +297,20 @@ def estimate_rigid(
     theta = 0.0
     if rotate:
         theta, _score, _on_limit = _search_angle(
-            _structure(_search_downsample(ref_l)),
-            _structure(_search_downsample(tgt_l)), max_angle,
+            _search_downsample(ref_s), _search_downsample(tgt_s), max_angle,
         )
     dy, dx, _score = phase_correlation_shift(ref_s, _rotate_luma(tgt_s, theta))
     theta, dy, dx, score = _refine_alignment(
         ref_s, tgt_s, (theta, dy, dx), max_angle=max_angle if rotate else 0.0,
+        # Integer-pixel correlation can favour the wrong angle, particularly
+        # with unequal seeing. Let the joint subpixel fit leave that basin.
+        angle_span=2.0,
     )
+    if score >= _WEAK_SCORE:
+        aligned_luma = _render_rigid(
+            tgt_l, RigidMatch(theta, dy, dx, score), ref_l.shape, np.zeros(2),
+        )
+        dy += _vertical_limb_correction(ref_l, aligned_luma)
     on_limit = rotate and abs(theta) >= max_angle - 0.01
     status = "Weak match" if score < _WEAK_SCORE else "Hit search limit" if on_limit else "OK"
     return RigidMatch(theta, dy, dx, score, status)

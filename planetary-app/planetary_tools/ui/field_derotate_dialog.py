@@ -35,6 +35,7 @@ from planetary_tools.core.field_derotate import (
     RigidMatch,
     derotate_set,
     estimate_rigid,
+    mask_alignment_background,
     pad_to_common,
     plan_output_paths,
 )
@@ -71,12 +72,14 @@ class _EstimateWorker(QThread):
         ref_index: int,
         max_angle: float,
         rotate: bool,
+        mask_fraction: float | None = .25,
     ) -> None:
         super().__init__()
         self._paths = paths
         self._ref_index = ref_index
         self._max_angle = max_angle
         self._rotate = rotate
+        self._mask_fraction = mask_fraction
 
     def run(self) -> None:
         try:
@@ -84,7 +87,10 @@ class _EstimateWorker(QThread):
             loaded: list = []
             for i, path in enumerate(self._paths):
                 self.progress.emit(i, n * 2, f"Loading {path.name}")
-                loaded.append(load_image(path, pin_noise=False).data)
+                data = load_image(path, pin_noise=False).data
+                if self._mask_fraction is not None:
+                    data = mask_alignment_background(data, self._mask_fraction)
+                loaded.append(data)
             padded = pad_to_common(loaded)
             ref = padded[self._ref_index]
             matches: list[RigidMatch] = [IDENTITY_MATCH] * n
@@ -249,6 +255,28 @@ class FieldDerotateDialog(QDialog):
             "best match sits on the limit. Used only when Derotate is on."
         )
         of.addRow("Max search angle", self._max_angle)
+        self._max_angle.valueChanged.connect(self._on_match_options_changed)
+        self._mask_enabled = QCheckBox("Mask dim pixels")
+        self._mask_enabled.setChecked(True)
+        self._mask_enabled.setToolTip(
+            "Exclude dim pixels from alignment using each image's own perceptual "
+            "brightness range. The saved images retain all their original pixels."
+        )
+        of.addRow(self._mask_enabled)
+        self._mask_percent = QDoubleSpinBox()
+        self._mask_percent.setRange(0, 100)
+        self._mask_percent.setDecimals(1)
+        self._mask_percent.setSingleStep(1)
+        self._mask_percent.setValue(25)
+        self._mask_percent.setSuffix(" %")
+        self._mask_percent.setKeyboardTracking(False)
+        self._mask_percent.setToolTip(
+            "Mask below minimum + percentage × (maximum − minimum), "
+            "measured separately for each image in perceptual (sRGB) brightness."
+        )
+        of.addRow("Bottom of brightness range", self._mask_percent)
+        self._mask_enabled.toggled.connect(self._on_match_options_changed)
+        self._mask_percent.valueChanged.connect(self._on_match_options_changed)
         self._subpixel = QCheckBox("Subpixel alignment")
         self._subpixel.setChecked(True)
         self._subpixel.setToolTip(
@@ -418,6 +446,14 @@ class FieldDerotateDialog(QDialog):
             mode += " Run Estimate again."
         self._status.setText(mode)
 
+    def _on_match_options_changed(self, *_args) -> None:
+        self._mask_percent.setEnabled(self._mask_enabled.isChecked() and not self._busy())
+        had_matches = self._estimated
+        self._invalidate_estimate()
+        self._refresh_table()
+        if had_matches:
+            self._status.setText("Match options changed. Run Estimate again.")
+
     def _set_reference(self) -> None:
         row = self._table.currentRow()
         if row < 0 or row >= len(self._rows):
@@ -464,6 +500,9 @@ class FieldDerotateDialog(QDialog):
 
     def _set_running(self, running: bool) -> None:
         self._derotate.setEnabled(not running)
+        self._max_angle.setEnabled(not running and self._derotate.isChecked())
+        self._mask_enabled.setEnabled(not running)
+        self._mask_percent.setEnabled(not running and self._mask_enabled.isChecked())
         self._progress.setVisible(running)
         self._update_action_buttons(running=running)
 
@@ -482,6 +521,7 @@ class FieldDerotateDialog(QDialog):
             self._ref_index,
             float(self._max_angle.value()),
             self._derotate.isChecked(),
+            self._mask_percent.value() / 100 if self._mask_enabled.isChecked() else None,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished_ok.connect(self._on_estimated)
