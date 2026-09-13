@@ -291,6 +291,65 @@ class CurvesUiTests(unittest.TestCase):
         self.assertGreater(points[2][0], points[1][0])
         self.assertLess(points[2][0], points[3][0])
 
+    def test_both_coordinates_can_be_cleared_and_retyped_without_autofill(self):
+        dialog = CurvesDialog()
+        self.addCleanup(dialog.close)
+        dialog.show()
+        self.app.processEvents()
+        dialog.editor.add_point(.5, .5)
+        for coordinate, field, replacement in (
+            (0, dialog.input, '146.25'), (1, dialog.output, '183.75'),
+        ):
+            with self.subTest(coordinate=coordinate):
+                before = dialog.get_params()
+                changes = QSignalSpy(dialog.params_changed)
+                field.setFocus()
+                field.lineEdit().deselect()
+                field.lineEdit().setCursorPosition(len(field.text()))
+                text = field.text()
+                while text:
+                    QTest.keyClick(field, Qt.Key.Key_Backspace)
+                    text = text[:-1]
+                    self.assertEqual(field.text(), text)
+                # Empty is a valid editing state, including after event delivery.
+                self.app.processEvents()
+                self.assertEqual(field.text(), '')
+                for index, digit in enumerate(replacement, 1):
+                    QTest.keyClicks(field, digit)
+                    self.assertEqual(field.text(), replacement[:index])
+                    self.assertEqual(dialog.get_params(), before)
+                self.assertEqual(len(changes), 0)
+                # Select-all/Delete is also allowed before retyping the value.
+                field.selectAll()
+                QTest.keyClick(field, Qt.Key.Key_Delete)
+                self.assertEqual(field.text(), '')
+                QTest.keyClicks(field, replacement)
+                QTest.keyClick(field, Qt.Key.Key_Return)
+                self.assertEqual(field.value(), float(replacement))
+                self.assertAlmostEqual(dialog.editor.curve['points'][1][coordinate],
+                                       float(replacement)/255)
+                self.assertEqual(len(changes), 1)
+
+    def test_empty_coordinates_restore_last_value_when_committed(self):
+        dialog = CurvesDialog()
+        self.addCleanup(dialog.close)
+        dialog.show()
+        self.app.processEvents()
+        dialog.editor.add_point(.5, .5)
+        before = dialog.get_params()
+        for field in (dialog.input, dialog.output):
+            field.setFocus()
+            field.selectAll()
+            QTest.keyClick(field, Qt.Key.Key_Delete)
+            self.assertEqual(field.text(), '')
+            dialog.editor.setFocus()
+            self.app.processEvents()
+            self.assertEqual(field.value(), 127.5)
+            self.assertEqual(field.text(), '127.50')
+            self.assertEqual(dialog.get_params(), before)
+        dialog.output.stepUp()
+        self.assertAlmostEqual(dialog.editor.curve['points'][1][1], 128.5/255)
+
     def test_linear_histogram_toggle_renders_tones_on_black_background(self):
         from PyQt6.QtGui import QColor
         source = np.zeros((256, 256), dtype=np.float32)
