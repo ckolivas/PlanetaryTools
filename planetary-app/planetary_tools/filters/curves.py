@@ -15,6 +15,8 @@ from planetary_tools.core.colour import linear_to_srgb, srgb_to_linear
 
 CHANNELS = ("Value", "Red", "Green", "Blue", "Alpha")
 N_SAMPLES = 256
+_MAP_BLOCK_SIZE = 65536
+_MAP_DIRECT_LIMIT = 1048576
 
 
 def identity_curve() -> dict[str, Any]:
@@ -120,8 +122,25 @@ def is_identity(curve: dict[str, Any]) -> bool:
 
 def map_samples(values: np.ndarray, samples: np.ndarray) -> np.ndarray:
     # GIMP maps NaN and -inf to the first sample, +inf to the last.
-    values = np.nan_to_num(values, nan=0.0, neginf=0.0, posinf=1.0)
-    return np.interp(values, np.linspace(0, 1, len(samples)), samples)
+    source = np.asarray(values)
+    positions = np.linspace(0, 1, len(samples))
+    if (source.size <= _MAP_DIRECT_LIMIT
+            or source.dtype not in (np.dtype(np.float32), np.dtype(np.float64))
+            or np.iscomplexobj(samples)):
+        clean = np.nan_to_num(source, nan=0.0, neginf=0.0, posinf=1.0)
+        return np.interp(clean, positions, samples)
+    result = np.empty(source.shape, dtype=np.float64)
+    # Retain np.interp's float64 arithmetic while bounding its cleanup and
+    # casting buffers. Small images keep direct mapping to avoid loop overhead.
+    with np.nditer(
+        [source, result], flags=['external_loop', 'buffered'], order='C',
+        op_flags=[['readonly'], ['writeonly']], op_dtypes=[np.float64, np.float64],
+        buffersize=_MAP_BLOCK_SIZE,
+    ) as blocks:
+        for block, output in blocks:
+            clean = np.nan_to_num(block, nan=0.0, neginf=0.0, posinf=1.0)
+            output[...] = np.interp(clean, positions, samples)
+    return result
 
 
 def apply_curves(data: np.ndarray, params: dict[str, Any]) -> np.ndarray:

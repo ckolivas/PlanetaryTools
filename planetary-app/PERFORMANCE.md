@@ -408,8 +408,8 @@ Remaining candidates to evaluate, not established gains:
 - Alignment reference FFT reuse: completed in the ninth pass below.
 - Alignment refinement allocates coordinates for every signal pixel to find
   the bounding box; row/column masks may save allocation while preserving it.
-- Curves mapping and noise median/percentile temporaries may have redundant
-  copies; evaluate complete operations before retaining small local changes.
+- Curves mapping: completed in the thirteenth pass below. Noise percentile
+  temporary reuse showed no complete-operation gain and was rejected.
 - Deglow median and identical-channel reuse: completed in the tenth pass below.
 - Unused worker noise-context loading: completed in the eleventh pass below.
 - Untagged normalization and float TIFF output buffers: completed in the
@@ -666,4 +666,54 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/io_buffer_performance.py widefield.png
 PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
   planetary-app/benchmarks/io_buffer_performance.py 3moons.png --repeats 5
+```
+
+## Bounded Curves mapping buffers
+
+Large floating-point Curves mappings now clean and interpolate at most 65,536
+samples at a time. They retain NumPy's float64 interpolation and GIMP's existing
+nonfinite-value mapping. Inputs are never modified. The 1,048,576-sample direct
+limit keeps small images on the original path, avoiding loop overhead; unusual
+input dtypes and complex sample tables also retain direct mapping.
+
+### Thirteenth-pass measurements
+
+Compared against `cd1c9b6`, medians of five paired runs on each source image,
+alternating order after warmup. Loading and parameter creation are excluded.
+The fixture applies a smooth Value curve through (0.4, 0.6) and Red curve
+through (0.6, 0.45), with identity endpoints. Full operations include the
+unchanged curve sampling, channel order and TRC conversions.
+
+| Operation | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Single-channel mapping | 34.17 → 23.93 ms | 1.43× | 1.61 → 1.58 ms | 1.01× |
+| Linear Curves | 145.62 → 113.03 ms | 1.29× | 9.86 → 10.05 ms | 0.98× |
+| Perceptual Curves | 446.30 → 402.49 ms | 1.11× | 27.45 → 27.55 ms | 1.00× |
+
+Large-image traced peak allocations fell from 94.2 to 39.5 MiB for one mapping
+and from 169.6 to 133.3 MiB for complete Curves. Existing inputs are excluded.
+Small-image timing and allocations are essentially unchanged. An initial
+experiment applying blocks to all images slowed small linear Curves by 9%,
+so the final implementation retains direct mapping below the size limit.
+
+Three new tests check exact interpolation bits at knots and adjacent floating
+values, nonfinite/HDR samples, bounded blocks, readonly/strided/Fortran arrays,
+direct scalar/empty/nonstandard inputs, and complete grayscale/RGB/RGBA results
+in both TRCs. All 141 tests pass, including existing GIMP sampling parity and
+Curves UI regressions. Benchmarks compare all mapped values and final pixels
+against Git.
+
+The same screening pass tried in-place partitioning of owned absolute-deviation
+temporaries in noise MAD/percentile calculations. Seven paired complete noise
+readouts measured 53.18 → 53.38 ms on the large sample and 7.60 → 7.65 ms on the
+small sample, with exact scores. There was no useful gain; noise code remains
+unchanged.
+
+Reproduce retained Curves measurements from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/curves_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/curves_performance.py 3moons.png
 ```
