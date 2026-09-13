@@ -79,13 +79,32 @@ _SOFT_BAND_EXCESS_FROM_S = 1.20
 _COLOR_EXCESS_TAIL_WEIGHT = 0.10
 
 NOISE_DISPLAY_SCALE = 1000.0
+_LUMINANCE_BLOCK_PIXELS = 65536
 
 
 def _luminance(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
-    arr = np.asarray(data, dtype=np.float64)
+    arr = np.asarray(data)
     if is_grayscale or arr.ndim == 2:
-        return arr if arr.ndim == 2 else arr[..., 0]
-    return linear_luminance(arr).astype(np.float64)
+        return np.asarray(arr if arr.ndim == 2 else arr[..., 0], dtype=np.float64)
+    if arr.size <= _LUMINANCE_BLOCK_PIXELS * 3 or arr.shape[-1] < 3:
+        return linear_luminance(np.asarray(arr, dtype=np.float64)).astype(np.float64)
+    rgb = arr[..., :3]
+    result = np.empty(rgb.shape[:-1], dtype=np.float64)
+    flat_result = result.reshape(-1)
+    offset = 0
+    # Preserve the original float64 arithmetic and intermediate float32
+    # luminance rounding without a full RGB float64 copy. C-order blocks
+    # contain whole RGB triplets, including for strided source images.
+    with np.nditer(
+        rgb, flags=['external_loop', 'buffered', 'refs_ok'], order='C',
+        op_dtypes=[np.float64], casting='unsafe',
+        buffersize=_LUMINANCE_BLOCK_PIXELS * 3,
+    ) as blocks:
+        for values in blocks:
+            lum = linear_luminance(values.reshape(-1, 3))
+            flat_result[offset:offset + lum.size] = lum
+            offset += lum.size
+    return result
 
 
 def _crop_to_subject(lum: np.ndarray) -> np.ndarray:
@@ -94,11 +113,13 @@ def _crop_to_subject(lum: np.ndarray) -> np.ndarray:
         return lum
     peak = float(np.percentile(lum, 99.0))
     floor = max(_SIGNAL_PEAK_FRACTION * peak, _SIGNAL_ABS_FLOOR)
-    ys, xs = np.where(lum >= floor)
-    if ys.size < _MIN_SAMPLES:
+    mask = lum >= floor
+    if np.count_nonzero(mask) < _MIN_SAMPLES:
         return lum
-    y0, y1 = int(ys.min()), int(ys.max())
-    x0, x1 = int(xs.min()), int(xs.max())
+    ys = np.flatnonzero(mask.any(axis=1))
+    xs = np.flatnonzero(mask.any(axis=0))
+    y0, y1 = int(ys[0]), int(ys[-1])
+    x0, x1 = int(xs[0]), int(xs[-1])
     h = y1 - y0 + 1
     w = x1 - x0 + 1
     pad_y = max(_BBOX_PAD_MIN, int(round(h * _BBOX_PAD_FRAC)))
@@ -177,18 +198,24 @@ def is_chromatic(data: np.ndarray, is_grayscale: bool) -> bool:
     """True when the image has meaningful colour (not grey RGB or mono)."""
     if is_grayscale:
         return False
-    arr = np.asarray(data, dtype=np.float64)
+    arr = np.asarray(data)
     if arr.ndim < 3 or arr.shape[-1] < 3:
         return False
+    if arr.dtype not in (np.dtype(np.float32), np.dtype(np.float64)):
+        arr = np.asarray(arr, dtype=np.float64)
     r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
-    mx = np.maximum(np.maximum(r, g), b)
-    mn = np.minimum(np.minimum(r, g), b)
+    # Extrema retain the native floating values; comparisons and saturation
+    # still use float64 so pixels at the signal/colour thresholds cannot move.
+    mx = np.maximum(np.maximum(r, g), b).astype(np.float64, copy=False)
     peak = float(mx.max())
     mask = mx > 0.05 * max(peak, 1e-12)
-    if int(mask.sum()) < _MIN_SAMPLES:
+    if np.count_nonzero(mask) < _MIN_SAMPLES:
         return False
-    sat = (mx - mn) / (mx + 1e-8)
-    return float(np.median(sat[mask])) > _CHROMA_SAT_THRESHOLD
+    mn = np.minimum(np.minimum(r, g), b)
+    selected_max = mx[mask]
+    selected_min = np.asarray(mn[mask], dtype=np.float64)
+    sat = (selected_max - selected_min) / (selected_max + 1e-8)
+    return float(np.median(sat)) > _CHROMA_SAT_THRESHOLD
 
 
 def estimate_texture_scale(
@@ -275,12 +302,11 @@ def _hybrid_noise_level(
         - gaussian_filter(lum, bp_hi, mode="reflect")
     )[mask]
     mad_band = _mad(band) / peak
-    p99_band = _p99_abs(band) / peak
-    band_excess = max(0.0, p99_band - _GAUSS_P99_OVER_MAD * mad_band)
-
     if chromatic:
         band_score = _BANDPASS_MAD_WEIGHT_COLOR * mad_band
     elif soft > 0.0:
+        p99_band = _p99_abs(band) / peak
+        band_excess = max(0.0, p99_band - _GAUSS_P99_OVER_MAD * mad_band)
         # Soft mono: mid-scale salt after medium/coarse wavelet.
         band_score = (
             (_SOFT_BAND_MAD_WEIGHT + _SOFT_BAND_MAD_FROM_S * soft) * mad_band

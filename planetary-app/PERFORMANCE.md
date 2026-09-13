@@ -296,3 +296,61 @@ PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
 
 The benchmark loads the previous colour-transfer and PNG-writing modules from
 Git, comparing all converted pixels and complete PNG files for exact equality.
+
+## Noise preparation and readouts
+
+Noise luminance preparation now converts RGB in blocks of at most 65,536
+pixels, preserving float64 arithmetic and the original intermediate float32
+rounding. Grayscale inputs convert only the selected channel. Subject bounds
+come from row/column masks instead of coordinates for every signal pixel;
+the threshold, minimum sample count and crop padding remain unchanged.
+
+Colour detection computes extrema in the source floating dtype, then uses
+float64 for threshold comparisons and saturation of the selected signal pixels.
+It avoids converting the entire RGB image to float64. The hybrid noise score
+also skips the band-tail percentile in branches that do not use it.
+
+### Sixth-pass measurements
+
+Compared against `7837332`, medians of three paired runs on `widefield.png`
+(3088 × 1600 RGB) and five on `3moons.png` (704 × 464 RGB), alternating timing
+order after warmup. Loading, fixture creation and verification are excluded.
+
+| Operation | 3088 × 1600 before → after | Speedup | 704 × 464 before → after | Speedup |
+|---|---:|---:|---:|---:|
+| Noise luminance preparation | 64.29 → 17.58 ms | 3.66× | 1.08 → 0.89 ms | 1.21× |
+| Colour detection | 124.71 → 40.78 ms | 3.06× | 3.74 → 0.98 ms | 3.80× |
+| Pin noise context | 193.74 → 95.35 ms | 2.03× | 29.33 → 25.22 ms | 1.16× |
+| Noise readout, mono scoring | 100.68 → 58.35 ms | 1.73× | 6.99 → 6.43 ms | 1.09× |
+| Noise readout, soft mono scoring | 99.79 → 55.62 ms | 1.79× | 8.79 → 7.80 ms | 1.13× |
+| Noise readout, colour scoring | 99.08 → 55.47 ms | 1.79× | 11.91 → 10.04 ms | 1.19× |
+| Complete luminance deconvolution Auto search | 1693.95 → 1283.57 ms | 1.32× | 119.88 → 106.85 ms | 1.12× |
+
+On the larger image, traced peak allocations fell from 188.5 to 40.4 MiB for
+luminance preparation, 268.6 to 80.1 MiB for pinning the noise context, and
+188.5 to 75.4 MiB for noise readouts. These measurements exclude existing
+source buffers and include returned outputs.
+
+Readout fixtures explicitly exercise each scoring branch on the same RGB
+source. Auto uses texture scale 2, monochrome scoring and contrast target 15;
+its noise target is the larger of 8 or source noise plus 1, ensuring a complete
+search on both samples. Application defaults are unchanged. Both searches
+produce identical settings, scores and all 12 progress events.
+
+Five new tests cover exact luminance bits with bounded conversion blocks,
+readonly/strided/Fortran inputs, crop boundaries and minimum sample counts,
+colour thresholds, complete noise/texture scores and conditional percentile
+evaluation. All 117 tests pass.
+
+Reproduce from the repository root:
+
+```sh
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/noise_performance.py widefield.png
+PYTHONPATH=planetary-app planetary-app/.venv/bin/python \
+  planetary-app/benchmarks/noise_performance.py 3moons.png --repeats 5
+```
+
+The benchmark loads the previous noise and Auto modules from Git, checking
+luminance pixels, classifications, scores, Auto settings and progress values
+for exact equality.
