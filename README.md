@@ -6,8 +6,9 @@ Standalone application requires no installation, simply run the executable.
 Download the latest for Ubuntu & Windows here:
 https://github.com/ckolivas/PlanetaryTools/releases
 
-Animate can export GIF, animated PNG, WebP, or MP4 video. MP4 export requires
-FFmpeg on PATH, built with the `libx264rgb` encoder. Its constant quality (CRF)
+Animate can export GIF, animated PNG, WebP, or MP4 video. FFmpeg libraries are
+bundled through PyAV for MP4 export and motion interpolation; no separate FFmpeg
+installation is required. The MP4 constant quality (CRF)
 control ranges from 0 (lossless, the default) to 51 (lowest quality/smallest files).
 Lossless preserves the 8-bit sRGB animation frames exactly; higher precision
 source images are converted to 8-bit sRGB, as with the other animation formats.
@@ -23,11 +24,16 @@ and rounded to the nearest chosen interval, default **1 minute**, with halfway
 times rounded up. The table shows original and rounded timestamps. Files that
 round to the same time must be removed or given a smaller interval.
 
-Missing frames are generated with FFmpeg's `minterpolate` motion compensation
-filter; FFmpeg must be on PATH for this option. Use aligned images with similar
+Missing frames are generated with the built-in FFmpeg `minterpolate` motion
+compensation filter. Use aligned images with similar
 brightness for best results. Original frames remain at their rounded times,
 and frame rate still controls playback speed. The interval controls observation
 time between frames, not playback time. The feature does not rename source files.
+
+Source builds install PyAV (`av`) from `planetary-app/requirements.txt`. Release
+builds use PyAV binary wheels and bundle their FFmpeg shared libraries with
+PyInstaller. CI runs interpolation, lossless MP4 encode/decode, and a Qt window
+smoke test from the packaged executable with an empty PATH before publishing.
 
 
 GIMP plugins:

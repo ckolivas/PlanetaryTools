@@ -1,15 +1,13 @@
 """Real MP4 encode/decode checks plus export failure and UI coverage."""
-import json
 import os
 from pathlib import Path
-import shutil
-import subprocess
-import sys
+from fractions import Fraction
 import tempfile
 import unittest
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+import av
 import numpy as np
 from PIL import Image
 from PyQt6.QtCore import QSettings
@@ -29,16 +27,11 @@ class Mp4Tests(unittest.TestCase):
         self.frames[2] = self.frames[2][:, ::-1]
 
     def require_encoder(self):
-        if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
-            self.skipTest('FFmpeg/ffprobe unavailable')
-        encoders = subprocess.check_output(['ffmpeg', '-hide_banner', '-encoders'], stderr=subprocess.DEVNULL)
-        if b'libx264rgb' not in encoders:
-            self.skipTest('FFmpeg lacks libx264rgb')
+        self.assertTrue(av.codec.Codec('libx264rgb', 'w').is_encoder)
 
     def decode(self, path, height=17, width=23):
-        raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', str(path),
-                                       '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'])
-        return np.frombuffer(raw, np.uint8).reshape(-1, height, width, 3)
+        with av.open(str(path)) as container:
+            return np.stack([frame.to_ndarray(format='rgb24') for frame in container.decode(video=0)])
 
     def test_lossless_order_odd_dimensions_and_exact_frame_rate(self):
         self.require_encoder()
@@ -50,12 +43,12 @@ class Mp4Tests(unittest.TestCase):
                 result = animate.encode_frames(frames, path, fps=29.9, fmt='mp4', back_and_forth=reverse)
                 expected = animate.expand_back_and_forth(frames) if reverse else frames
                 np.testing.assert_array_equal(self.decode(path), expected)
-                probe = json.loads(subprocess.check_output([
-                    'ffprobe', '-v', 'error', '-show_streams', '-of', 'json', str(path)]))['streams'][0]
-                self.assertEqual(probe['codec_name'], 'h264')
-                self.assertEqual(probe['avg_frame_rate'], '299/10')
-                self.assertEqual(int(probe['nb_frames']), len(expected))
-                self.assertAlmostEqual(float(probe['duration']), len(expected)/29.9, places=5)
+                with av.open(str(path)) as container:
+                    stream = container.streams.video[0]
+                    self.assertEqual(stream.codec_context.name, 'h264')
+                    self.assertEqual(stream.average_rate, Fraction(299, 10))
+                    self.assertEqual(stream.frames, len(expected))
+                    self.assertAlmostEqual(float(stream.duration * stream.time_base), len(expected)/29.9, places=5)
                 self.assertEqual((result.width, result.height, result.frames), (23, 17, len(expected)))
         for actual, original in zip(self.frames, originals):
             np.testing.assert_array_equal(actual, original)
@@ -94,7 +87,7 @@ class Mp4Tests(unittest.TestCase):
         self.assertEqual(write.call_args.kwargs['mp4_crf'], 23)
         self.assertFalse(write.call_args.kwargs['back_and_forth'])
 
-    def test_validation_and_missing_encoder_preserve_existing_output(self):
+    def test_validation_and_failed_encoder_preserve_existing_output(self):
         path = self.root/'keep.mp4'
         path.write_bytes(b'previous video')
         for crf in (-1, 52, 0.5, '0'):
@@ -103,29 +96,27 @@ class Mp4Tests(unittest.TestCase):
         for fps in (0, -1, float('nan'), float('inf')):
             with self.subTest(fps=fps), self.assertRaisesRegex(ValueError, 'Frame rate'):
                 animate.encode_frames(self.frames, path, fps=fps, fmt='mp4')
-        with patch.object(animate.shutil, 'which', return_value=None), self.assertRaisesRegex(RuntimeError, 'requires FFmpeg'):
+        with patch.object(animate.av, 'open', side_effect=ValueError('encoder unavailable')), self.assertRaisesRegex(RuntimeError, 'MP4 export failed'):
             animate.encode_frames(self.frames, path, fps=10, fmt='mp4')
         self.assertEqual(path.read_bytes(), b'previous video')
+        self.assertEqual(list(self.root.iterdir()), [path])
 
-    def test_failed_encoder_is_reaped_and_partial_file_removed(self):
+    def test_failed_encoder_closes_container_and_removes_partial_file(self):
         path = self.root/'keep.mp4'
         path.write_bytes(b'previous video')
-        popen = subprocess.Popen
-        for code in (0, 1):
-            children = []
-            def spawn(_args, **kwargs):
-                child = popen([sys.executable, '-c', f'import sys; sys.exit({code})'], **kwargs)
-                children.append(child)
-                return child
-            with patch.object(animate.shutil, 'which', return_value=sys.executable), \
-                 patch.object(animate.subprocess, 'Popen', side_effect=spawn), \
-                 self.assertRaisesRegex(RuntimeError, 'MP4 export failed'):
+        with patch.object(animate.av, 'open') as opened:
+            opened.return_value.__enter__.return_value.add_stream.return_value.encode.side_effect = ValueError('encode failed')
+            with self.assertRaisesRegex(RuntimeError, 'MP4 export failed'):
                 animate.encode_frames(self.frames, path, fps=10, fmt='mp4')
-            self.assertEqual(len(children), 1)
-            self.assertEqual(children[0].poll(), code)
-            self.assertTrue(children[0].stdin.closed)
-            self.assertEqual(path.read_bytes(), b'previous video')
-            self.assertEqual(list(self.root.iterdir()), [path])
+            opened.return_value.__exit__.assert_called_once()
+        self.assertEqual(path.read_bytes(), b'previous video')
+        self.assertEqual(list(self.root.iterdir()), [path])
+
+    def test_no_ffmpeg_executable_needed(self):
+        with patch.dict(os.environ, {'PATH': ''}), patch('subprocess.Popen', side_effect=AssertionError('External process')):
+            path = self.root/'native.mp4'
+            animate.encode_frames(self.frames, path, fps=10, fmt='mp4', back_and_forth=False)
+            np.testing.assert_array_equal(self.decode(path), self.frames)
 
 
 class Mp4DialogTests(unittest.TestCase):

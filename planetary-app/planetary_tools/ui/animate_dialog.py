@@ -188,7 +188,7 @@ class AnimateDialog(QDialog):
         )
         self._motion_interpolation.setToolTip(
             "Read WinJUPOS or PVOL filename timestamps, sort chronologically, and generate "
-            "missing frames using FFmpeg motion interpolation. Use aligned images for best results."
+            "missing frames using built-in motion interpolation. Use aligned images for best results."
         )
         of.addRow(self._motion_interpolation)
         self._frame_interval = QDoubleSpinBox()
@@ -233,7 +233,7 @@ class AnimateDialog(QDialog):
         self._format.addItem("WebP", "webp")
         self._format.addItem("MP4 video (H.264 RGB)", "mp4")
         self._format.setItemData(self._format.findData("mp4"),
-            "Requires FFmpeg for export and a player supporting H.264 RGB (4:4:4).",
+            "Playback requires a player supporting H.264 RGB (4:4:4).",
             Qt.ItemDataRole.ToolTipRole)
         fmt = last_output_option("animationFormat", "gif", tuple(_FORMAT_FILTERS))
         self._format.setCurrentIndex(self._format.findData(fmt))
@@ -379,7 +379,7 @@ class AnimateDialog(QDialog):
     def _refresh_table(self) -> None:
         motion = self._motion_interpolation.isChecked()
         interval = self._frame_interval.value()
-        timing = "Add at least two timestamped images. Requires FFmpeg."
+        timing = "Add at least two timestamped images."
         if motion and len(self._paths) >= 2:
             try:
                 timeline = build_timeline(self._paths, interval)

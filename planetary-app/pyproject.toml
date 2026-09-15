@@ -18,6 +18,7 @@ dependencies = [
     "PyQt6>=6.8",
     "Pillow>=10.0",
     "imageio>=2.31",
+    "av>=16.0",
     "tifffile>=2023.7",
 ]
 
@@ -30,4 +31,3 @@ include = ["planetary_tools*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "planetary_tools.__version__" }
-

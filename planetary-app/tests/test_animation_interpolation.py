@@ -2,9 +2,6 @@
 from datetime import datetime, timezone
 import os
 from pathlib import Path
-import shutil
-import subprocess
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -66,7 +63,6 @@ class TimestampTests(unittest.TestCase):
                 motion.build_timeline(paths, interval)
 
 
-@unittest.skipUnless(shutil.which('ffmpeg'), 'Motion interpolation requires FFmpeg')
 class MotionTests(unittest.TestCase):
     def frames(self):
         rng = np.random.default_rng(31)
@@ -113,22 +109,12 @@ class MotionTests(unittest.TestCase):
             self.assertEqual(progress[-1][:2], (4, 4))
             self.assertTrue(any('Interpolating' in p[2] for p in progress))
 
-    def test_small_images_missing_ffmpeg_and_failed_process_cleanup(self):
+    def test_small_images_without_external_ffmpeg(self):
         first = np.zeros((9, 11, 3), dtype=np.uint8)
-        result = motion.interpolate_pair(first, first, 2)
+        with patch.dict(os.environ, {'PATH': ''}), patch('subprocess.Popen', side_effect=AssertionError('External process')):
+            result = motion.interpolate_pair(first, first, 2)
         self.assertEqual(result[0].shape, first.shape)
         self.assertEqual(motion.interpolate_pair(first, first, 1), [])
-        with patch.object(motion.shutil, 'which', return_value=None), self.assertRaisesRegex(RuntimeError, 'requires FFmpeg'):
-            motion.interpolate_pair(first, first, 2)
-        popen = subprocess.Popen
-        children = []
-        def fail(_command, **kwargs):
-            child = popen([sys.executable, '-c', 'import sys; sys.exit(1)'], **kwargs)
-            children.append(child)
-            return child
-        with patch.object(motion.subprocess, 'Popen', side_effect=fail), self.assertRaisesRegex(RuntimeError, 'failed'):
-            motion.interpolate_pair(first, first, 2)
-        self.assertEqual(children[0].poll(), 1)
 
 
 class InterpolationDialogTests(unittest.TestCase):

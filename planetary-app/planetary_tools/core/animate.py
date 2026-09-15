@@ -5,13 +5,13 @@ from __future__ import annotations
 import math
 import os
 import re
-import shutil
-import subprocess
+from fractions import Fraction
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, TypeVar
 
+import av
 import numpy as np
 from PIL import Image
 
@@ -154,12 +154,9 @@ def _quantize_gif(im: Image.Image, colors: int, dither: Image.Dither) -> Image.I
 
 
 def _encode_mp4(frames: list[np.ndarray], path: Path, fps: float, crf: int) -> None:
-    """Stream RGB frames to x264 without colour conversion or chroma subsampling."""
+    """Encode RGB using the bundled FFmpeg libraries, without chroma subsampling."""
     if not isinstance(crf, (int, np.integer)) or not 0 <= crf <= 51:
         raise ValueError("MP4 constant quality must be an integer from 0 (lossless) to 51.")
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        raise RuntimeError("MP4 export requires FFmpeg with the libx264rgb encoder on PATH.")
     h, w = frames[0].shape[:2]
     if any(frame.shape != (h, w, 3) for frame in frames):
         raise ValueError("MP4 frames must be RGB images with matching dimensions.")
@@ -168,37 +165,24 @@ def _encode_mp4(frames: list[np.ndarray], path: Path, fps: float, crf: int) -> N
     fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".mp4", dir=path.parent)
     os.close(fd)
     try:
-        with tempfile.TemporaryFile() as errors:
-            process = subprocess.Popen(
-                [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                 "-f", "rawvideo", "-pixel_format", "rgb24", "-video_size", f"{w}x{h}",
-                 "-framerate", str(float(fps)), "-i", "pipe:0", "-an",
-                 "-c:v", "libx264rgb", "-crf", str(crf), "-preset", "medium",
-                 "-pix_fmt", "rgb24", "-movflags", "+faststart", "-f", "mp4", temporary],
-                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=errors,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            try:
-                try:
-                    for frame in frames:
-                        process.stdin.write(np.ascontiguousarray(frame, dtype=np.uint8).tobytes())
-                    process.stdin.close()
-                except BrokenPipeError:
-                    # An unavailable encoder or output error may close stdin early.
-                    pass
-                code = process.wait()
-                if code:
-                    errors.seek(0)
-                    message = errors.read().decode("utf-8", errors="replace").strip()
-                    raise RuntimeError(f"MP4 export failed: {message or f'FFmpeg exited with code {code}'}")
-            finally:
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
-                try:
-                    process.stdin.close()
-                except OSError:
-                    pass
+        try:
+            rate = Fraction(str(float(fps)))
+            with av.open(temporary, mode='w', format='mp4', options={'movflags': '+faststart'}) as container:
+                stream = container.add_stream('libx264rgb', rate=rate)
+                stream.width = w
+                stream.height = h
+                stream.pix_fmt = 'rgb24'
+                stream.options = {'crf': str(crf), 'preset': 'medium'}
+                for index, pixels in enumerate(frames):
+                    frame = av.VideoFrame.from_ndarray(np.ascontiguousarray(pixels, dtype=np.uint8), format='rgb24')
+                    frame.pts = index
+                    frame.time_base = 1 / rate
+                    for packet in stream.encode(frame):
+                        container.mux(packet)
+                for packet in stream.encode():
+                    container.mux(packet)
+        except (av.FFmpegError, ValueError) as exc:
+            raise RuntimeError(f"MP4 export failed: {exc}") from exc
         if Path(temporary).stat().st_size == 0:
             raise RuntimeError("MP4 export failed: FFmpeg produced an empty video.")
         os.replace(temporary, path)

@@ -7,12 +7,10 @@ from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
 import re
-import shutil
-import subprocess
-import tempfile
-import os
+from fractions import Fraction
 from typing import Callable
 
+import av
 import numpy as np
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -120,9 +118,6 @@ def interpolate_pair(first: np.ndarray, last: np.ndarray, intervals: int) -> lis
         raise ValueError("Interpolation needs at least one time interval.")
     if intervals == 1:
         return []
-    ffmpeg = shutil.which('ffmpeg')
-    if ffmpeg is None:
-        raise RuntimeError("Motion interpolation requires FFmpeg with the minterpolate filter on PATH.")
     if first.shape != last.shape or first.ndim != 3 or first.shape[2] != 3:
         raise ValueError("Motion interpolation needs matching RGB frame sizes.")
     h, w = first.shape[:2]
@@ -131,43 +126,42 @@ def interpolate_pair(first: np.ndarray, last: np.ndarray, intervals: int) -> lis
     ph, pw = max(32, h), max(32, w)
     frames = [np.pad(np.asarray(frame, dtype=np.uint8), ((0, ph-h), (0, pw-w), (0, 0)))
               for frame in (first, last)]
-    filters = (
-        f"format=yuv444p,minterpolate=fps={intervals}:mi_mode=mci:mc_mode=aobmc:"
-        "me_mode=bidir:me=umh:mb_size=8:search_param=32:vsbmc=1:scd=none,"
-        f"trim=start_frame={intervals+1}:end_frame={2*intervals},format=rgb24"
+    graph = av.filter.Graph()
+    source = graph.add('buffer', f'video_size={pw}x{ph}:pix_fmt=rgb24:time_base=1/1:frame_rate=1/1:pixel_aspect=1/1')
+    graph.link_nodes(
+        source,
+        graph.add('format', 'pix_fmts=yuv444p'),
+        graph.add('minterpolate',
+                  f'fps={intervals}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:'
+                  'me=umh:mb_size=8:search_param=32:vsbmc=1:scd=none'),
+        graph.add('trim', f'start_frame={intervals+1}:end_frame={2*intervals}'),
+        graph.add('format', 'pix_fmts=rgb24'),
+        graph.add('buffersink'),
     )
-    # File-backed pipes avoid deadlocks and retaining large serialized input
-    # and output copies while FFmpeg is working.
-    with tempfile.TemporaryFile() as source, tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-        for frame in (frames[0], frames[0], frames[1], frames[1]):
-            source.write(frame.tobytes())
-        source.seek(0)
-        process = subprocess.Popen(
-            [ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin',
-             '-f', 'rawvideo', '-pixel_format', 'rgb24', '-video_size', f'{pw}x{ph}',
-             '-framerate', '1', '-i', 'pipe:0', '-vf', filters,
-             '-fps_mode', 'passthrough', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
-            stdin=source, stdout=output, stderr=errors,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
-        try:
-            code = process.wait()
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait()
-        if code:
-            errors.seek(0)
-            message = errors.read().decode('utf-8', errors='replace').strip()
-            raise RuntimeError(f"Motion interpolation failed: {message or f'FFmpeg exited with code {code}'}")
-        frame_bytes = ph * pw * 3
-        if output.tell() != (intervals-1) * frame_bytes:
-            raise RuntimeError("Motion interpolation failed: FFmpeg returned an incomplete frame sequence.")
-        output.seek(0)
-        generated = []
-        for _ in range(intervals-1):
-            frame = np.frombuffer(output.read(frame_bytes), dtype=np.uint8).reshape(ph, pw, 3)
-            generated.append(frame[:h, :w].copy())
+    graph.configure()
+    generated = []
+
+    def drain() -> None:
+        while True:
+            try:
+                frame = graph.pull()
+            except (av.error.BlockingIOError, av.error.EOFError):
+                break
+            generated.append(frame.to_ndarray(format='rgb24')[:h, :w].copy())
+
+    try:
+        for index, pixels in enumerate((frames[0], frames[0], frames[1], frames[1])):
+            frame = av.VideoFrame.from_ndarray(pixels, format='rgb24')
+            frame.pts = index
+            frame.time_base = Fraction(1, 1)
+            source.push(frame)
+            drain()
+        source.push(None)
+        drain()
+    except av.FFmpegError as exc:
+        raise RuntimeError(f"Motion interpolation failed: {exc}") from exc
+    if len(generated) != intervals-1:
+        raise RuntimeError("Motion interpolation failed: FFmpeg returned an incomplete frame sequence.")
     return generated
 
 

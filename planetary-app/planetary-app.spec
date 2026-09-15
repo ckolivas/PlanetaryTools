@@ -1,18 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 import sys
 
-from PyInstaller.utils.hooks import collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules, copy_metadata
 
 datas = []
 datas += copy_metadata('imageio')
+datas += copy_metadata('av')
 
 # Bundle every planetary_tools submodule (png_read, recent_files, etc.).
 hiddenimports = collect_submodules('planetary_tools')
+hiddenimports += collect_submodules('av')
 
 a = Analysis(
     ['run.py'],
     pathex=[],
-    binaries=[],
+    binaries=collect_dynamic_libs('av'),
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
