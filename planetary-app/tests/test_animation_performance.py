@@ -1,6 +1,7 @@
 """Reusing return-trip frames must preserve complete animation files."""
 from dataclasses import asdict
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -24,6 +25,8 @@ class AnimationPerformanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             for count in (2, 3, 5):
                 for fmt in animate.FORMATS:
+                    if fmt == 'mp4' and shutil.which('ffmpeg') is None:
+                        continue  # Optional encoder; MP4 integration tests report the skip.
                     for quality in (animate.GIF_QUALITIES if fmt == 'gif' else ('best',)):
                         for reverse in (False, True):
                             with self.subTest(count=count, fmt=fmt, quality=quality, reverse=reverse):

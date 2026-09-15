@@ -1,4 +1,4 @@
-"""Animate — write a looping GIF / APNG / WebP from a sequence of stills."""
+"""Animate — write GIF / APNG / WebP animations or MP4 video from stills."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -52,6 +53,7 @@ _FORMAT_FILTERS = {
     "gif": "GIF (*.gif)",
     "apng": "Animated PNG (*.png)",
     "webp": "WebP (*.webp)",
+    "mp4": "MP4 video (*.mp4)",
 }
 
 
@@ -68,6 +70,7 @@ class _RunWorker(QThread):
         fmt: str,
         gif_quality: str,
         back_and_forth: bool,
+        mp4_crf: int = 0,
     ) -> None:
         super().__init__()
         self._paths = paths
@@ -76,6 +79,7 @@ class _RunWorker(QThread):
         self._fmt = fmt
         self._gif_quality = gif_quality
         self._back_and_forth = back_and_forth
+        self._mp4_crf = mp4_crf
 
     def run(self) -> None:
         try:
@@ -86,6 +90,7 @@ class _RunWorker(QThread):
                 fmt=self._fmt,
                 gif_quality=self._gif_quality,
                 back_and_forth=self._back_and_forth,
+                mp4_crf=self._mp4_crf,
                 on_progress=lambda c, t, m: self.progress.emit(c, t, m),
             )
             self.finished_ok.emit(result)
@@ -103,13 +108,13 @@ class AnimateDialog(QDialog):
         self._auto_output = True
 
         root = QVBoxLayout(self)
-        root.addWidget(
-            QLabel(
-                "Build a looping animation from stills. Frames are sorted by "
-                "filename; use Move up / Move down to reorder. Smaller frames "
-                "are centred on a black canvas that fits the largest."
-            )
+        description = QLabel(
+            "Build an animation or video from stills. Frames are sorted by "
+            "filename; use Move up / Move down to reorder. Smaller frames "
+            "are centred on a black canvas that fits the largest."
         )
+        description.setWordWrap(True)
+        root.addWidget(description)
 
         files = QGroupBox("Files")
         fl = QVBoxLayout(files)
@@ -172,6 +177,10 @@ class AnimateDialog(QDialog):
         self._format.addItem("GIF", "gif")
         self._format.addItem("Animated PNG", "apng")
         self._format.addItem("WebP", "webp")
+        self._format.addItem("MP4 video (H.264 RGB)", "mp4")
+        self._format.setItemData(self._format.findData("mp4"),
+            "Requires FFmpeg for export and a player supporting H.264 RGB (4:4:4).",
+            Qt.ItemDataRole.ToolTipRole)
         fmt = last_output_option("animationFormat", "gif", tuple(_FORMAT_FILTERS))
         self._format.setCurrentIndex(self._format.findData(fmt))
         self._format.currentIndexChanged.connect(self._on_format_changed)
@@ -188,6 +197,18 @@ class AnimateDialog(QDialog):
             "drops dither) for a smaller file."
         )
         of.addRow("GIF quality", self._gif_quality)
+
+        self._mp4_crf = QSpinBox()
+        self._mp4_crf.setRange(0, 51)
+        self._mp4_crf.setValue(0)
+        self._mp4_crf.setSpecialValueText("0 (lossless)")
+        self._mp4_crf.setKeyboardTracking(False)
+        self._mp4_crf.setToolTip(
+            "MP4 constant quality (CRF): 0 is lossless; higher values give "
+            "lower quality and smaller files. Lossless preserves the 8-bit "
+            "RGB animation frames, without colour subsampling."
+        )
+        of.addRow("MP4 constant quality", self._mp4_crf)
 
         self._delay_hint = QLabel("")
         self._delay_hint.setWordWrap(True)
@@ -328,11 +349,17 @@ class AnimateDialog(QDialog):
             self._maybe_default_output()
         gif = self._fmt() == "gif"
         self._gif_quality.setEnabled(gif)
+        self._mp4_crf.setEnabled(self._fmt() == "mp4")
         self._update_delay_hint()
 
     def _update_delay_hint(self) -> None:
         fmt = self._fmt()
         fps = float(self._fps.value())
+        if fmt == "mp4":
+            self._delay_hint.setText(
+                f"Video at {fps:g} fps. Looping is controlled by the player."
+            )
+            return
         try:
             delay = duration_ms(fmt, fps)
         except ValueError:
@@ -406,6 +433,7 @@ class AnimateDialog(QDialog):
             self._fmt(),
             str(self._gif_quality.currentData()),
             self._back_and_forth.isChecked(),
+            self._mp4_crf.value(),
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished_ok.connect(self._on_ran)
@@ -416,9 +444,10 @@ class AnimateDialog(QDialog):
         self._set_running(False)
         r = result  # type: AnimationResult
         remember_save_path(r.path)
+        timing = f"{r.fps_requested:g} fps" if r.fmt == "mp4" else f"{r.duration_ms} ms/frame"
         msg = (
             f"Wrote {r.frames} frames, {r.width}×{r.height}, "
-            f"{r.duration_ms} ms/frame → {r.path}"
+            f"{timing} → {r.path}"
         )
         self._status.setText(msg)
         parent = self.parent()
@@ -446,3 +475,10 @@ class AnimateDialog(QDialog):
             event.ignore()
             return
         super().closeEvent(event)
+
+    def reject(self) -> None:
+        # The Close button and Escape bypass closeEvent on a QDialog.
+        if self._busy():
+            QMessageBox.warning(self, "Animate", "Wait for the run to finish before closing.")
+            return
+        super().reject()

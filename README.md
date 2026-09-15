@@ -6,6 +6,14 @@ Standalone application requires no installation, simply run the executable.
 Download the latest for Ubuntu & Windows here:
 https://github.com/ckolivas/PlanetaryTools/releases
 
+Animate can export GIF, animated PNG, WebP, or MP4 video. MP4 export requires
+FFmpeg on PATH, built with the `libx264rgb` encoder. Its constant quality (CRF)
+control ranges from 0 (lossless, the default) to 51 (lowest quality/smallest files).
+Lossless preserves the 8-bit sRGB animation frames exactly; higher precision
+source images are converted to 8-bit sRGB, as with the other animation formats.
+MP4 retains the chosen frame rate and back-and-forth sequence. Loop playback is
+controlled by the video player. Playback requires support for H.264 RGB (4:4:4).
+
 
 GIMP plugins:
 

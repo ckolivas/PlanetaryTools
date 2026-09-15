@@ -1,8 +1,13 @@
-"""Write a looping animation (GIF / APNG / WebP) from a sequence of stills."""
+"""Write an animation (GIF / APNG / WebP / MP4) from a sequence of stills."""
 
 from __future__ import annotations
 
+import math
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, TypeVar
@@ -16,9 +21,9 @@ from planetary_tools.io.loader import load_image
 ProgressFn = Callable[[int, int, str], None]
 Frame = TypeVar("Frame")
 
-FORMATS = ("gif", "apng", "webp")
+FORMATS = ("gif", "apng", "webp", "mp4")
 GIF_QUALITIES = ("best", "high", "medium", "low")
-FORMAT_SUFFIX = {"gif": ".gif", "apng": ".png", "webp": ".webp"}
+FORMAT_SUFFIX = {"gif": ".gif", "apng": ".png", "webp": ".webp", "mp4": ".mp4"}
 
 _GIF_PRESETS: dict[str, tuple[int, Image.Dither]] = {
     "best": (256, Image.Dither.FLOYDSTEINBERG),
@@ -27,7 +32,7 @@ _GIF_PRESETS: dict[str, tuple[int, Image.Dither]] = {
     "low": (64, Image.Dither.FLOYDSTEINBERG),
 }
 
-_ANIM_SUFFIXES = {".gif", ".png", ".webp", ".apng"}
+_ANIM_SUFFIXES = {".gif", ".png", ".webp", ".apng", ".mp4"}
 
 
 @dataclass(frozen=True)
@@ -36,7 +41,7 @@ class AnimationResult:
     frames: int
     width: int
     height: int
-    duration_ms: int
+    duration_ms: float
     fps_requested: float
     fmt: str
 
@@ -48,19 +53,22 @@ def natural_sort_key(path: Path) -> tuple:
     return parts + (str(path).lower(),)
 
 
-def duration_ms(fmt: str, fps: float) -> int:
+def duration_ms(fmt: str, fps: float) -> float:
     """Frame delay in milliseconds for ``fmt`` at ``fps``.
 
     GIF stores delay in hundredths of a second, so the value is snapped to
-    10 ms. APNG and WebP use a 1 ms tick.
+    10 ms. APNG and WebP use a 1 ms tick. MP4 uses the requested frame rate
+    directly; its reported delay is not rounded to whole milliseconds.
     """
     fps = float(fps)
-    if fps <= 0:
+    if not math.isfinite(fps) or fps <= 0:
         raise ValueError("Frame rate must be positive.")
     if fmt == "gif":
         return max(10, int(round(100.0 / fps)) * 10)
     if fmt in ("apng", "webp"):
         return max(1, int(round(1000.0 / fps)))
+    if fmt == "mp4":
+        return 1000.0 / fps
     raise ValueError(f"Unknown animation format: {fmt}")
 
 
@@ -144,6 +152,59 @@ def _quantize_gif(im: Image.Image, colors: int, dither: Image.Dither) -> Image.I
         )
 
 
+def _encode_mp4(frames: list[np.ndarray], path: Path, fps: float, crf: int) -> None:
+    """Stream RGB frames to x264 without colour conversion or chroma subsampling."""
+    if not isinstance(crf, (int, np.integer)) or not 0 <= crf <= 51:
+        raise ValueError("MP4 constant quality must be an integer from 0 (lossless) to 51.")
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError("MP4 export requires FFmpeg with the libx264rgb encoder on PATH.")
+    h, w = frames[0].shape[:2]
+    if any(frame.shape != (h, w, 3) for frame in frames):
+        raise ValueError("MP4 frames must be RGB images with matching dimensions.")
+
+    # Publish only a completed video, preserving an existing output on failure.
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".mp4", dir=path.parent)
+    os.close(fd)
+    try:
+        with tempfile.TemporaryFile() as errors:
+            process = subprocess.Popen(
+                [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                 "-f", "rawvideo", "-pixel_format", "rgb24", "-video_size", f"{w}x{h}",
+                 "-framerate", str(float(fps)), "-i", "pipe:0", "-an",
+                 "-c:v", "libx264rgb", "-crf", str(crf), "-preset", "medium",
+                 "-pix_fmt", "rgb24", "-movflags", "+faststart", "-f", "mp4", temporary],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=errors,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            try:
+                try:
+                    for frame in frames:
+                        process.stdin.write(np.ascontiguousarray(frame, dtype=np.uint8).tobytes())
+                    process.stdin.close()
+                except BrokenPipeError:
+                    # An unavailable encoder or output error may close stdin early.
+                    pass
+                code = process.wait()
+                if code:
+                    errors.seek(0)
+                    message = errors.read().decode("utf-8", errors="replace").strip()
+                    raise RuntimeError(f"MP4 export failed: {message or f'FFmpeg exited with code {code}'}")
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                try:
+                    process.stdin.close()
+                except OSError:
+                    pass
+        if Path(temporary).stat().st_size == 0:
+            raise RuntimeError("MP4 export failed: FFmpeg produced an empty video.")
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def encode_frames(
     frames: list[np.ndarray],
     output: str | Path,
@@ -151,6 +212,7 @@ def encode_frames(
     fps: float,
     fmt: str,
     gif_quality: str = "best",
+    mp4_crf: int = 0,
     back_and_forth: bool = True,
 ) -> AnimationResult:
     """Write already-padded uint8 RGB frames to ``output``."""
@@ -163,8 +225,13 @@ def encode_frames(
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    pil_rgb = [Image.fromarray(np.asarray(f, dtype=np.uint8), mode="RGB") for f in frames]
     h, w = frames[0].shape[:2]
+    if fmt == "mp4":
+        sequence = expand_back_and_forth(frames) if back_and_forth else frames
+        _encode_mp4(sequence, path, fps, mp4_crf)
+        return AnimationResult(path, len(sequence), w, h, delay, float(fps), fmt)
+
+    pil_rgb = [Image.fromarray(np.asarray(f, dtype=np.uint8), mode="RGB") for f in frames]
 
     if fmt == "gif":
         quality = gif_quality.lower()
@@ -240,6 +307,7 @@ def write_animation(
     fps: float,
     fmt: str,
     gif_quality: str = "best",
+    mp4_crf: int = 0,
     back_and_forth: bool = True,
     on_progress: ProgressFn | None = None,
 ) -> AnimationResult:
@@ -268,6 +336,7 @@ def write_animation(
         fps=fps,
         fmt=fmt,
         gif_quality=gif_quality,
+        mp4_crf=mp4_crf,
         back_and_forth=back_and_forth,
     )
     if on_progress is not None:

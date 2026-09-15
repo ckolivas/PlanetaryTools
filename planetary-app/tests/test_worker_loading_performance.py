@@ -1,6 +1,7 @@
 """Pixel-only loading must preserve worker outputs and editing noise context."""
 from dataclasses import asdict
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -70,6 +71,8 @@ class WorkerLoadingTests(unittest.TestCase):
 
     def test_animation_files_and_progress_match_eager_loading(self):
         for fmt in animate.FORMATS:
+            if fmt == 'mp4' and shutil.which('ffmpeg') is None:
+                continue  # Optional encoder; MP4 integration tests report the skip.
             def run():
                 progress = []
                 result = animate.write_animation(self.paths, self.root/f'animation.{fmt}',
