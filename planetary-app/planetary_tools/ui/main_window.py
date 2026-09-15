@@ -382,6 +382,13 @@ class MainWindow(QMainWindow):
         self._extract_component_act.triggered.connect(self._run_extract_component)
         colours_menu.addAction(self._extract_component_act)
 
+        self._align_rgb_act = QAction("&Align RGB", self)
+        self._align_rgb_act.setToolTip(
+            "Align red and blue to green with adjustable brightness masking and derotation."
+        )
+        self._align_rgb_act.triggered.connect(self._run_align_rgb)
+        colours_menu.addAction(self._align_rgb_act)
+
         colours_menu.addSeparator()
         self._rgb_decompose_act = QAction("RGB &Decompose to Files…", self)
         self._rgb_decompose_act.setToolTip(
@@ -399,12 +406,6 @@ class MainWindow(QMainWindow):
         self._rgb_compose_act.triggered.connect(self._run_rgb_compose)
         colours_menu.addAction(self._rgb_compose_act)
 
-        self._align_rgb_act = QAction("&Align RGB", self)
-        self._align_rgb_act.setToolTip(
-            "Align red and blue to green with adjustable brightness masking and derotation."
-        )
-        self._align_rgb_act.triggered.connect(self._run_align_rgb)
-        colours_menu.addAction(self._align_rgb_act)
         colours_menu.setToolTipsVisible(True)
 
         tools_menu = self.menuBar().addMenu("&Tools")
@@ -463,6 +464,29 @@ class MainWindow(QMainWindow):
         about_act.triggered.connect(self._show_about)
         help_menu.addAction(about_act)
         help_menu.setToolTipsVisible(True)
+
+        # Keep the existing command groups, sorting by visible labels rather
+        # than Qt's ampersand markers for keyboard mnemonics.
+        def label_key(action: QAction) -> str:
+            label = action.text().replace("&&", "\0").replace("&", "").replace("\0", "&")
+            return label.removesuffix("…").removesuffix("...").strip().casefold()
+
+        for menu in (file_menu, edit_menu, enhance_menu, colours_menu, tools_menu,
+                     view_menu, help_menu):
+            actions = menu.actions()
+            ordered: list[QAction] = []
+            group: list[QAction] = []
+            for action in actions:
+                if action.isSeparator():
+                    ordered.extend(sorted(group, key=label_key))
+                    ordered.append(action)
+                    group = []
+                else:
+                    group.append(action)
+            ordered.extend(sorted(group, key=label_key))
+            for action in actions:
+                menu.removeAction(action)
+            menu.addActions(ordered)
 
     def _show_about(self) -> None:
         QMessageBox.about(
