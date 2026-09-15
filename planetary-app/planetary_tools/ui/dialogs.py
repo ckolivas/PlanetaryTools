@@ -1569,16 +1569,34 @@ class ExtractComponentDialog(_FilterDialog):
             COMPONENT_ORDER,
         )
 
+        descriptions = {
+            "luminance": "Extract BT.709 luminance as greyscale.\n"
+                         "Weights linear RGB by its contribution to brightness.",
+            "oklab_l": "Extract OKLab lightness (L) as greyscale.\n"
+                       "Represents perceptual lightness rather than a single RGB channel.",
+            "average": "Extract the average of red, green and blue as greyscale.\n"
+                       "Each channel contributes equally: (R + G + B) / 3.",
+            "red": "Extract the red channel as greyscale.",
+            "green": "Extract the green channel as greyscale.",
+            "blue": "Extract the blue channel as greyscale.",
+            "cyan": "Extract cyan as greyscale.\n"
+                    "Average of green and blue: (G + B) / 2.",
+            "magenta": "Extract magenta as greyscale.\n"
+                       "Average of red and blue: (R + B) / 2.",
+            "yellow": "Extract yellow as greyscale.\n"
+                      "Average of red and green: (R + G) / 2.",
+        }
         self.component = QComboBox()
-        for key in COMPONENT_ORDER:
+        for index, key in enumerate(COMPONENT_ORDER):
             self.component.addItem(COMPONENT_LABELS[key], key)
-        self.component.setToolTip(
-            "Component to extract as greyscale. CMY use the mean of the two "
-            "primaries that form that secondary (Cyan = (G+B)/2, "
-            "Magenta = (R+B)/2, Yellow = (R+G)/2)."
-        )
+            self.component.setItemData(index, descriptions[key], Qt.ItemDataRole.ToolTipRole)
+        self.component.currentIndexChanged.connect(self._update_component_help)
         self.component.currentIndexChanged.connect(lambda _: self.params_changed.emit())
+        self._update_component_help()
         self._form.addRow("Component", self.component)
+
+    def _update_component_help(self) -> None:
+        self.component.setToolTip(str(self.component.currentData(Qt.ItemDataRole.ToolTipRole)))
 
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
@@ -1594,6 +1612,7 @@ class ExtractComponentDialog(_FilterDialog):
         self.component.blockSignals(True)
         self.component.setCurrentIndex(idx)
         self.component.blockSignals(False)
+        self._update_component_help()
 
     def build_filter_func(self) -> FilterFunc:
         from planetary_tools.filters.extract_component import extract_component
