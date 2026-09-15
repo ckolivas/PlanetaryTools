@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from PyQt6.QtCore import QEventLoop, Qt, QTimer
+from PyQt6.QtCore import QEventLoop, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -86,6 +86,15 @@ _LUMA_WEIGHTS = {"Red": 0.299, "Green": 0.587, "Blue": 0.114}
 _ALIGN_PRIORITY = ("Green", "Red", "Blue")
 
 
+class _ToolDock(QDockWidget):
+    closed = pyqtSignal()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        super().closeEvent(event)
+        if event.isAccepted():
+            self.closed.emit()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -105,9 +114,13 @@ class MainWindow(QMainWindow):
         self._canvas.zoom_changed.connect(self._sync_zoom_combo)
         self.setCentralWidget(self._canvas)
 
-        self._filter_dock = QDockWidget(self)
+        self._filter_dock = _ToolDock(self)
         self._filter_dock.setObjectName("FilterDock")
-        self._filter_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
+        self._filter_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
         self._filter_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
@@ -714,6 +727,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._confirm_unsaved_changes("before closing"):
+            self._on_filter_dock_closed()
             event.accept()
         else:
             event.ignore()
@@ -726,10 +740,11 @@ class MainWindow(QMainWindow):
                 widget.setParent(None)
                 widget.deleteLater()
 
-    def _on_filter_dock_visibility(self, visible: bool) -> None:
+    def _on_filter_dock_closed(self) -> None:
+        # Floating and redocking can temporarily hide the dock; only an
+        # explicit close should cancel the active operation.
         if (
-            not visible
-            and self._filter_dialog_open
+            self._filter_dialog_open
             and self._filter_loop is not None
             and self._filter_loop.isRunning()
         ):
@@ -820,7 +835,7 @@ class MainWindow(QMainWindow):
             dlg.preview_now.connect(self._preview.update_now)
             dlg.preview_toggled.connect(self._preview.set_preview_enabled)
             self._preview.preview_updated.connect(self._update_dialog_brightness)
-            self._filter_dock.visibilityChanged.connect(self._on_filter_dock_visibility)
+            self._filter_dock.closed.connect(self._on_filter_dock_closed)
 
             def on_accept() -> None:
                 self._filter_accepted = True
@@ -847,7 +862,7 @@ class MainWindow(QMainWindow):
             dlg.preview_now.disconnect(self._preview.update_now)
             dlg.preview_toggled.disconnect(self._preview.set_preview_enabled)
             self._preview.preview_updated.disconnect(self._update_dialog_brightness)
-            self._filter_dock.visibilityChanged.disconnect(self._on_filter_dock_visibility)
+            self._filter_dock.closed.disconnect(self._on_filter_dock_closed)
             dlg.accepted.disconnect(on_accept)
             dlg.rejected.disconnect(on_reject)
             self._active_filter_dlg = None
@@ -1395,7 +1410,7 @@ class MainWindow(QMainWindow):
             dlg.rect_changed.connect(self._canvas.set_crop_overlay)
             self._canvas.crop_selected.connect(dlg.set_selected_rect)
             self._canvas.set_crop_selection_enabled(True)
-            self._filter_dock.visibilityChanged.connect(self._on_filter_dock_visibility)
+            self._filter_dock.closed.connect(self._on_filter_dock_closed)
 
             def on_accept() -> None:
                 self._filter_accepted = True
@@ -1417,9 +1432,7 @@ class MainWindow(QMainWindow):
             self._filter_loop = None
 
             dlg.rect_changed.disconnect(self._canvas.set_crop_overlay)
-            self._filter_dock.visibilityChanged.disconnect(
-                self._on_filter_dock_visibility
-            )
+            self._filter_dock.closed.disconnect(self._on_filter_dock_closed)
             dlg.accepted.disconnect(on_accept)
             dlg.rejected.disconnect(on_reject)
             self._active_filter_dlg = None
