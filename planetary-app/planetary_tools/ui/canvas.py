@@ -69,7 +69,7 @@ class ImageCanvas(QGraphicsView):
         self._scene.addItem(self._crop_border)
 
         self._crop_handles = []
-        for _ in range(4):
+        for _ in range(8):
             handle = QGraphicsRectItem(-4, -4, 8, 8)
             handle.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIgnoresTransformations)
             handle.setBrush(QColor(255, 220, 40))
@@ -94,7 +94,7 @@ class ImageCanvas(QGraphicsView):
         self._crop_rect: tuple[int, int, int, int] | None = None
         self._crop_drag_rect: tuple[int, int, int, int] | None = None
         self._crop_drag_mode = "draw"
-        self._crop_corner = 0
+        self._crop_handle = 0
 
     def set_crop_selection_enabled(self, enabled: bool) -> None:
         self._crop_selection_enabled = enabled
@@ -112,6 +112,13 @@ class ImageCanvas(QGraphicsView):
         x, y, w, h = self._crop_rect
         return ((x, y), (x+w, y), (x+w, y+h), (x, y+h))
 
+    def _crop_handle_positions(self):
+        if self._crop_rect is None:
+            return ()
+        x, y, w, h = self._crop_rect
+        return self._crop_corners() + (
+            (x+w/2, y), (x+w, y+h/2), (x+w/2, y+h), (x, y+h/2))
+
     def _crop_hit(self, position) -> tuple[str, int]:
         # Hit areas stay the same size on screen at every zoom level.
         candidates = []
@@ -122,6 +129,22 @@ class ImageCanvas(QGraphicsView):
                 candidates.append((dx*dx + dy*dy, index))
         if candidates:
             return "resize", min(candidates)[1]
+        # The entire edge is draggable; corners take priority where hit
+        # areas overlap. Choose the nearest edge for narrow rectangles.
+        corners = [self.mapFromScene(float(x), float(y))
+                   for x, y in self._crop_corners()]
+        for index, first in enumerate(corners):
+            last = corners[(index+1) % 4]
+            if index % 2 == 0:
+                distance = abs(position.y()-first.y())
+                along = min(first.x(), last.x()) <= position.x() <= max(first.x(), last.x())
+            else:
+                distance = abs(position.x()-first.x())
+                along = min(first.y(), last.y()) <= position.y() <= max(first.y(), last.y())
+            if along and distance <= 7:
+                candidates.append((distance, index))
+        if candidates:
+            return "edge", min(candidates)[1]
         point = self.mapToScene(position)
         if self._crop_rect is not None and QRectF(*self._crop_rect).contains(point):
             return "move", 0
@@ -133,10 +156,15 @@ class ImageCanvas(QGraphicsView):
         elif event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             cursor = Qt.CursorShape.CrossCursor
         else:
-            mode, corner = self._crop_hit(event.position().toPoint())
-            cursor = (Qt.CursorShape.SizeFDiagCursor if corner % 2 == 0 else
-                      Qt.CursorShape.SizeBDiagCursor) if mode == "resize" else (
-                          Qt.CursorShape.OpenHandCursor if mode == "move" else
+            mode, handle = self._crop_hit(event.position().toPoint())
+            if mode == "resize":
+                cursor = (Qt.CursorShape.SizeFDiagCursor if handle % 2 == 0 else
+                          Qt.CursorShape.SizeBDiagCursor)
+            elif mode == "edge":
+                cursor = (Qt.CursorShape.SizeVerCursor if handle % 2 == 0 else
+                          Qt.CursorShape.SizeHorCursor)
+            else:
+                cursor = (Qt.CursorShape.OpenHandCursor if mode == "move" else
                           Qt.CursorShape.CrossCursor)
         self.viewport().setCursor(cursor)
 
@@ -145,7 +173,7 @@ class ImageCanvas(QGraphicsView):
                 and event.button() == Qt.MouseButton.LeftButton
                 and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
             point = self.mapToScene(event.position().toPoint())
-            mode, corner = self._crop_hit(event.position().toPoint())
+            mode, handle = self._crop_hit(event.position().toPoint())
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 mode = "draw"
             if mode != "draw" or (0 <= point.x() <= self._document.width
@@ -153,7 +181,7 @@ class ImageCanvas(QGraphicsView):
                 self._crop_drag_start = (round(point.x()), round(point.y()))
                 self._crop_drag_rect = self._crop_rect
                 self._crop_drag_mode = mode
-                self._crop_corner = corner
+                self._crop_handle = handle
                 if mode == "move":
                     self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
@@ -172,16 +200,32 @@ class ImageCanvas(QGraphicsView):
         elif self._crop_drag_mode == "resize" and rect is not None:
             left, top, w, h = rect
             corners = ((left, top), (left+w, top), (left+w, top+h), (left, top+h))
-            anchor_x, anchor_y = corners[(self._crop_corner+2) % 4]
+            anchor_x, anchor_y = corners[(self._crop_handle+2) % 4]
             # Preserve the grab offset when pressing near, rather than exactly
             # on, a corner; crossing the fixed opposite corner is supported.
-            corner_x, corner_y = corners[self._crop_corner]
+            corner_x, corner_y = corners[self._crop_handle]
             x, y = corner_x+x-start_x, corner_y+y-start_y
             if x == anchor_x:
                 x += 1 if corner_x > anchor_x else -1
             if y == anchor_y:
                 y += 1 if corner_y > anchor_y else -1
             result = (min(x, anchor_x), min(y, anchor_y), abs(x-anchor_x), abs(y-anchor_y))
+        elif self._crop_drag_mode == "edge" and rect is not None:
+            left, top, w, h = rect
+            # Move only the selected edge, preserving the grab offset and
+            # allowing it to cross the fixed opposite edge, down to one pixel.
+            if self._crop_handle % 2 == 0:
+                edge, anchor = (top, top+h) if self._crop_handle == 0 else (top+h, top)
+                y = edge+y-start_y
+                if y == anchor:
+                    y += 1 if edge > anchor else -1
+                result = (left, min(y, anchor), w, abs(y-anchor))
+            else:
+                edge, anchor = (left+w, left) if self._crop_handle == 1 else (left, left+w)
+                x = edge+x-start_x
+                if x == anchor:
+                    x += 1 if edge > anchor else -1
+                result = (min(x, anchor), top, abs(x-anchor), h)
         else:
             x = max(0, min(self._document.width, x))
             y = max(0, min(self._document.height, y))
@@ -243,7 +287,7 @@ class ImageCanvas(QGraphicsView):
         width = max(1, int(width))
         height = max(1, int(height))
         self._crop_rect = (x, y, width, height)
-        for handle, (cx, cy) in zip(self._crop_handles, self._crop_corners()):
+        for handle, (cx, cy) in zip(self._crop_handles, self._crop_handle_positions()):
             handle.setPos(cx, cy)
             handle.setVisible(self._crop_selection_enabled)
 

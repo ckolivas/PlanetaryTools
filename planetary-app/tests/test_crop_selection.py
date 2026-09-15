@@ -83,6 +83,43 @@ class CropSelectionTests(unittest.TestCase):
         canvas.clear_crop_overlay()
         self.assertIsNone(canvas._crop_rect)
 
+    def test_edges_resize_one_axis_at_each_zoom(self):
+        canvas, panel = self.editing_canvas()
+        # Grab away from the midpoint handles and move diagonally: the
+        # perpendicular dimension must stay fixed, even outside the image.
+        cases = [((44, 10), (54, -10), CropRect(20, -10, 80, 80)),
+                 ((100, 34), (120, 44), CropRect(20, 10, 100, 60)),
+                 ((76, 70), (66, 90), CropRect(20, 10, 80, 80)),
+                 ((20, 46), (-10, 36), CropRect(-10, 10, 110, 60))]
+        for zoom in (.5, 1, 2):
+            canvas.set_zoom(zoom)
+            for start, end, expected in cases:
+                with self.subTest(zoom=zoom, start=start):
+                    panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+                    self.app.processEvents()
+                    self.drag(canvas, start, end)
+                    self.assertEqual(panel.crop_rect(), expected)
+                    self.assertEqual(canvas._crop_rect, expected.as_tuple())
+                    self.assertEqual(len(canvas._crop_handles), 8)
+
+    def test_edges_cross_opposite_edge_and_preserve_grab_offset(self):
+        canvas, panel = self.editing_canvas()
+        cases = [((60, 10), (60, 80), CropRect(20, 70, 80, 10)),
+                 ((100, 40), (10, 40), CropRect(10, 10, 10, 60)),
+                 ((60, 70), (60, 0), CropRect(20, 0, 80, 10)),
+                 ((20, 40), (110, 40), CropRect(100, 10, 10, 60)),
+                 ((60, 10), (60, 70), CropRect(20, 69, 80, 1)),
+                 ((100, 40), (20, 40), CropRect(20, 10, 1, 60)),
+                 ((60, 70), (60, 10), CropRect(20, 10, 80, 1)),
+                 ((20, 40), (100, 40), CropRect(99, 10, 1, 60)),
+                 ((60, 13), (70, 7), CropRect(20, 4, 80, 66)),
+                 ((97, 40), (107, 50), CropRect(20, 10, 90, 60))]
+        for start, end, expected in cases:
+            with self.subTest(start=start, end=end):
+                panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+                self.drag(canvas, start, end)
+                self.assertEqual(panel.crop_rect(), expected)
+
     def test_cross_corner_minimum_size_and_grab_offset(self):
         canvas, panel = self.editing_canvas()
         panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
@@ -114,6 +151,10 @@ class CropSelectionTests(unittest.TestCase):
         panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
         for point, cursor in (((20, 10), Qt.CursorShape.SizeFDiagCursor),
                               ((100, 10), Qt.CursorShape.SizeBDiagCursor),
+                              ((60, 10), Qt.CursorShape.SizeVerCursor),
+                              ((100, 40), Qt.CursorShape.SizeHorCursor),
+                              ((60, 70), Qt.CursorShape.SizeVerCursor),
+                              ((20, 40), Qt.CursorShape.SizeHorCursor),
                               ((60, 40), Qt.CursorShape.OpenHandCursor),
                               ((5, 5), Qt.CursorShape.CrossCursor)):
             QTest.mouseMove(canvas.viewport(), canvas.mapFromScene(QPointF(*point)))
@@ -177,6 +218,8 @@ class CropSelectionTests(unittest.TestCase):
                 self.draw(window._canvas, (10, 10), (70, 50))
                 self.drag(window._canvas, (40, 30), (50, 30))
                 self.drag(window._canvas, (80, 50), (100, 70))
+                self.drag(window._canvas, (100, 40), (110, 40))
+                self.drag(window._canvas, (110, 40), (100, 40))
                 self.assertEqual(panel.crop_rect(), CropRect(20, 10, 80, 60))
                 (panel._accept if accept else panel._reject)()
             except BaseException as exc:
