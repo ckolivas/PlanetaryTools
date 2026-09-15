@@ -400,8 +400,8 @@ class MainWindow(QMainWindow):
 
         self._align_rgb_act = QAction("&Align RGB", self)
         self._align_rgb_act.setToolTip(
-            "Align the red and blue channels to green by best luma match, "
-            "as in RGB Compose from Files."
+            "Align red and blue to green using Derotate/Align's subpixel method.\n"
+            "The default 25% brightness mask affects matching only."
         )
         self._align_rgb_act.triggered.connect(self._run_align_rgb)
         colours_menu.addAction(self._align_rgb_act)

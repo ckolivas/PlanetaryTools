@@ -12,7 +12,7 @@ from scipy.optimize import least_squares
 
 from planetary_tools.core.colour import linear_luminance
 
-_MAX_SHIFT_PX = 5  # RGB channel correction, in original pixels.
+_MAX_SHIFT_PX = 5  # Local translation correction, in original pixels.
 
 
 def _luma(data: np.ndarray) -> np.ndarray:
@@ -224,10 +224,27 @@ def _refine_alignment(
 
 
 def align_channel(reference: np.ndarray, target: np.ndarray) -> np.ndarray:
-    """Align one channel to a reference with a single cubic subpixel shift."""
+    """Align a channel using Derotate/Align's masked, shift-only estimator.
+
+    Estimate on copies with the default 25% perceptual brightness mask; render
+    the original target once, keeping the reference channel's canvas size.
+    """
+    # field_derotate uses the shared refinement primitives in this module.
+    from planetary_tools.core.field_derotate import (
+        apply_rigid, estimate_rigid, mask_alignment_background,
+    )
+
     if reference.ndim != 2 or target.ndim != 2:
         raise ValueError("align_channel requires two single-channel image planes.")
-    return align_to_reference(reference, target)
+    if reference.shape != target.shape:
+        raise ValueError(
+            f"align_channel requires matching shapes ({reference.shape} vs {target.shape})."
+        )
+    match = estimate_rigid(
+        mask_alignment_background(reference), mask_alignment_background(target),
+        rotate=False,
+    )
+    return apply_rigid(target, match, expand=False)
 
 
 def align_to_reference(reference: np.ndarray, target: np.ndarray) -> np.ndarray:

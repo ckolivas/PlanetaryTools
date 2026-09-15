@@ -356,9 +356,11 @@ def _render_rigid(
     return np.stack([render(data[..., c]) for c in range(data.shape[2])], axis=-1)
 
 
-def apply_rigid(data: np.ndarray, match: RigidMatch) -> np.ndarray:
-    """Apply rotation and translation once, expanding to retain the full frame."""
+def apply_rigid(data: np.ndarray, match: RigidMatch, *, expand: bool = True) -> np.ndarray:
+    """Apply a transform once; optionally retain the original canvas size."""
     arr = np.asarray(data, dtype=np.float32)
+    if not expand:
+        return _render_rigid(arr, match, arr.shape[:2], np.zeros(2))
     bounds = _transformed_bounds(arr, match)
     origin = np.floor(np.minimum(bounds.min(axis=0), [0, 0]))
     end = np.ceil(np.maximum(bounds.max(axis=0), np.array(arr.shape[:2]) - 1))

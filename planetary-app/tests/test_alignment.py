@@ -13,6 +13,7 @@ from scipy.ndimage import gaussian_filter, rotate, shift
 from planetary_tools.core.align import align_channel, align_to_reference
 from planetary_tools.core.field_derotate import (
     IDENTITY_MATCH, RigidMatch, apply_rigid, derotate_set, estimate_rigid,
+    mask_alignment_background,
 )
 
 
@@ -33,10 +34,14 @@ class AlignmentTests(unittest.TestCase):
             with self.subTest(delta=delta):
                 tgt = shift(ref, delta, order=3) * .7 + .02
                 aligned = align_channel(ref, tgt)
+                match = estimate_rigid(mask_alignment_background(ref),
+                                       mask_alignment_background(tgt), rotate=False)
+                # Mask edges introduce a small sampling bias; test geometric
+                # accuracy explicitly instead of assuming the old unmasked fit.
+                np.testing.assert_allclose([match.dy, match.dx], -np.array(delta), atol=.025)
                 # Exposure changes are preserved; only coordinates change.
-                expected = shift(tgt, tuple(-v for v in delta), order=3)
-                np.testing.assert_allclose(aligned[25:-25, 25:-25],
-                                           expected[25:-25, 25:-25], atol=.001)
+                expected = shift(tgt, (match.dy, match.dx), order=3)
+                np.testing.assert_array_equal(aligned, expected)
                 self.assertEqual(aligned.dtype, np.float32)
 
     def test_rgb_and_singleton_planes_remain_registered(self):

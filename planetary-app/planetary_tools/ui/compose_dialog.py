@@ -104,7 +104,7 @@ class RGBComposeDialog(QDialog):
         self._align_check = QCheckBox("Align channels")
         self._align_check.setToolTip(
             "Align channel detail with fractional-pixel precision before combining.\n"
-            "Corrects up to five pixels of misregistration between separately\n"
+            "Uses Derotate/Align's shift-only method and 25% brightness mask for\n"
             "captured channels, with one resampling step."
         )
         layout.addWidget(self._align_check)
