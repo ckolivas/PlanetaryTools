@@ -28,6 +28,99 @@ class CropSelectionTests(unittest.TestCase):
         QTest.mouseRelease(canvas.viewport(), Qt.MouseButton.LeftButton, modifiers, last)
         self.app.processEvents()
 
+    def draw(self, canvas, start, end):
+        self.drag(canvas, start, end, Qt.KeyboardModifier.ControlModifier)
+
+    def editing_canvas(self):
+        data = np.zeros((100, 160, 3), dtype=np.float32)
+        canvas = ImageCanvas()
+        canvas.resize(700, 500)
+        canvas.set_document(ImageDocument(data))
+        panel = CropImageDialog(160, 100, data, False)
+        canvas.crop_selected.connect(panel.set_selected_rect)
+        panel.rect_changed.connect(canvas.set_crop_overlay)
+        canvas.set_crop_selection_enabled(True)
+        panel.emit_current_rect()
+        canvas.show()
+        self.addCleanup(canvas.close)
+        self.addCleanup(panel.close)
+        self.app.processEvents()
+        return canvas, panel
+
+    def test_all_corners_resize_with_fixed_opposite_corner_at_each_zoom(self):
+        canvas, panel = self.editing_canvas()
+        cases = [((20, 10), (10, 4), CropRect(10, 4, 90, 66)),
+                 ((100, 10), (120, 4), CropRect(20, 4, 100, 66)),
+                 ((100, 70), (120, 80), CropRect(20, 10, 100, 70)),
+                 ((20, 70), (10, 80), CropRect(10, 10, 90, 70))]
+        for zoom in (.5, 1, 2):
+            canvas.set_zoom(zoom)
+            for start, end, expected in cases:
+                with self.subTest(zoom=zoom, start=start):
+                    panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+                    self.app.processEvents()
+                    self.drag(canvas, start, end)
+                    self.assertEqual(panel.crop_rect(), expected)
+                    self.assertEqual(canvas._crop_rect, expected.as_tuple())
+                    for handle in canvas._crop_handles:
+                        self.assertTrue(handle.isVisible())
+                        rect = handle.deviceTransform(canvas.viewportTransform()).mapRect(handle.rect())
+                        self.assertAlmostEqual(rect.width(), 8)
+
+    def test_move_keeps_size_and_allows_expansion(self):
+        canvas, panel = self.editing_canvas()
+        for zoom in (.5, 1, 2):
+            canvas.set_zoom(zoom)
+            panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+            self.app.processEvents()
+            self.drag(canvas, (50, 40), (80, 60))
+            self.assertEqual(panel.crop_rect(), CropRect(50, 30, 80, 60))
+            self.assertEqual((panel._width.value(), panel._height.value()), (80, 60))
+        self.drag(canvas, (80, 60), (10, 20))
+        self.assertEqual(panel.crop_rect(), CropRect(-20, -10, 80, 60))
+        canvas.set_crop_selection_enabled(False)
+        self.assertTrue(all(not h.isVisible() for h in canvas._crop_handles))
+        canvas.clear_crop_overlay()
+        self.assertIsNone(canvas._crop_rect)
+
+    def test_cross_corner_minimum_size_and_grab_offset(self):
+        canvas, panel = self.editing_canvas()
+        panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+        self.drag(canvas, (20, 10), (110, 80))
+        self.assertEqual(panel.crop_rect(), CropRect(100, 70, 10, 10))
+        panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+        self.drag(canvas, (20, 10), (100, 70))
+        self.assertEqual(panel.crop_rect(), CropRect(99, 69, 1, 1))
+        panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+        self.drag(canvas, (23, 13), (13, 7))
+        self.assertEqual(panel.crop_rect(), CropRect(10, 4, 90, 66))
+
+    def test_expanding_drag_keeps_view_stationary_until_release(self):
+        canvas, panel = self.editing_canvas()
+        panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+        first = canvas.mapFromScene(QPointF(20, 10))
+        last = canvas.mapFromScene(QPointF(-30, -20))
+        bounds = canvas.scene().sceneRect()
+        QTest.mousePress(canvas.viewport(), Qt.MouseButton.LeftButton, pos=first)
+        QTest.mouseMove(canvas.viewport(), last)
+        self.assertEqual(canvas.scene().sceneRect(), bounds)
+        self.assertEqual(panel.crop_rect(), CropRect(-30, -20, 130, 90))
+        QTest.mouseRelease(canvas.viewport(), Qt.MouseButton.LeftButton, pos=last)
+        self.assertEqual(panel.crop_rect(), CropRect(-30, -20, 130, 90))
+        self.assertLess(canvas.scene().sceneRect().left(), 0)
+
+    def test_hover_cursors_and_drawing_outside_the_box(self):
+        canvas, panel = self.editing_canvas()
+        panel._apply_rect(CropRect(20, 10, 80, 60), emit=True)
+        for point, cursor in (((20, 10), Qt.CursorShape.SizeFDiagCursor),
+                              ((100, 10), Qt.CursorShape.SizeBDiagCursor),
+                              ((60, 40), Qt.CursorShape.OpenHandCursor),
+                              ((5, 5), Qt.CursorShape.CrossCursor)):
+            QTest.mouseMove(canvas.viewport(), canvas.mapFromScene(QPointF(*point)))
+            self.assertEqual(canvas.viewport().cursor().shape(), cursor)
+        self.drag(canvas, (5, 5), (15, 25))
+        self.assertEqual(panel.crop_rect(), CropRect(5, 5, 10, 20))
+
     def test_zoom_reverse_drag_bounds_and_numeric_sync(self):
         data = np.zeros((100, 160, 3), dtype=np.float32)
         canvas = ImageCanvas()
@@ -45,21 +138,21 @@ class CropSelectionTests(unittest.TestCase):
             canvas.set_zoom(zoom)
             self.app.processEvents()
             for start, end in (((20, 10), (100, 70)), ((100, 70), (20, 10))):
-                self.drag(canvas, start, end)
+                self.draw(canvas, start, end)
                 self.assertEqual(panel.crop_rect(), CropRect(20, 10, 80, 60))
                 self.assertEqual((panel._width.value(), panel._height.value()), (80, 60))
-        self.drag(canvas, (20, 10), (180, 120))
+        self.draw(canvas, (20, 10), (180, 120))
         self.assertEqual(panel.crop_rect(), CropRect(20, 10, 140, 90))
-        self.drag(canvas, (40, 40), (40, 40))
+        self.draw(canvas, (40, 40), (40, 40))
         self.assertEqual(panel.crop_rect(), CropRect(20, 10, 140, 90))
         panel._apply_rect(CropRect(-20, -20, 200, 140), emit=True)
-        self.drag(canvas, (20, 10), (100, 70))
+        self.draw(canvas, (20, 10), (100, 70))
         self.assertEqual(panel.crop_rect(), CropRect(20, 10, 80, 60))
         canvas.resize(300, 240)
         canvas.set_zoom(4)
         canvas.centerOn(80, 50)
         self.app.processEvents()
-        self.drag(canvas, (60, 40), (100, 60))
+        self.draw(canvas, (60, 40), (100, 60))
         self.assertEqual(panel.crop_rect(), CropRect(60, 40, 40, 20))
         panel._width.setValue(100)
         self.assertEqual(canvas._crop_border.rect().width(), 99)
@@ -81,7 +174,9 @@ class CropSelectionTests(unittest.TestCase):
             try:
                 panel = window._active_filter_dlg
                 self.assertTrue(window._canvas._crop_selection_enabled)
-                self.drag(window._canvas, (20, 10), (100, 70))
+                self.draw(window._canvas, (10, 10), (70, 50))
+                self.drag(window._canvas, (40, 30), (50, 30))
+                self.drag(window._canvas, (80, 50), (100, 70))
                 self.assertEqual(panel.crop_rect(), CropRect(20, 10, 80, 60))
                 (panel._accept if accept else panel._reject)()
             except BaseException as exc:

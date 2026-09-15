@@ -54,7 +54,8 @@ class CropImageDialog(QWidget):
 
         layout.addWidget(QLabel(f"Original size: {self._img_w} × {self._img_h} px"))
         hint = QLabel(
-            "Drag on the image to select a crop. Hold Shift and drag to pan. "
+            "Drag a corner to resize the box, or drag inside it to move it. "
+            "Ctrl-drag to draw a new box. Hold Shift and drag to pan. "
             "The dashed outline is the proposed canvas. Sizes larger than the "
             "image expand it (new pixels are black). Offsets are from the "
             "image centre (positive = right / down)."

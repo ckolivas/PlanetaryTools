@@ -68,32 +68,94 @@ class ImageCanvas(QGraphicsView):
         self._crop_border.hide()
         self._scene.addItem(self._crop_border)
 
+        self._crop_handles = []
+        for _ in range(4):
+            handle = QGraphicsRectItem(-4, -4, 8, 8)
+            handle.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIgnoresTransformations)
+            handle.setBrush(QColor(255, 220, 40))
+            handle.setPen(QPen(Qt.GlobalColor.black))
+            handle.setZValue(3)
+            handle.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            handle.hide()
+            self._scene.addItem(handle)
+            self._crop_handles.append(handle)
+
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(Qt.GlobalColor.darkGray)
+        self.setMouseTracking(True)
 
         self._zoom = 1.0
         self._document: ImageDocument | None = None
         self._crop_selection_enabled = False
         self._crop_drag_start: tuple[int, int] | None = None
+        self._crop_rect: tuple[int, int, int, int] | None = None
+        self._crop_drag_rect: tuple[int, int, int, int] | None = None
+        self._crop_drag_mode = "draw"
+        self._crop_corner = 0
 
     def set_crop_selection_enabled(self, enabled: bool) -> None:
         self._crop_selection_enabled = enabled
         self._crop_drag_start = None
+        self._crop_drag_rect = None
+        for handle in self._crop_handles:
+            handle.setVisible(enabled and self._crop_border.isVisible())
         self.viewport().setCursor(
             Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.OpenHandCursor
         )
+
+    def _crop_corners(self):
+        if self._crop_rect is None:
+            return ()
+        x, y, w, h = self._crop_rect
+        return ((x, y), (x+w, y), (x+w, y+h), (x, y+h))
+
+    def _crop_hit(self, position) -> tuple[str, int]:
+        # Hit areas stay the same size on screen at every zoom level.
+        candidates = []
+        for index, (x, y) in enumerate(self._crop_corners()):
+            corner = self.mapFromScene(float(x), float(y))
+            dx, dy = corner.x()-position.x(), corner.y()-position.y()
+            if abs(dx) <= 7 and abs(dy) <= 7:
+                candidates.append((dx*dx + dy*dy, index))
+        if candidates:
+            return "resize", min(candidates)[1]
+        point = self.mapToScene(position)
+        if self._crop_rect is not None and QRectF(*self._crop_rect).contains(point):
+            return "move", 0
+        return "draw", 0
+
+    def _update_crop_cursor(self, event: QMouseEvent) -> None:
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            cursor = Qt.CursorShape.OpenHandCursor
+        elif event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            cursor = Qt.CursorShape.CrossCursor
+        else:
+            mode, corner = self._crop_hit(event.position().toPoint())
+            cursor = (Qt.CursorShape.SizeFDiagCursor if corner % 2 == 0 else
+                      Qt.CursorShape.SizeBDiagCursor) if mode == "resize" else (
+                          Qt.CursorShape.OpenHandCursor if mode == "move" else
+                          Qt.CursorShape.CrossCursor)
+        self.viewport().setCursor(cursor)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if (self._crop_selection_enabled and self._document is not None
                 and event.button() == Qt.MouseButton.LeftButton
                 and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
             point = self.mapToScene(event.position().toPoint())
-            if (0 <= point.x() <= self._document.width
-                    and 0 <= point.y() <= self._document.height):
+            mode, corner = self._crop_hit(event.position().toPoint())
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                mode = "draw"
+            if mode != "draw" or (0 <= point.x() <= self._document.width
+                                   and 0 <= point.y() <= self._document.height):
                 self._crop_drag_start = (round(point.x()), round(point.y()))
+                self._crop_drag_rect = self._crop_rect
+                self._crop_drag_mode = mode
+                self._crop_corner = corner
+                if mode == "move":
+                    self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         super().mousePressEvent(event)
@@ -102,15 +164,34 @@ class ImageCanvas(QGraphicsView):
         if self._crop_drag_start is None or self._document is None:
             return
         point = self.mapToScene(event.position().toPoint())
-        x = max(0, min(self._document.width, round(point.x())))
-        y = max(0, min(self._document.height, round(point.y())))
+        x, y = round(point.x()), round(point.y())
         start_x, start_y = self._crop_drag_start
+        rect = self._crop_drag_rect
+        if self._crop_drag_mode == "move" and rect is not None:
+            result = (rect[0]+x-start_x, rect[1]+y-start_y, rect[2], rect[3])
+        elif self._crop_drag_mode == "resize" and rect is not None:
+            left, top, w, h = rect
+            corners = ((left, top), (left+w, top), (left+w, top+h), (left, top+h))
+            anchor_x, anchor_y = corners[(self._crop_corner+2) % 4]
+            # Preserve the grab offset when pressing near, rather than exactly
+            # on, a corner; crossing the fixed opposite corner is supported.
+            corner_x, corner_y = corners[self._crop_corner]
+            x, y = corner_x+x-start_x, corner_y+y-start_y
+            if x == anchor_x:
+                x += 1 if corner_x > anchor_x else -1
+            if y == anchor_y:
+                y += 1 if corner_y > anchor_y else -1
+            result = (min(x, anchor_x), min(y, anchor_y), abs(x-anchor_x), abs(y-anchor_y))
+        else:
+            x = max(0, min(self._document.width, x))
+            y = max(0, min(self._document.height, y))
+            result = (min(x, start_x), min(y, start_y), abs(x-start_x), abs(y-start_y))
         if finish:
             self._crop_drag_start = None
-        if x == start_x or y == start_y:
+            self._crop_drag_rect = None
+        if result[2] == 0 or result[3] == 0:
             return
-        self.crop_selected.emit(min(x, start_x), min(y, start_y),
-                                abs(x - start_x), abs(y - start_y))
+        self.crop_selected.emit(*result)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._crop_drag_start is not None:
@@ -118,16 +199,19 @@ class ImageCanvas(QGraphicsView):
             event.accept()
             return
         super().mouseMoveEvent(event)
+        if self._crop_selection_enabled and not event.buttons():
+            self._update_crop_cursor(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._crop_drag_start is not None and event.button() == Qt.MouseButton.LeftButton:
             self._emit_drag_crop(event, finish=True)
             self._crop_drag_start = None
+            self._update_crop_cursor(event)
             event.accept()
             return
         super().mouseReleaseEvent(event)
         if self._crop_selection_enabled:
-            self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+            self._update_crop_cursor(event)
 
     @property
     def zoom(self) -> float:
@@ -158,6 +242,10 @@ class ImageCanvas(QGraphicsView):
         y = int(y)
         width = max(1, int(width))
         height = max(1, int(height))
+        self._crop_rect = (x, y, width, height)
+        for handle, (cx, cy) in zip(self._crop_handles, self._crop_corners()):
+            handle.setPos(cx, cy)
+            handle.setVisible(self._crop_selection_enabled)
 
         img_path = QPainterPath()
         img_path.addRect(QRectF(0, 0, img_w, img_h))
@@ -192,6 +280,11 @@ class ImageCanvas(QGraphicsView):
             self._scene.setSceneRect(QRectF(left, top, right - left, bottom - top))
 
     def clear_crop_overlay(self) -> None:
+        self._crop_rect = None
+        self._crop_drag_start = None
+        self._crop_drag_rect = None
+        for handle in self._crop_handles:
+            handle.hide()
         self._crop_dim.hide()
         self._crop_pad.hide()
         self._crop_border.hide()
