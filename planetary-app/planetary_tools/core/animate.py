@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 from planetary_tools.core.colour import linear_to_srgb
+from planetary_tools.core.animation_interpolation import build_timeline, interpolate_timeline
 from planetary_tools.io.loader import load_image
 
 ProgressFn = Callable[[int, int, str], None]
@@ -310,6 +311,8 @@ def write_animation(
     mp4_crf: int = 0,
     back_and_forth: bool = True,
     on_progress: ProgressFn | None = None,
+    motion_interpolation: bool = False,
+    frame_interval_minutes: float = 1.0,
 ) -> AnimationResult:
     """Load stills, pad to a common canvas, and write a looping animation."""
     files = [Path(p) for p in paths]
@@ -319,7 +322,11 @@ def write_animation(
     if fmt not in FORMATS:
         raise ValueError(f"Unknown animation format: {fmt}")
 
-    total = len(files) + 1
+    timeline = build_timeline(files, frame_interval_minutes) if motion_interpolation else None
+    if timeline is not None:
+        files = [frame.path for frame in timeline.sources]
+    interpolation_steps = len(timeline.gaps) if timeline is not None else 0
+    total = len(files) + interpolation_steps + 1
     loaded: list[np.ndarray] = []
     for i, path in enumerate(files):
         if on_progress is not None:
@@ -328,8 +335,14 @@ def write_animation(
         loaded.append(_to_uint8_srgb(doc.data))
 
     padded = pad_frames(loaded)
+    if timeline is not None:
+        padded = interpolate_timeline(
+            padded, timeline,
+            on_progress=(lambda current, _, message: on_progress(len(files)+current, total, message))
+            if on_progress is not None else None,
+        )
     if on_progress is not None:
-        on_progress(len(files), total, "Writing")
+        on_progress(total-1, total, "Writing")
     result = encode_frames(
         padded,
         output,

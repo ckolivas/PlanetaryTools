@@ -14,6 +14,21 @@ source images are converted to 8-bit sRGB, as with the other animation formats.
 MP4 retains the chosen frame rate and back-and-forth sequence. Loop playback is
 controlled by the video player. Playback requires support for H.264 RGB (4:4:4).
 
+Animate also offers **Generate frames with motion interpolation** for all output
+formats. It reads UTC capture times from WinJUPOS filenames such as
+`2026-09-11-1506_4-CK.png` (15:06:24, a decimal fraction of a minute) or
+`20260911_1506.4_CK.png`, and PVOL names such as
+`s2026-09-11_15-06-24_rgb_ck.png` (seconds optional). Frames are sorted by time
+and rounded to the nearest chosen interval, default **1 minute**, with halfway
+times rounded up. The table shows original and rounded timestamps. Files that
+round to the same time must be removed or given a smaller interval.
+
+Missing frames are generated with FFmpeg's `minterpolate` motion compensation
+filter; FFmpeg must be on PATH for this option. Use aligned images with similar
+brightness for best results. Original frames remain at their rounded times,
+and frame rate still controls playback speed. The interval controls observation
+time between frames, not playback time. The feature does not rename source files.
+
 
 GIMP plugins:
 

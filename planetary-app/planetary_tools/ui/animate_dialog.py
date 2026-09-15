@@ -37,6 +37,9 @@ from planetary_tools.core.animate import (
     natural_sort_key,
     write_animation,
 )
+from planetary_tools.core.animation_interpolation import (
+    build_timeline, filename_timestamp, rounded_timestamp,
+)
 from planetary_tools.io.loader import supported_extensions
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import (
@@ -71,6 +74,9 @@ class _RunWorker(QThread):
         gif_quality: str,
         back_and_forth: bool,
         mp4_crf: int = 0,
+        *,
+        motion_interpolation: bool = False,
+        frame_interval_minutes: float = 1.0,
     ) -> None:
         super().__init__()
         self._paths = paths
@@ -80,6 +86,8 @@ class _RunWorker(QThread):
         self._gif_quality = gif_quality
         self._back_and_forth = back_and_forth
         self._mp4_crf = mp4_crf
+        self._motion_interpolation = motion_interpolation
+        self._frame_interval_minutes = frame_interval_minutes
 
     def run(self) -> None:
         try:
@@ -91,6 +99,8 @@ class _RunWorker(QThread):
                 gif_quality=self._gif_quality,
                 back_and_forth=self._back_and_forth,
                 mp4_crf=self._mp4_crf,
+                motion_interpolation=self._motion_interpolation,
+                frame_interval_minutes=self._frame_interval_minutes,
                 on_progress=lambda c, t, m: self.progress.emit(c, t, m),
             )
             self.finished_ok.emit(result)
@@ -110,7 +120,7 @@ class AnimateDialog(QDialog):
         root = QVBoxLayout(self)
         description = QLabel(
             "Build an animation or video from stills. Frames are sorted by "
-            "filename; use Move up / Move down to reorder. Smaller frames "
+            "filename, or by capture time when interpolating. Smaller frames "
             "are centred on a black canvas that fits the largest."
         )
         description.setWordWrap(True)
@@ -128,13 +138,17 @@ class AnimateDialog(QDialog):
         pick.addStretch()
         fl.addLayout(pick)
 
-        self._table = QTableWidget(0, 1)
-        self._table.setHorizontalHeaderLabels(["File"])
+        self._table = QTableWidget(0, 3)
+        self._table.setHorizontalHeaderLabels(["File", "Captured (UTC)", "Rounded (UTC)"])
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(_COL_FILE, QHeaderView.ResizeMode.Stretch)
+        for column in (1, 2):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+            self._table.setColumnHidden(column, True)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self._table.verticalHeader().setVisible(False)
+        self._table.setMinimumHeight(140)
         fl.addWidget(self._table)
 
         order = QHBoxLayout()
@@ -142,6 +156,7 @@ class AnimateDialog(QDialog):
         btn_up.clicked.connect(lambda: self._move(-1))
         btn_down = QPushButton("Move down")
         btn_down.clicked.connect(lambda: self._move(1))
+        self._order_buttons = (btn_up, btn_down)
         btn_remove = QPushButton("Remove")
         btn_remove.clicked.connect(self._remove)
         btn_clear = QPushButton("Clear")
@@ -164,6 +179,34 @@ class AnimateDialog(QDialog):
         self._fps.setSuffix(" fps")
         self._fps.valueChanged.connect(self._update_delay_hint)
         of.addRow("Frame rate", self._fps)
+
+        self._motion_interpolation = QCheckBox("Generate frames with motion interpolation")
+        self._motion_interpolation.setToolTip(
+            "Read WinJUPOS or PVOL filename timestamps, sort chronologically, and generate "
+            "missing frames using FFmpeg motion interpolation. Use aligned images for best results."
+        )
+        of.addRow(self._motion_interpolation)
+        self._frame_interval = QDoubleSpinBox()
+        self._frame_interval.setRange(0.1, 1440.0)
+        self._frame_interval.setDecimals(1)
+        self._frame_interval.setSingleStep(1.0)
+        self._frame_interval.setValue(1.0)
+        self._frame_interval.setSuffix(" min")
+        self._frame_interval.setKeyboardTracking(False)
+        self._frame_interval.setEnabled(False)
+        self._frame_interval.setToolTip(
+            "Observation time between generated frames; playback speed is set by Frame rate. "
+            "Capture times round to the nearest interval (halfway rounds up). "
+            "Files rounding to the same time need a smaller interval or one file removed."
+        )
+        of.addRow("Frame interval", self._frame_interval)
+        self._timing_hint = QLabel("")
+        self._timing_hint.setWordWrap(True)
+        self._timing_hint.setMinimumHeight(self._timing_hint.fontMetrics().lineSpacing() * 3 + 8)
+        self._timing_hint.hide()
+        of.addRow(self._timing_hint)
+        self._motion_interpolation.toggled.connect(self._on_interpolation_changed)
+        self._frame_interval.valueChanged.connect(lambda _: self._refresh_table())
 
         self._back_and_forth = QCheckBox("Back and forth")
         self._back_and_forth.setChecked(True)
@@ -290,7 +333,7 @@ class AnimateDialog(QDialog):
         self._append_paths(paths)
 
     def _move(self, delta: int) -> None:
-        if self._busy():
+        if self._busy() or self._motion_interpolation.isChecked():
             return
         row = self._table.currentRow()
         dest = row + delta
@@ -322,13 +365,46 @@ class AnimateDialog(QDialog):
             self._output.clear()
 
     def _refresh_table(self) -> None:
+        motion = self._motion_interpolation.isChecked()
+        interval = self._frame_interval.value()
+        timing = "Add at least two timestamped images. Requires FFmpeg."
+        if motion and len(self._paths) >= 2:
+            try:
+                timeline = build_timeline(self._paths, interval)
+                self._paths = [frame.path for frame in timeline.sources]
+                timing = (f"{timeline.frame_count} forward frames: {len(self._paths)} originals + "
+                          f"{timeline.frame_count-len(self._paths)} generated, {interval:g} min apart. "
+                          "Times round to the nearest interval; halfway rounds up.")
+            except ValueError as exc:
+                timing = str(exc)
+        self._timing_hint.setText(timing)
         self._table.setRowCount(len(self._paths))
         for i, path in enumerate(self._paths):
             item = QTableWidgetItem(path.name)
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             item.setToolTip(str(path))
             self._table.setItem(i, _COL_FILE, item)
+            if motion:
+                try:
+                    captured = filename_timestamp(path)
+                    times = [captured, rounded_timestamp(captured, interval)]
+                    labels = [stamp.strftime('%Y-%m-%d %H:%M:%S') for stamp in times]
+                except ValueError:
+                    labels = ['Unrecognised timestamp', '—']
+                for column, label in enumerate(labels, 1):
+                    cell = QTableWidgetItem(label)
+                    cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self._table.setItem(i, column, cell)
         self._status.setText(f"{len(self._paths)} frame(s)")
+
+    def _on_interpolation_changed(self, enabled: bool) -> None:
+        self._frame_interval.setEnabled(enabled)
+        self._timing_hint.setVisible(enabled)
+        for column in (1, 2):
+            self._table.setColumnHidden(column, not enabled)
+        for button in self._order_buttons:
+            button.setEnabled(not enabled)
+        self._refresh_table()
 
     def _maybe_default_output(self) -> None:
         if not self._auto_output or not self._paths:
@@ -400,6 +476,8 @@ class AnimateDialog(QDialog):
     def _set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
         self._progress.setVisible(running)
+        self._motion_interpolation.setEnabled(not running)
+        self._frame_interval.setEnabled(not running and self._motion_interpolation.isChecked())
 
     def _run(self) -> None:
         if self._busy():
@@ -407,6 +485,12 @@ class AnimateDialog(QDialog):
         if len(self._paths) < 2:
             QMessageBox.warning(self, "Animate", "Select at least two images.")
             return
+        if self._motion_interpolation.isChecked():
+            try:
+                build_timeline(self._paths, self._frame_interval.value())
+            except ValueError as exc:
+                QMessageBox.warning(self, "Animate", str(exc))
+                return
         out_text = self._output.text().strip()
         if not out_text:
             QMessageBox.warning(self, "Animate", "Choose an output file.")
@@ -434,6 +518,8 @@ class AnimateDialog(QDialog):
             str(self._gif_quality.currentData()),
             self._back_and_forth.isChecked(),
             self._mp4_crf.value(),
+            motion_interpolation=self._motion_interpolation.isChecked(),
+            frame_interval_minutes=self._frame_interval.value(),
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished_ok.connect(self._on_ran)
