@@ -5,7 +5,7 @@ import unittest
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QCheckBox
 
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.filters.extract_component import (
@@ -20,39 +20,46 @@ class ExtractComponentTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_invert_all_components_without_mutating_or_clipping_source(self):
+    def test_invert_image_without_mutating_or_clipping_source(self):
         rgb = np.array([[[0, .25, 1], [1.25, -.25, .5]]], dtype=np.float32)
         for source, grayscale in ((rgb, False), (rgb[..., 0], True)):
             original = source.copy()
             for component in COMPONENT_ORDER:
                 with self.subTest(component=component, grayscale=grayscale):
-                    normal = extract_component_plane(source, grayscale, component)
-                    inverted = extract_component_plane(source, grayscale, component, invert=True)
-                    np.testing.assert_array_equal(inverted, 1-normal)
-                    result = extract_component(source, grayscale, component, invert=True)
-                    np.testing.assert_array_equal(result, np.repeat(inverted[..., None], 3, axis=-1))
+                    plane = extract_component_plane(source, grayscale, component)
+                    result = extract_component(source, grayscale, component)
+                    if component == 'invert':
+                        expected = 1-source
+                        if grayscale:
+                            expected = np.repeat(expected[..., None], 3, axis=-1)
+                        np.testing.assert_array_equal(result, expected)
+                    else:
+                        np.testing.assert_array_equal(result, np.repeat(plane[..., None], 3, axis=-1))
                     self.assertEqual(result.dtype, np.float32)
                     np.testing.assert_array_equal(source, original)
         np.testing.assert_array_equal(
-            extract_component_plane(rgb, False, 'red', invert=True), [[1, -.25]])
+            extract_component_plane(rgb, False, 'red'), [[0, 1.25]])
 
-    def test_checkbox_snapshot_preview_apply_cancel_and_undo(self):
+    def test_component_selection_snapshot_preview_apply_cancel_and_undo(self):
         source = np.array([[[0, .25, 1], [.75, 1, .5]]], dtype=np.float32)
         panel = ExtractComponentDialog()
         self.addCleanup(panel.close)
-        self.assertFalse(panel.get_params()['invert'])
-        panel.set_params({'component': 'red', 'invert': True})
+        self.assertNotIn('invert', panel.get_params())
+        self.assertFalse(any(box.text() == 'Invert' for box in panel.findChildren(QCheckBox)))
+        panel.set_params({'component': 'invert'})
+        self.assertEqual(panel.component.currentText(), 'Invert')
+        self.assertIn('Invert the whole image', panel.component.toolTip())
         snapshot = panel.build_filter_func()
         changes = []
         panel.params_changed.connect(lambda: changes.append(True))
-        panel.invert.click()
+        panel.component.setCurrentIndex(panel.component.findData('red'))
         self.assertEqual(changes, [True])
-        expected = np.repeat((1-source[..., 0])[..., None], 3, axis=-1)
+        expected = 1-source
         np.testing.assert_array_equal(snapshot(source, False), expected)
         np.testing.assert_array_equal(panel.build_filter_func()(source, False),
                                       np.repeat(source[..., :1], 3, axis=-1))
         panel.set_params({'component': 'green'})
-        self.assertFalse(panel.invert.isChecked())
+        self.assertEqual(panel.get_params()['component'], 'green')
 
         window = MainWindow()
         window._set_document(ImageDocument(source.copy()))
@@ -61,8 +68,7 @@ class ExtractComponentTests(unittest.TestCase):
         def edit(accept):
             active = window._active_filter_dlg
             try:
-                active.component.setCurrentIndex(active.component.findData('red'))
-                active.invert.click()
+                active.component.setCurrentIndex(active.component.findData('invert'))
                 np.testing.assert_array_equal(active.build_filter_func()(source, False), expected)
                 active.preview.setChecked(False)
                 active.preview.setChecked(True)

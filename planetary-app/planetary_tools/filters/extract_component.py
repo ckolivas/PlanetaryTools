@@ -1,4 +1,4 @@
-"""Extract a single colour component as R=G=B RGB (same as a loaded greyscale file)."""
+"""Extract a greyscale colour component or invert the full RGB image."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ ComponentId = Literal[
     "cyan",
     "magenta",
     "yellow",
+    "invert",
 ]
 
 COMPONENT_LABELS: dict[ComponentId, str] = {
@@ -30,6 +31,7 @@ COMPONENT_LABELS: dict[ComponentId, str] = {
     "cyan": "Cyan",
     "magenta": "Magenta",
     "yellow": "Yellow",
+    "invert": "Invert",
 }
 
 COMPONENT_ORDER: tuple[ComponentId, ...] = (
@@ -42,6 +44,7 @@ COMPONENT_ORDER: tuple[ComponentId, ...] = (
     "cyan",
     "magenta",
     "yellow",
+    "invert",
 )
 
 
@@ -62,8 +65,6 @@ def extract_component_plane(
     data: np.ndarray,
     is_grayscale: bool,
     component: str,
-    *,
-    invert: bool = False,
 ) -> np.ndarray:
     """Return a single-channel (H, W) linear greyscale plane for ``component``.
 
@@ -71,7 +72,7 @@ def extract_component_plane(
     two primaries that make that secondary colour (Cyan = (G+B)/2,
     Magenta = (R+B)/2, Yellow = (R+G)/2) — approximate luminance through a
     CMY bandpass from an RGB stack.
-    When inverted, return 1 minus the extracted plane, without clipping.
+    The Invert component returns inverted luminance in this single-plane API.
     """
     rgb = _as_rgb(data, is_grayscale)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
@@ -95,25 +96,27 @@ def extract_component_plane(
         plane = 0.5 * (r + b)
     elif key in ("yellow", "y"):
         plane = 0.5 * (r + g)
+    elif key == "invert":
+        plane = 1.0 - linear_luminance(rgb)
     else:
         raise ValueError(f"Unknown component: {component!r}")
 
-    plane = np.asarray(plane, dtype=np.float32)
-    return 1.0 - plane if invert else plane
+    return np.asarray(plane, dtype=np.float32)
 
 
 def extract_component(
     data: np.ndarray,
     is_grayscale: bool,
     component: str,
-    *,
-    invert: bool = False,
 ) -> np.ndarray:
-    """Extract a component as linear RGB with R=G=B.
+    """Extract a component as linear RGB with R=G=B, or invert RGB.
 
     Same layout as a loaded greyscale file: three identical channels so
     RGB tools stay available. Use ``extract_component_plane`` for a 2-D
-    plane.
+    plane. Invert instead returns 1 minus each original RGB channel, without
+    clipping, preserving colour rather than extracting a greyscale plane.
     """
-    plane = extract_component_plane(data, is_grayscale, component, invert=invert)
+    if str(component).lower() == "invert":
+        return 1.0 - _as_rgb(data, is_grayscale)
+    plane = extract_component_plane(data, is_grayscale, component)
     return np.stack([plane, plane, plane], axis=-1)
