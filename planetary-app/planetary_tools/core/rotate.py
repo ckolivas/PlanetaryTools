@@ -118,6 +118,8 @@ def rotate_image(
     expand: bool = True,
     crop_to_original: bool = False,
     center: tuple[float, float] | None = None,
+    flip_horizontal: bool = False,
+    flip_vertical: bool = False,
 ) -> np.ndarray:
     """Rotate linear image data by ``angle_deg`` degrees (positive = CCW).
 
@@ -128,6 +130,8 @@ def rotate_image(
     ``expand=True`` (default) grows the canvas so the full rotated rectangle
     fits. ``crop_to_original=True`` centre-crops (or pads) the result back to
     the input width and height.
+    Flips are applied afterwards, along the displayed horizontal/vertical axes,
+    without further interpolation.
     """
     arr = np.asarray(data, dtype=np.float32)
     if arr.ndim == 2:
@@ -157,4 +161,10 @@ def rotate_image(
 
     if crop_to_original and (out.shape[0] != orig_h or out.shape[1] != orig_w):
         out = _centre_crop_or_pad(out, orig_w, orig_h)
+    if flip_horizontal:
+        out = out[:, ::-1, ...]
+    if flip_vertical:
+        out = out[::-1, ...]
+    if flip_horizontal or flip_vertical:
+        out = np.ascontiguousarray(out)
     return out

@@ -1399,9 +1399,12 @@ class MainWindow(QMainWindow):
             # Snapshot settings so an in-flight preview cannot pick up edits.
             angle = dlg.angle_deg()
             crop = dlg.crop_to_original()
+            horizontal = dlg.flip_horizontal()
+            vertical = dlg.flip_vertical()
             self._preview.set_filter_func(
                 lambda data, grayscale: rotate_image(
-                    data, angle, expand=True, crop_to_original=crop
+                    data, angle, expand=True, crop_to_original=crop,
+                    flip_horizontal=horizontal, flip_vertical=vertical,
                 )
             )
             self._preview.schedule_update()
@@ -1415,7 +1418,9 @@ class MainWindow(QMainWindow):
             self._preview.set_preview_enabled(dlg.preview.isChecked())
             accepted = dlg.exec() == dlg.DialogCode.Accepted
             result = self._preview.finish(
-                apply=accepted and dlg.angle_deg() % 360.0 != 0.0
+                apply=accepted and (
+                    dlg.angle_deg() % 360.0 != 0.0 or dlg.flip_horizontal() or dlg.flip_vertical()
+                )
             )
         except Exception as exc:
             QMessageBox.critical(self, "Rotate Image", str(exc))

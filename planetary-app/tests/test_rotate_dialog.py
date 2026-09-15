@@ -132,6 +132,56 @@ class RotateDialogTests(unittest.TestCase):
         self.assertFalse(self.window._preview.is_active)
         self.assertFalse(self.window._filter_dialog_open)
 
+    def test_flip_axes_after_rotation_and_crop_preserve_pixels(self):
+        for source in (self.data, self.data[..., 0]):
+            original = source.copy()
+            for angle in (0, 90, 32.5):
+                for crop in (False, True):
+                    rotated = rotate_image(source, angle, crop_to_original=crop)
+                    for horizontal, vertical in ((True, False), (False, True), (True, True)):
+                        with self.subTest(shape=source.shape, angle=angle, crop=crop,
+                                          horizontal=horizontal, vertical=vertical):
+                            expected = rotated
+                            if horizontal:
+                                expected = expected[:, ::-1]
+                            if vertical:
+                                expected = expected[::-1]
+                            actual = rotate_image(source, angle, crop_to_original=crop,
+                                                  flip_horizontal=horizontal, flip_vertical=vertical)
+                            np.testing.assert_array_equal(actual, expected)
+                            self.assertTrue(actual.flags.c_contiguous)
+            np.testing.assert_array_equal(source, original)
+
+    def test_flip_only_preview_apply_and_undo(self):
+        def interact(dlg):
+            self.assertFalse(dlg.flip_horizontal())
+            self.assertFalse(dlg.flip_vertical())
+            dlg._flip_horizontal.setChecked(True)
+            np.testing.assert_array_equal(self.wait_preview(), self.data[:, ::-1])
+            dlg.preview.setChecked(False)
+            np.testing.assert_array_equal(self.window._preview.display_data(), self.data)
+            dlg._flip_vertical.setChecked(True)
+            return dlg.DialogCode.Accepted
+        with patch.object(RotateImageDialog, 'exec', interact):
+            self.window._run_rotate_image()
+        np.testing.assert_array_equal(self.window._document.data, self.data[::-1, ::-1])
+        self.window._undo_action()
+        np.testing.assert_array_equal(self.window._document.data, self.data)
+        self.window._redo_action()
+        np.testing.assert_array_equal(self.window._document.data, self.data[::-1, ::-1])
+
+    def test_cancel_rotation_with_flips_restores_source(self):
+        def interact(dlg):
+            dlg._angle.setValue(90)
+            dlg._flip_vertical.setChecked(True)
+            np.testing.assert_array_equal(self.wait_preview(), np.rot90(self.data)[::-1])
+            dlg._flip_horizontal.setChecked(True)
+            return dlg.DialogCode.Rejected
+        with patch.object(RotateImageDialog, 'exec', interact):
+            self.window._run_rotate_image()
+        np.testing.assert_array_equal(self.window._document.data, self.data)
+        self.assertFalse(self.window._undo.stack.can_undo())
+
 
 if __name__ == '__main__':
     unittest.main()

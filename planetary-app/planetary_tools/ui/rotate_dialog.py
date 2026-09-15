@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 
 
 class RotateImageDialog(QDialog):
-    """Set rotation angle and optional crop-to-original."""
+    """Set rotation angle, flips and optional crop-to-original."""
 
     params_changed = pyqtSignal()
     preview_toggled = pyqtSignal(bool)
@@ -73,6 +73,15 @@ class RotateImageDialog(QDialog):
         presets.addWidget(btn_180)
         form.addRow("Presets", presets)
 
+        self._flip_horizontal = QCheckBox("Flip horizontal")
+        self._flip_horizontal.setToolTip("Mirror left and right after rotation.")
+        self._flip_horizontal.toggled.connect(self.params_changed.emit)
+        form.addRow(self._flip_horizontal)
+        self._flip_vertical = QCheckBox("Flip vertical")
+        self._flip_vertical.setToolTip("Mirror top and bottom after rotation.")
+        self._flip_vertical.toggled.connect(self.params_changed.emit)
+        form.addRow(self._flip_vertical)
+
         self._crop = QCheckBox("Crop to original size")
         self._crop.setChecked(False)
         self._crop.toggled.connect(self.params_changed.emit)
@@ -86,7 +95,7 @@ class RotateImageDialog(QDialog):
 
         self.preview = QCheckBox("Preview")
         self.preview.setChecked(True)
-        self.preview.setToolTip("Show the rotation on the main image canvas.")
+        self.preview.setToolTip("Show the rotation and flips on the main image canvas.")
         self.preview.toggled.connect(self.preview_toggled.emit)
         layout.addWidget(self.preview)
 
@@ -102,3 +111,9 @@ class RotateImageDialog(QDialog):
 
     def crop_to_original(self) -> bool:
         return self._crop.isChecked()
+
+    def flip_horizontal(self) -> bool:
+        return self._flip_horizontal.isChecked()
+
+    def flip_vertical(self) -> bool:
+        return self._flip_vertical.isChecked()
