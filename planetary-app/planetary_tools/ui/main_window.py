@@ -69,6 +69,7 @@ from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
 from planetary_tools.ui.crop_dialog import CropImageDialog
 from planetary_tools.ui.rotate_dialog import RotateImageDialog
 from planetary_tools.ui.scale_dialog import ScaleImageDialog
+from planetary_tools.ui.update_dialog import UpdateCheckDialog
 from planetary_tools.ui.recent_files import (
     add_recent,
     last_open_directory,
@@ -463,6 +464,10 @@ class MainWindow(QMainWindow):
         about_act.setToolTip("Show version and author information.")
         about_act.triggered.connect(self._show_about)
         help_menu.addAction(about_act)
+        updates_act = QAction("Check for &Updates…", self)
+        updates_act.setToolTip("Check GitHub releases for a newer version of Planetary Tools.")
+        updates_act.triggered.connect(self._check_for_updates)
+        help_menu.addAction(updates_act)
         help_menu.setToolTipsVisible(True)
 
         # Keep the existing command groups, sorting by visible labels rather
@@ -487,6 +492,14 @@ class MainWindow(QMainWindow):
             for action in actions:
                 menu.removeAction(action)
             menu.addActions(ordered)
+
+    def _check_for_updates(self) -> None:
+        dialog = self.findChild(UpdateCheckDialog)
+        if dialog is None or not dialog.isVisible():
+            dialog = UpdateCheckDialog(self)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _show_about(self) -> None:
         QMessageBox.about(
