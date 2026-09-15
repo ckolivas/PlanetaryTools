@@ -62,6 +62,8 @@ def extract_component_plane(
     data: np.ndarray,
     is_grayscale: bool,
     component: str,
+    *,
+    invert: bool = False,
 ) -> np.ndarray:
     """Return a single-channel (H, W) linear greyscale plane for ``component``.
 
@@ -69,6 +71,7 @@ def extract_component_plane(
     two primaries that make that secondary colour (Cyan = (G+B)/2,
     Magenta = (R+B)/2, Yellow = (R+G)/2) — approximate luminance through a
     CMY bandpass from an RGB stack.
+    When inverted, return 1 minus the extracted plane, without clipping.
     """
     rgb = _as_rgb(data, is_grayscale)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
@@ -95,13 +98,16 @@ def extract_component_plane(
     else:
         raise ValueError(f"Unknown component: {component!r}")
 
-    return np.asarray(plane, dtype=np.float32)
+    plane = np.asarray(plane, dtype=np.float32)
+    return 1.0 - plane if invert else plane
 
 
 def extract_component(
     data: np.ndarray,
     is_grayscale: bool,
     component: str,
+    *,
+    invert: bool = False,
 ) -> np.ndarray:
     """Extract a component as linear RGB with R=G=B.
 
@@ -109,5 +115,5 @@ def extract_component(
     RGB tools stay available. Use ``extract_component_plane`` for a 2-D
     plane.
     """
-    plane = extract_component_plane(data, is_grayscale, component)
+    plane = extract_component_plane(data, is_grayscale, component, invert=invert)
     return np.stack([plane, plane, plane], axis=-1)

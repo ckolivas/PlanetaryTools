@@ -1595,12 +1595,18 @@ class ExtractComponentDialog(_FilterDialog):
         self._update_component_help()
         self._form.addRow("Component", self.component)
 
+        self.invert = QCheckBox("Invert")
+        self.invert.setToolTip("Invert the extracted component: black becomes white and white becomes black.")
+        self.invert.toggled.connect(lambda _: self.params_changed.emit())
+        self._form.addRow(self.invert)
+
     def _update_component_help(self) -> None:
         self.component.setToolTip(str(self.component.currentData(Qt.ItemDataRole.ToolTipRole)))
 
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
         p["component"] = str(self.component.currentData() or "luminance")
+        p["invert"] = self.invert.isChecked()
         return p
 
     def set_params(self, params: dict[str, Any]) -> None:
@@ -1613,14 +1619,18 @@ class ExtractComponentDialog(_FilterDialog):
         self.component.setCurrentIndex(idx)
         self.component.blockSignals(False)
         self._update_component_help()
+        self.invert.blockSignals(True)
+        self.invert.setChecked(bool(params.get("invert", False)))
+        self.invert.blockSignals(False)
 
     def build_filter_func(self) -> FilterFunc:
         from planetary_tools.filters.extract_component import extract_component
 
         component = str(self.component.currentData() or "luminance")
+        invert = self.invert.isChecked()
 
         def func(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
-            return extract_component(data, is_grayscale, component)
+            return extract_component(data, is_grayscale, component, invert=invert)
 
         return func
 
