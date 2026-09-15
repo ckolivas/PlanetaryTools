@@ -44,6 +44,7 @@ from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.file_filters import image_file_filters, save_path_for_filter
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.animate_dialog import AnimateDialog
+from planetary_tools.ui.align_rgb_dialog import AlignRgbDialog
 from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
 from planetary_tools.ui.compose_dialog import RGBComposeDialog
 from planetary_tools.ui.curves_dialog import CurvesDialog
@@ -400,8 +401,7 @@ class MainWindow(QMainWindow):
 
         self._align_rgb_act = QAction("&Align RGB", self)
         self._align_rgb_act.setToolTip(
-            "Align red and blue to green using Derotate/Align's subpixel method.\n"
-            "The default 25% brightness mask affects matching only."
+            "Align red and blue to green with adjustable brightness masking and derotation."
         )
         self._align_rgb_act.triggered.connect(self._run_align_rgb)
         colours_menu.addAction(self._align_rgb_act)
@@ -1217,19 +1217,13 @@ class MainWindow(QMainWindow):
             return
         if self._guard_filter_dialog("Align RGB", self._run_align_rgb):
             return
-        data = self._document.data
         try:
-            reference = data[..., 1]
-            aligned = [
-                data[..., c] if c == 1 else align_channel(reference, data[..., c])
-                for c in range(3)
-            ]
-            result = np.stack(aligned, axis=-1).astype(np.float32)
+            self._run_filter_dialog(AlignRgbDialog(self), "Align RGB")
         except Exception as exc:
+            if self._preview.is_active:
+                self._preview.finish(apply=False)
+            self._canvas.refresh()
             QMessageBox.critical(self, "Align RGB", str(exc))
-            return
-        self._commit_filter("Align RGB", result)
-        self._status.showMessage("Aligned red and blue channels to green")
 
     # def _run_luminance(self) -> None:
     #     if self._document is None or self._document.is_grayscale:

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 from scipy.ndimage import gaussian_filter, shift
 
@@ -76,6 +77,12 @@ class RgbAlignmentTests(unittest.TestCase):
         try:
             expected = np.stack([align_channel(green, data[..., 0]), green,
                                  align_channel(green, data[..., 2])], axis=-1)
+            def accept_shift_only():
+                panel = window._active_filter_dlg
+                panel.preview.setChecked(False)
+                panel._derotate.setChecked(False)
+                panel._accept()
+            QTimer.singleShot(0, accept_shift_only)
             window._run_align_rgb()
             np.testing.assert_array_equal(window._document.data, expected)
             np.testing.assert_array_equal(window._document.data[..., 1], green)

@@ -223,11 +223,15 @@ def _refine_alignment(
     return float(theta), float(sy), float(sx), score
 
 
-def align_channel(reference: np.ndarray, target: np.ndarray) -> np.ndarray:
-    """Align a channel using Derotate/Align's masked, shift-only estimator.
+def align_channel(
+    reference: np.ndarray, target: np.ndarray, *,
+    mask_fraction: float | None = .25, rotate: bool = False, max_angle: float = 45.0,
+) -> np.ndarray:
+    """Align a channel using Derotate/Align's estimator and optional rotation.
 
     Estimate on copies with the default 25% perceptual brightness mask; render
     the original target once, keeping the reference channel's canvas size.
+    Set ``mask_fraction=None`` to include dim pixels in registration.
     """
     # field_derotate uses the shared refinement primitives in this module.
     from planetary_tools.core.field_derotate import (
@@ -240,10 +244,11 @@ def align_channel(reference: np.ndarray, target: np.ndarray) -> np.ndarray:
         raise ValueError(
             f"align_channel requires matching shapes ({reference.shape} vs {target.shape})."
         )
-    match = estimate_rigid(
-        mask_alignment_background(reference), mask_alignment_background(target),
-        rotate=False,
-    )
+    ref, tgt = reference, target
+    if mask_fraction is not None:
+        ref = mask_alignment_background(reference, mask_fraction)
+        tgt = mask_alignment_background(target, mask_fraction)
+    match = estimate_rigid(ref, tgt, rotate=rotate, max_angle=max_angle)
     return apply_rigid(target, match, expand=False)
 
 
