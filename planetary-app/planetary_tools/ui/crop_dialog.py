@@ -106,6 +106,11 @@ class CropImageDialog(QWidget):
         self._offset_y.valueChanged.connect(self._on_geometry_changed)
         form.addRow("Offset Y", self._offset_y)
 
+        recentre_btn = QPushButton("Recentre")
+        recentre_btn.setToolTip("Reset both offsets to zero, keeping the current size.")
+        recentre_btn.clicked.connect(self._recentre)
+        form.addRow(recentre_btn)
+
         self._region_label = QLabel()
         self._region_label.setWordWrap(True)
         form.addRow(self._region_label)
@@ -231,3 +236,9 @@ class CropImageDialog(QWidget):
 
     def _reset_full(self) -> None:
         self._apply_rect(CropRect(0, 0, self._img_w, self._img_h), emit=True)
+
+    def _recentre(self) -> None:
+        self._apply_rect(rect_from_size_offset(
+            self._img_w, self._img_h,
+            self._width.value(), self._height.value(), 0, 0,
+        ), emit=True)
