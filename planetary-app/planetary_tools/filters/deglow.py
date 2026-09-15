@@ -15,9 +15,9 @@ from planetary_tools.core.colour import linear_luminance
 
 DEFAULT_DEGLOW_PARAMS = {
     'amount': 100.0,
-    'radius': 30.0,
-    'threshold': 5.0,
-    'margin': 3.0,
+    'radius': 7.0,
+    'threshold': 7.0,
+    'margin': 7.0,
     'feather': 15.0,
 }
 
@@ -45,8 +45,8 @@ def _resize(plane: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
 
 def deglow(
     data: np.ndarray, is_grayscale: bool = False, *,
-    amount: float = 100.0, radius: float = 30.0, threshold: float = 5.0,
-    margin: float = 3.0, feather: float = 15.0,
+    amount: float = 100.0, radius: float = 7.0, threshold: float = 7.0,
+    margin: float = 7.0, feather: float = 15.0,
 ) -> np.ndarray:
     """Return a float32 image, preserving shape, alpha and protected pixels."""
     arr = np.asarray(data, dtype=np.float32)

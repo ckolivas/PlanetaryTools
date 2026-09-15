@@ -30,7 +30,7 @@ def scene():
 class DeglowTests(unittest.TestCase):
     def test_single_pixel_sources_keep_signal_without_protecting_their_glow(self):
         base, disk, _ = scene()
-        for scale in (2, 10, 30, 80):
+        for scale in (2, 7, 10, 30, 80):
             for rgb in (False, True):
                 with self.subTest(scale=scale, rgb=rgb):
                     source = np.stack([base, base*.8, base*.6], axis=-1) if rgb else base
@@ -47,7 +47,9 @@ class DeglowTests(unittest.TestCase):
 
     def test_removes_halo_preserves_disk_and_moon_contrast(self):
         source, disk, radius = scene()
-        out = deglow(source, True)
+        # This scene's several-pixel moon needs a larger background scale
+        # than the default intended for single-pixel moons and stars.
+        out = deglow(source, True, radius=30, threshold=5, margin=3)
         np.testing.assert_array_equal(out[disk], source[disk])
         halo = (radius > 45) & (radius < 85)
         self.assertLess(float(out[halo].mean()), float(source[halo].mean())*.6)
