@@ -136,6 +136,48 @@ class InterpolationDialogTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_timing_settings_survive_reopen_from_disk_and_invalid_values_fall_back(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder)/'prefs.ini')
+            def settings():
+                return QSettings(path, QSettings.Format.IniFormat)
+            with patch('planetary_tools.ui.recent_files._settings', settings):
+                dialog = AnimateDialog()
+                dialog._fps.setValue(17.5)
+                dialog._motion_interpolation.setChecked(True)
+                dialog._frame_interval.setValue(2.5)
+                dialog.close()
+                self.assertIn('animationFps=17.5', Path(path).read_text())
+                reopened = AnimateDialog()
+                try:
+                    self.assertEqual(reopened._fps.value(), 17.5)
+                    self.assertTrue(reopened._motion_interpolation.isChecked())
+                    self.assertEqual(reopened._frame_interval.value(), 2.5)
+                    self.assertTrue(reopened._frame_interval.isEnabled())
+                    self.assertFalse(reopened._table.isColumnHidden(1))
+                    self.assertTrue(all(not b.isEnabled() for b in reopened._order_buttons))
+                    reopened._motion_interpolation.setChecked(False)
+                finally:
+                    reopened.close()
+                disabled = AnimateDialog()
+                self.assertFalse(disabled._motion_interpolation.isChecked())
+                self.assertFalse(disabled._frame_interval.isEnabled())
+                self.assertEqual(disabled._frame_interval.value(), 2.5)
+                disabled.close()
+                for invalid in ('bad', 'nan', 'inf', '-1', '100000'):
+                    with self.subTest(invalid=invalid):
+                        prefs = settings()
+                        for key in ('animationFps', 'animationFrameInterval', 'animationMotionInterpolation'):
+                            prefs.setValue('outputOptions/' + key, invalid)
+                        prefs.sync()
+                        restored = AnimateDialog()
+                        try:
+                            self.assertEqual(restored._fps.value(), 10.0)
+                            self.assertEqual(restored._frame_interval.value(), 1.0)
+                            self.assertFalse(restored._motion_interpolation.isChecked())
+                        finally:
+                            restored.close()
+
     def test_defaults_table_rounding_controls_and_worker_snapshot(self):
         with tempfile.TemporaryDirectory() as folder:
             settings = QSettings(str(Path(folder)/'prefs.ini'), QSettings.Format.IniFormat)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings
@@ -90,7 +91,16 @@ def last_output_option(key: str, default: str, choices: tuple[str, ...]) -> str:
     return value if value in choices else default
 
 
-def remember_output_option(key: str, value: str | int) -> None:
+def last_output_number(key: str, default: float, minimum: float, maximum: float) -> float:
+    """Restore a finite export setting within its supported range."""
+    try:
+        value = float(_settings().value(f"outputOptions/{key}", default))
+    except (TypeError, ValueError):
+        return default
+    return value if math.isfinite(value) and minimum <= value <= maximum else default
+
+
+def remember_output_option(key: str, value: str | int | float) -> None:
     settings = _settings()
     settings.setValue(f"outputOptions/{key}", str(value))
     settings.sync()

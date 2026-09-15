@@ -44,6 +44,7 @@ from planetary_tools.io.loader import supported_extensions
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import (
     last_output_option,
+    last_output_number,
     remember_output_option,
     last_open_directory,
     last_save_directory,
@@ -175,12 +176,16 @@ class AnimateDialog(QDialog):
         self._fps.setRange(0.1, 60.0)
         self._fps.setDecimals(1)
         self._fps.setSingleStep(0.1)
-        self._fps.setValue(10.0)
+        self._fps.setValue(last_output_number("animationFps", 10.0, 0.1, 60.0))
         self._fps.setSuffix(" fps")
         self._fps.valueChanged.connect(self._update_delay_hint)
+        self._fps.valueChanged.connect(lambda value: remember_output_option("animationFps", value))
         of.addRow("Frame rate", self._fps)
 
         self._motion_interpolation = QCheckBox("Generate frames with motion interpolation")
+        self._motion_interpolation.setChecked(
+            last_output_option("animationMotionInterpolation", "0", ("0", "1")) == "1"
+        )
         self._motion_interpolation.setToolTip(
             "Read WinJUPOS or PVOL filename timestamps, sort chronologically, and generate "
             "missing frames using FFmpeg motion interpolation. Use aligned images for best results."
@@ -190,7 +195,7 @@ class AnimateDialog(QDialog):
         self._frame_interval.setRange(0.1, 1440.0)
         self._frame_interval.setDecimals(1)
         self._frame_interval.setSingleStep(1.0)
-        self._frame_interval.setValue(1.0)
+        self._frame_interval.setValue(last_output_number("animationFrameInterval", 1.0, 0.1, 1440.0))
         self._frame_interval.setSuffix(" min")
         self._frame_interval.setKeyboardTracking(False)
         self._frame_interval.setEnabled(False)
@@ -206,7 +211,13 @@ class AnimateDialog(QDialog):
         self._timing_hint.hide()
         of.addRow(self._timing_hint)
         self._motion_interpolation.toggled.connect(self._on_interpolation_changed)
+        self._motion_interpolation.toggled.connect(
+            lambda enabled: remember_output_option("animationMotionInterpolation", int(enabled))
+        )
         self._frame_interval.valueChanged.connect(lambda _: self._refresh_table())
+        self._frame_interval.valueChanged.connect(
+            lambda value: remember_output_option("animationFrameInterval", value)
+        )
 
         self._back_and_forth = QCheckBox("Back and forth")
         self._back_and_forth.setChecked(True)
@@ -284,6 +295,7 @@ class AnimateDialog(QDialog):
         root.addWidget(buttons)
 
         self._on_format_changed()
+        self._on_interpolation_changed(self._motion_interpolation.isChecked())
 
     def _fmt(self) -> str:
         return str(self._format.currentData())
