@@ -5,7 +5,8 @@ import unittest
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QApplication, QDockWidget
+from PyQt6.QtGui import QImage, QPainter
+from PyQt6.QtWidgets import QApplication, QDockWidget, QWidget
 
 from planetary_tools.core.crop import CropRect
 from planetary_tools.core.document import ImageDocument
@@ -31,6 +32,52 @@ class DetachableDockTests(unittest.TestCase):
             for action in ('cancel', 'apply', 'close_window'):
                 with self.subTest(tool=tool, action=action):
                     self.exercise_dock(tool, action)
+
+    def test_background_is_painted_after_repeated_redocking(self):
+        window = MainWindow()
+        dock = window._filter_dock
+        host = window._filter_host
+        window.show()
+        dock.show()
+        try:
+            self.assertFalse(window.isAnimated())
+            for _ in range(5):
+                for area in (Qt.DockWidgetArea.LeftDockWidgetArea,
+                             Qt.DockWidgetArea.RightDockWidgetArea):
+                    dock.setFloating(True)
+                    self.app.processEvents()
+                    window.addDockWidget(area, dock)
+                    dock.setFloating(False)
+                    self.app.processEvents()
+                    self.assertFalse(dock._redock_refresh.isActive())
+                    # Render without forcing a window background. The host
+                    # must paint its own opaque surface after reparenting.
+                    image = QImage(host.size(), QImage.Format.Format_ARGB32)
+                    image.fill(Qt.GlobalColor.transparent)
+                    painter = QPainter(image)
+                    try:
+                        host.render(painter, flags=QWidget.RenderFlag.DrawChildren)
+                    finally:
+                        painter.end()
+                    self.assertEqual(image.pixelColor(1, 1).alpha(), 255)
+                    self.assertEqual(image.pixelColor(1, 1).rgb(),
+                                     host.palette().color(host.backgroundRole()).rgb())
+            # A queued refresh must not reopen a closed dock or affect a
+            # second detach performed before the queued update is delivered.
+            dock.setFloating(True)
+            dock.setFloating(False)
+            dock.hide()
+            self.app.processEvents()
+            self.assertFalse(dock.isVisible())
+            dock.show()
+            dock.setFloating(True)
+            dock.setFloating(False)
+            dock.setFloating(True)
+            self.app.processEvents()
+            self.assertTrue(dock.isFloating())
+            self.assertFalse(dock._redock_refresh.isActive())
+        finally:
+            window.close()
 
     def exercise_dock(self, tool, action):
         accept = action == 'apply'

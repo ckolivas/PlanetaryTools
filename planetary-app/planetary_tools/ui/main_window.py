@@ -89,6 +89,31 @@ _ALIGN_PRIORITY = ("Green", "Red", "Blue")
 class _ToolDock(QDockWidget):
     closed = pyqtSignal()
 
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setAutoFillBackground(True)
+        self._redock_refresh = QTimer(self)
+        self._redock_refresh.setSingleShot(True)
+        self._redock_refresh.timeout.connect(self._refresh_after_redock)
+        self.topLevelChanged.connect(self._on_top_level_changed)
+
+    def _on_top_level_changed(self, floating: bool) -> None:
+        if floating:
+            self._redock_refresh.stop()
+        else:
+            # Repaint after Qt has finished switching the floating window
+            # back into the main window's backing store.
+            self._redock_refresh.start(0)
+
+    def _refresh_after_redock(self) -> None:
+        if self.isFloating() or not self.isVisible():
+            return
+        self.update()
+        if self.widget() is not None:
+            self.widget().update()
+        if self.parentWidget() is not None:
+            self.parentWidget().update()
+
     def closeEvent(self, event: QCloseEvent) -> None:
         super().closeEvent(event)
         if event.isAccepted():
@@ -100,6 +125,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Planetary Tools")
         self.resize(1200, 800)
+        # Avoid animating a dock while its native floating surface is being
+        # replaced, which can leave stale/transparent areas after redocking.
+        self.setAnimated(False)
 
         self._document: ImageDocument | None = None
         self._active_filter_dlg: _FilterDialog | None = None
@@ -125,6 +153,7 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
         self._filter_host = QWidget()
+        self._filter_host.setAutoFillBackground(True)
         self._filter_host_layout = QVBoxLayout(self._filter_host)
         self._filter_host_layout.setContentsMargins(8, 8, 8, 8)
         self._filter_dock.setWidget(self._filter_host)
