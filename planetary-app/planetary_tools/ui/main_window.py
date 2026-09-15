@@ -11,6 +11,7 @@ import numpy as np
 from PyQt6.QtCore import QEventLoop, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QComboBox,
     QDialog,
@@ -96,8 +97,22 @@ class _ToolDock(QDockWidget):
         self._redock_refresh.setSingleShot(True)
         self._redock_refresh.timeout.connect(self._refresh_after_redock)
         self.topLevelChanged.connect(self._on_top_level_changed)
+        self._update_button_tooltips()
+
+    def _update_button_tooltips(self) -> None:
+        float_button = self.findChild(QAbstractButton, "qt_dockwidget_floatbutton")
+        if float_button is not None:
+            float_button.setToolTip(
+                "Reattach panel to the main window."
+                if self.isFloating()
+                else "Undock panel into a separate window."
+            )
+        close_button = self.findChild(QAbstractButton, "qt_dockwidget_closebutton")
+        if close_button is not None:
+            close_button.setToolTip("Close panel and cancel unapplied changes.")
 
     def _on_top_level_changed(self, floating: bool) -> None:
+        self._update_button_tooltips()
         if floating:
             self._redock_refresh.stop()
         else:
