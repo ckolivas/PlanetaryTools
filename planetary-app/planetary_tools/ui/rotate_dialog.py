@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -10,6 +11,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QVBoxLayout,
 )
@@ -18,6 +20,9 @@ from PyQt6.QtWidgets import (
 class RotateImageDialog(QDialog):
     """Set rotation angle and optional crop-to-original."""
 
+    params_changed = pyqtSignal()
+    preview_toggled = pyqtSignal(bool)
+
     def __init__(self, width: int, height: int, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Rotate Image")
@@ -25,14 +30,14 @@ class RotateImageDialog(QDialog):
         self._orig_h = max(1, int(height))
 
         layout = QVBoxLayout(self)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
         layout.addWidget(
             QLabel(f"Original size: {self._orig_w} × {self._orig_h} px")
         )
         layout.addWidget(
             QLabel(
-                "Positive angles are counter-clockwise. The canvas expands by "
-                "default to fit the rotated image. Resampled with bicubic "
-                "interpolation (highest quality Pillow allows for float data)."
+                "Positive angles rotate counter-clockwise.\n"
+                "The canvas expands to fit the image."
             )
         )
 
@@ -43,6 +48,8 @@ class RotateImageDialog(QDialog):
         self._angle.setSingleStep(0.01)
         self._angle.setSuffix(" °")
         self._angle.setValue(0.0)
+        self._angle.setKeyboardTracking(False)
+        self._angle.valueChanged.connect(self.params_changed.emit)
         self._angle.setToolTip(
             "Rotation angle in degrees. Positive = counter-clockwise (CCW). "
             "Uses high-quality bicubic resampling (best Pillow allows for float)."
@@ -68,6 +75,7 @@ class RotateImageDialog(QDialog):
 
         self._crop = QCheckBox("Crop to original size")
         self._crop.setChecked(False)
+        self._crop.toggled.connect(self.params_changed.emit)
         self._crop.setToolTip(
             "After expanding to fit the rotated image, centre-crop back to "
             "the original width and height."
@@ -75,6 +83,12 @@ class RotateImageDialog(QDialog):
         form.addRow(self._crop)
 
         layout.addLayout(form)
+
+        self.preview = QCheckBox("Preview")
+        self.preview.setChecked(True)
+        self.preview.setToolTip("Show the rotation on the main image canvas.")
+        self.preview.toggled.connect(self.preview_toggled.emit)
+        layout.addWidget(self.preview)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel

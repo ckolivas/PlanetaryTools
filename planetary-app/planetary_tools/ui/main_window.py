@@ -1317,21 +1317,41 @@ class MainWindow(QMainWindow):
             self._document.height,
             self,
         )
-        if dlg.exec() != dlg.DialogCode.Accepted:
-            return
-        angle = dlg.angle_deg()
-        crop = dlg.crop_to_original()
-        if angle % 360.0 == 0.0:
-            return
+
+        def update_rotation() -> None:
+            # Snapshot settings so an in-flight preview cannot pick up edits.
+            angle = dlg.angle_deg()
+            crop = dlg.crop_to_original()
+            self._preview.set_filter_func(
+                lambda data, grayscale: rotate_image(
+                    data, angle, expand=True, crop_to_original=crop
+                )
+            )
+            self._preview.schedule_update()
+
+        self._filter_dialog_open = True
+        self._preview.start(self._document.data, self._document.is_grayscale)
+        dlg.params_changed.connect(update_rotation)
+        dlg.preview_toggled.connect(self._preview.set_preview_enabled)
         try:
-            result = rotate_image(
-                self._document.data,
-                angle,
-                expand=True,
-                crop_to_original=crop,
+            update_rotation()
+            self._preview.set_preview_enabled(dlg.preview.isChecked())
+            accepted = dlg.exec() == dlg.DialogCode.Accepted
+            result = self._preview.finish(
+                apply=accepted and dlg.angle_deg() % 360.0 != 0.0
             )
         except Exception as exc:
             QMessageBox.critical(self, "Rotate Image", str(exc))
+            return
+        finally:
+            dlg.params_changed.disconnect(update_rotation)
+            dlg.preview_toggled.disconnect(self._preview.set_preview_enabled)
+            if self._preview.is_active:
+                self._preview.finish(apply=False)
+            self._canvas.refresh()
+            self._filter_dialog_open = False
+            dlg.deleteLater()
+        if result is None:
             return
         self._undo.record(
             self._document.data,
