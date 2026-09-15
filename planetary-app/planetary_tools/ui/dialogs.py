@@ -836,7 +836,7 @@ class MoonEnhanceDialog(_FilterDialog):
         self.planet_margin = QDoubleSpinBox()
         self.planet_margin.setRange(1.0, 2000.0)
         self.planet_margin.setDecimals(0)
-        self.planet_margin.setSingleStep(10.0)
+        self.planet_margin.setSingleStep(1.0)
         self.planet_margin.setValue(50.0)
         self.planet_margin.setToolTip(
             "Exclusion distance around the planet in pixels."

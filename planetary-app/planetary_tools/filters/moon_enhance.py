@@ -122,7 +122,7 @@ def _planet_seed(
 
 def _auto_margin_px(r_eq: float) -> float:
     raw = max(_AUTO_MARGIN_MIN_PX, _AUTO_MARGIN_RADIUS_FRAC * float(r_eq))
-    # Planet-margin control is integers with step 10.
+    # Keep the automatic estimate rounded to ten pixels; manual margins use one-pixel steps.
     return float(max(_AUTO_MARGIN_MIN_PX, 10.0 * round(raw / 10.0)))
 
 
