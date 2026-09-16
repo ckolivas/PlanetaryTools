@@ -18,5 +18,8 @@ with tempfile.TemporaryDirectory() as folder:
         print(json.dumps(data, indent=2))
         assert data['frozen'] and data['ok'] and data['external_ffmpeg'] is None
     else:
+        # Surface startup failures (for example, a missing shared library)
+        # before reporting a missing self-test report.
+        result.check_returncode()
         raise RuntimeError('Packaged application did not write its media test report.')
     result.check_returncode()
