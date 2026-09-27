@@ -160,6 +160,7 @@ class MoonEnhanceDef(FilterDef):
             params.get("radius_scale", 0.5),
             params.get("planet_margin", 0.0),
             int(params.get("max_moons", 12)),
+            retain_relative_brightness=params.get("retain_relative_brightness", False),
         )
 
 
@@ -399,6 +400,7 @@ FILTERS: dict[str, FilterDef] = {
         label="Moon Enhance",
         default_params=_with_defaults({
             "brightness": 25.0,
+            "retain_relative_brightness": False,
             "sensitivity": 8.0,
             "radius_scale": 0.5,
             # 0 = auto: max(20, 0.5 × planet equivalent radius) px, rounded to 10.

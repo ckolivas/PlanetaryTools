@@ -22,6 +22,8 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
 4. Gain: per moon ``g = clip(target_L / peak_L, 1, max_gain)`` blended through
    a Gaussian sized from the moon's measured FWHM. Equal gain on all channels
    preserves hue. Planet pixels inside the exclusion zone are bit-identical.
+   Optionally use the brightest detected moon's peak for every gain, retaining
+   the relative peak brightness of the moons instead of equalising them.
 
 Detection (steps 1-3, ~2.5 s at 1600×3088) is cached on an image fingerprint +
 detection params so brightness-only preview updates are instant.
@@ -279,11 +281,14 @@ def _gain_field(
     target_l: float,
     radius_scale: float,
     max_gain: float,
+    retain_relative_brightness: bool = False,
 ) -> np.ndarray:
     h, w = shape
     gain = np.ones((h, w), dtype=np.float32)
+    brightest_peak = max((det.peak_l for det in detections), default=0.0)
     for det in detections:
-        g = target_l / max(det.peak_l, 1e-12)
+        peak = brightest_peak if retain_relative_brightness else det.peak_l
+        g = target_l / max(peak, 1e-12)
         g = float(np.clip(g, 1.0, max_gain))
         if g <= 1.0:
             continue
@@ -309,8 +314,14 @@ def moon_enhance(
     max_moons: int,
     planet_floor: float = DEFAULT_PLANET_FLOOR,
     max_gain: float = DEFAULT_MAX_GAIN,
+    retain_relative_brightness: bool = False,
 ) -> np.ndarray:
-    """Brighten detected moons toward ``brightness_pct`` of full scale."""
+    """Brighten detected moons toward ``brightness_pct`` of full scale.
+
+    With ``retain_relative_brightness``, set a common gain from the brightest
+    detected moon, preserving relative peak luminance. Otherwise each moon has
+    its own gain. Gains never dim a moon and are limited by ``max_gain``.
+    """
     arr = np.asarray(data, dtype=np.float32)
     lum = _luminance(arr, is_grayscale)
     detections, exclusion = _cached_detections(
@@ -319,7 +330,10 @@ def moon_enhance(
     target_l = float(brightness_pct) / 100.0
     if not detections or target_l <= 0.0:
         return arr.copy()
-    gain = _gain_field(lum.shape, detections, target_l, radius_scale, max_gain)
+    gain = _gain_field(
+        lum.shape, detections, target_l, radius_scale, max_gain,
+        retain_relative_brightness,
+    )
     # Hard guarantee: gain tails from moons near the margin must not lift the
     # planet or its glow.
     gain[exclusion] = 1.0

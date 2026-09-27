@@ -800,23 +800,40 @@ class MoonEnhanceDialog(_FilterDialog):
         super().__init__("Moon Enhance", parent)
         self.set_help_text(
             "Detects faint moons outside the planet's disk and ring envelope "
-            "and brightens each toward the target brightness. The planet and "
+            "and brightens them toward the target brightness. Enable Retain "
+            "relative brightness to set the brightest moon's target while "
+            "keeping fainter moons proportionally fainter. The planet and "
             "empty sky are left untouched. Detection re-runs when Sensitivity, "
-            "Planet margin, or Max moons change; Moon brightness and Radius "
-            "scale update instantly."
+            "Planet margin, or Max moons change; brightness, relative "
+            "brightness, and Radius scale update instantly."
         )
 
     def _build_filter_params(self) -> None:
         fdef = FILTERS[self.filter_id]
         self.brightness = self._add_double(
-            "Moon brightness", fdef.default_params["brightness"], 0.0, 100.0,
+            "Max moon brightness", fdef.default_params["brightness"], 0.0, 100.0,
             step=1.0, decimals=0,
         )
         self.brightness.setSuffix(" %")
         self.brightness.setToolTip(
-            "Brightness each detected moon's peak is driven toward, as a "
-            "percentage of full scale."
+            "Target peak brightness of the brightest detected moon, as a "
+            "percentage of full scale. With Retain relative brightness off, "
+            "each moon is independently boosted toward this target. "
+            "Does not dim moons already above the target; very faint moons "
+            "may be limited by the maximum gain."
         )
+        self.retain_relative_brightness = QCheckBox("Retain relative brightness")
+        self.retain_relative_brightness.setChecked(
+            fdef.default_params["retain_relative_brightness"]
+        )
+        self.retain_relative_brightness.setToolTip(
+            "Apply the same boost to all detected moons, based on the brightest "
+            "moon, so fainter moons stay proportionally fainter."
+        )
+        self.retain_relative_brightness.toggled.connect(
+            lambda _: self.params_changed.emit()
+        )
+        self._form.addRow(self.retain_relative_brightness)
         self.sensitivity = self._add_double(
             "Sensitivity", fdef.default_params["sensitivity"], 1.0, 50.0,
             step=0.5, decimals=1,
@@ -885,6 +902,7 @@ class MoonEnhanceDialog(_FilterDialog):
         p = super().get_params()
         p.update({
             "brightness": self.brightness.value(),
+            "retain_relative_brightness": self.retain_relative_brightness.isChecked(),
             "sensitivity": self.sensitivity.value(),
             "radius_scale": self.radius_scale.value(),
             "planet_margin": (
@@ -906,6 +924,11 @@ class MoonEnhanceDialog(_FilterDialog):
             spin.blockSignals(True)
             spin.setValue(float(params.get(key, spin.value())))
             spin.blockSignals(False)
+        self.retain_relative_brightness.blockSignals(True)
+        self.retain_relative_brightness.setChecked(
+            bool(params.get("retain_relative_brightness", False))
+        )
+        self.retain_relative_brightness.blockSignals(False)
         margin = float(params.get("planet_margin", 0.0))
         auto = margin <= 0.0
         self.margin_auto.blockSignals(True)
@@ -2292,7 +2315,7 @@ def edit_filter_params(
             widgets[key] = spin
     elif filter_id == "moon_enhance":
         specs = (
-            ("brightness", "Moon brightness", 0.0, 100.0, 0, " %"),
+            ("brightness", "Max moon brightness", 0.0, 100.0, 0, " %"),
             ("sensitivity", "Sensitivity", 1.0, 50.0, 1, ""),
             ("radius_scale", "Radius scale", 0.2, 3.0, 1, ""),
             ("planet_margin", "Planet margin", 0.0, 2000.0, 0, ""),
@@ -2312,6 +2335,17 @@ def edit_filter_params(
             spin.setValue(float(params.get(key, fdef.default_params[key])))
             form.addRow(label, spin)
             widgets[key] = spin
+        relative = QCheckBox("Retain relative brightness")
+        relative.setChecked(bool(params.get(
+            "retain_relative_brightness", fdef.default_params["retain_relative_brightness"]
+        )))
+        relative.setToolTip(
+            "Use Max moon brightness as the brightest detected moon's target "
+            "and give all moons the same boost. With this off, each moon is "
+            "independently boosted toward the target."
+        )
+        form.addRow(relative)
+        widgets["retain_relative_brightness"] = relative
     else:
         layout.addWidget(QLabel("No numeric parameters for this filter."))
 
