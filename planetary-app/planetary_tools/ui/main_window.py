@@ -714,10 +714,23 @@ class MainWindow(QMainWindow):
         if self._document is None:
             return True
         selected_filter = self._default_save_as_filter()
+        initial_path = Path(last_save_directory())
+        if self._document.path is not None:
+            filename = Path(self._document.path).name
+            for format_name, extensions in (
+                ("png", (".png",)),
+                ("jpeg", (".jpg", ".jpeg")),
+                ("tiff", (".tif", ".tiff")),
+            ):
+                if format_name in selected_filter.lower():
+                    if Path(filename).suffix.lower() not in extensions:
+                        filename = str(Path(filename).with_suffix(extensions[0]))
+                    break
+            initial_path /= filename
         path, selected = QFileDialog.getSaveFileName(
             self,
             "Save Image As",
-            last_save_directory(),
+            str(initial_path),
             self._save_as_filters(),
             selected_filter,
             options=self._save_as_dialog_options(),
