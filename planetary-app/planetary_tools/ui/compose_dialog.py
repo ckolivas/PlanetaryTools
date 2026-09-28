@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -20,6 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from planetary_tools.ui.file_dialog import QFileDialog
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 

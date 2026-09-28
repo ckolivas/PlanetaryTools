@@ -45,7 +45,7 @@ class MultipleFileDialogTests(unittest.TestCase):
         buttons = [b for b in dialog.findChildren(QPushButton) if b.text() == 'Add files…']
         self.assertEqual(len(buttons), 1)
         self.assertFalse(any(b.text() == 'Select files…' for b in dialog.findChildren(QPushButton)))
-        with patch('PyQt6.QtWidgets.QFileDialog.getOpenFileNames', return_value=([str(p) for p in paths], '')):
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getOpenFileNames', return_value=([str(p) for p in paths], '')):
             buttons[0].click()
 
     def test_batch_align_and_animate_append_and_display_all_files(self):
@@ -68,7 +68,7 @@ class MultipleFileDialogTests(unittest.TestCase):
         dialog = BatchDialog()
         self.addCleanup(dialog.close)
         for path in (self.first, self.second):
-            with patch('PyQt6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(path.parent)):
+            with patch('planetary_tools.ui.file_dialog.QFileDialog.getExistingDirectory', return_value=str(path.parent)):
                 dialog._pick_folder()
         self.assertEqual(dialog._input_files, [self.first, self.second])
         self.assertEqual(dialog._input_list.count(), 2)
@@ -99,7 +99,7 @@ class MultipleFileDialogTests(unittest.TestCase):
         nested.touch()
         dialog = BatchDialog()
         self.addCleanup(dialog.close)
-        with patch('PyQt6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.first.parent)):
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getExistingDirectory', return_value=str(self.first.parent)):
             dialog._pick_folder()
         self.assertEqual(dialog._input_list.count(), 1)
         dialog._recursive.setChecked(True)
@@ -124,7 +124,7 @@ class MultipleFileDialogTests(unittest.TestCase):
         custom = str(self.root/'custom.gif')
         dialog._output.setText(custom)
         dialog._on_output_edited(custom)
-        with patch('PyQt6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.second.parent)):
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getExistingDirectory', return_value=str(self.second.parent)):
             dialog._pick_folder()
             dialog._pick_folder()
         self.assertCountEqual(dialog._paths, [self.first, self.second])

@@ -52,12 +52,12 @@ class OutputPreferenceTests(unittest.TestCase):
     def test_save_as_and_decompose_share_last_type_and_use_its_extension(self):
         window = self.window()
         selected = 'PNG 16-bit (*.png)'
-        with patch('PyQt6.QtWidgets.QFileDialog.getSaveFileName',
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getSaveFileName',
                    return_value=(str(self.root/'output.tif'), selected)), patch.object(window, '_write_document') as save:
             self.assertTrue(window._try_save_document_as())
             save.assert_called_once_with(str(self.root/'output.png'), 16)
         self.assertEqual(last_save_filter(), selected)
-        with patch('PyQt6.QtWidgets.QFileDialog.getSaveFileName',
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getSaveFileName',
                    return_value=(str(self.root/'channels.png'), 'TIFF float32 (*.tif *.tiff)')) as picker, \
              patch('planetary_tools.ui.main_window.save_channel') as save:
             window._run_rgb_decompose()
@@ -66,7 +66,7 @@ class OutputPreferenceTests(unittest.TestCase):
             self.assertTrue(all(call.kwargs['bit_depth']==32 for call in save.call_args_list))
         reopened = self.window()
         self.assertEqual(reopened._default_save_as_filter(), 'TIFF float32 (*.tif *.tiff)')
-        with patch('PyQt6.QtWidgets.QFileDialog.getSaveFileName', return_value=('', 'JPEG (*.jpg *.jpeg)')):
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getSaveFileName', return_value=('', 'JPEG (*.jpg *.jpeg)')):
             self.assertFalse(reopened._try_save_document_as())
         self.assertEqual(last_save_filter(), 'TIFF float32 (*.tif *.tiff)')
 
@@ -74,7 +74,7 @@ class OutputPreferenceTests(unittest.TestCase):
         window = self.window()
         destination = self.root/'output.png'
         destination.write_bytes(b'keep')
-        with patch('PyQt6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root/'output.tif'), 'PNG 8-bit (*.png)')), \
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getSaveFileName', return_value=(str(self.root/'output.tif'), 'PNG 8-bit (*.png)')), \
              patch('PyQt6.QtWidgets.QMessageBox.question', return_value=QMessageBox.StandardButton.No), \
              patch.object(window, '_write_document') as save:
             self.assertFalse(window._try_save_document_as())
@@ -85,7 +85,7 @@ class OutputPreferenceTests(unittest.TestCase):
         dialog = AnimateDialog()
         self.addCleanup(dialog.close)
         dialog._format.setCurrentIndex(dialog._format.findData('webp'))
-        with patch('PyQt6.QtWidgets.QFileDialog.getSaveFileName',
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getSaveFileName',
                    return_value=(str(self.root/'movie.webp'), 'Animated PNG (*.png)')) as picker:
             dialog._browse_output()
             self.assertEqual(picker.call_args.args[4], 'WebP (*.webp)')

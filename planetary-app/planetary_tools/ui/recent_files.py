@@ -8,6 +8,7 @@ from pathlib import Path
 from PyQt6.QtCore import QSettings
 
 _MAX_RECENT = 10
+_MAX_RECENT_DIRECTORIES = 10
 
 
 def _settings() -> QSettings:
@@ -16,6 +17,40 @@ def _settings() -> QSettings:
 
 def _normalize(path: str | Path) -> str:
     return str(Path(path).expanduser().resolve())
+
+
+def list_recent_directories() -> list[str]:
+    """Existing directories used by any file picker, newest first."""
+    settings = _settings()
+    raw = settings.value("recentDirectories")
+    if raw is None:
+        # Seed the new sidebar from the file history of earlier versions.
+        paths = [settings.value("lastOpenDir"), settings.value("lastSaveDir")]
+        paths.extend(str(Path(path).parent) for path in list_recent())
+    else:
+        paths = [raw] if isinstance(raw, str) else raw
+    directories: list[str] = []
+    for path in paths:
+        if not path:
+            continue
+        directory = Path(str(path)).expanduser()
+        if directory.is_dir():
+            normalized = _normalize(directory)
+            if normalized not in directories:
+                directories.append(normalized)
+    return directories[:_MAX_RECENT_DIRECTORIES]
+
+
+def remember_directory(path: str | Path) -> None:
+    """Record a confirmed picker directory independently of recent image files."""
+    directory = Path(path).expanduser()
+    if not directory.is_dir():
+        return
+    normalized = _normalize(directory)
+    paths = [normalized] + [p for p in list_recent_directories() if p != normalized]
+    settings = _settings()
+    settings.setValue("recentDirectories", paths[:_MAX_RECENT_DIRECTORIES])
+    settings.sync()
 
 
 def list_recent(*, existing_only: bool = False) -> list[str]:
@@ -51,6 +86,7 @@ def remember_open_path(path: str | Path) -> None:
     resolved = Path(path).expanduser().resolve()
     directory = resolved.parent if resolved.is_file() else resolved
     if directory.is_dir():
+        remember_directory(directory)
         _settings().setValue("lastOpenDir", str(directory))
 
 
@@ -69,6 +105,7 @@ def remember_save_path(path: str | Path) -> None:
     resolved = Path(path).expanduser().resolve()
     directory = resolved.parent
     if directory.is_dir():
+        remember_directory(directory)
         _settings().setValue("lastSaveDir", str(directory))
 
 

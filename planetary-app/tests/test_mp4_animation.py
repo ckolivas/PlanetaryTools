@@ -133,7 +133,7 @@ class Mp4DialogTests(unittest.TestCase):
                 try:
                     self.assertEqual(dialog._mp4_crf.value(), 0)
                     self.assertFalse(dialog._mp4_crf.isEnabled())
-                    with patch('PyQt6.QtWidgets.QFileDialog.getSaveFileName',
+                    with patch('planetary_tools.ui.file_dialog.QFileDialog.getSaveFileName',
                                return_value=(str(Path(folder)/'video.gif'), 'MP4 video (*.mp4)')):
                         dialog._browse_output()
                     self.assertEqual(dialog._fmt(), 'mp4')

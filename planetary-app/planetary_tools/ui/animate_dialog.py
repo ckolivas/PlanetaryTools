@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -41,6 +40,7 @@ from planetary_tools.core.animation_interpolation import (
     build_timeline, filename_timestamp, rounded_timestamp,
 )
 from planetary_tools.io.loader import supported_extensions
+from planetary_tools.ui.file_dialog import QFileDialog
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import (
     last_output_option,

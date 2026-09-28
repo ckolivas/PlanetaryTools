@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDockWidget,
-    QFileDialog,
     QLabel,
     QMainWindow,
     QMenu,
@@ -41,6 +40,7 @@ from planetary_tools.io.loader import (
     save_image,
 )
 from planetary_tools.ui.batch_dialog import BatchDialog
+from planetary_tools.ui.file_dialog import QFileDialog
 from planetary_tools.ui.file_filters import image_file_filters, save_path_for_filter
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.animate_dialog import AnimateDialog

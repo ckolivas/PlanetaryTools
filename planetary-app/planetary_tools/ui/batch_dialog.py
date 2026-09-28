@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -42,6 +41,7 @@ from planetary_tools.batch.pipeline import (
 from planetary_tools.core.presets import ensure_builtin_presets
 from planetary_tools.filters.registry import FILTERS, batch_filters
 from planetary_tools.ui.dialogs import edit_filter_params
+from planetary_tools.ui.file_dialog import QFileDialog
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 from planetary_tools.ui.recent_files import last_output_option, remember_output_option
