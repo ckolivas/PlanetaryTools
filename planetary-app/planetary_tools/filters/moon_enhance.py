@@ -10,9 +10,9 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
 1. Planet mask: seed at ``planet_floor × L.max()`` (the max, not a percentile —
    on a wide field p99 of luminance is sky), keep the largest connected
    component, and exclude everything within ``margin`` px of it (Euclidean
-   distance transform). Auto margin is half the planet's equivalent radius
-   (min 20 px). A full radius swallowed inner moons on close-ups
-   (3moons.png: ~105 px vs moons at ~60 px from the rings).
+   distance transform). Auto measures the surrounding glow, with a small
+   safety pad, within a size-based limit (half the equivalent radius, min
+   20 px). Sharper stacks need less padding to retain nearby moons.
 2. Background: median filter at ×4 downsample, upsampled — removes sky
    gradients and planet glow so moons appear as compact positive residual.
 3. Detection: local SNR against a local median/MAD noise map (sky noise is
@@ -41,13 +41,14 @@ from planetary_tools.core.scale import scale_image
 
 # Planet seed threshold as a fraction of the luminance maximum.
 DEFAULT_PLANET_FLOOR = 0.05
-# Auto exclusion margin = this fraction of the planet's equivalent radius.
-# Half a radius covers limb/ring glow without swallowing inner moons just
-# outside the seed (3moons.png; a full radius chose ~100 px when 50 px
-# still captured them). Leftover glow knots on the exclusion rim are
-# rejected in detection, not by inflating the pad (widefield.png).
+# Conservative upper bound / fallback for the measured auto margin. A fixed
+# half-radius margin alone hides close moons around sharply processed planets.
 _AUTO_MARGIN_RADIUS_FRAC = 0.5
 _AUTO_MARGIN_MIN_PX = 20.0
+_AUTO_MARGIN_BIN_PX = 5
+_AUTO_MARGIN_SKY_WIDTH_PX = 15
+_AUTO_MARGIN_MIN_SAMPLES = 64
+_AUTO_MARGIN_GLOW_FLOOR = 1e-4  # fraction of the image peak
 
 # Background / noise maps are computed at this downsample factor. Full-res
 # median filtering at these kernel sizes takes minutes; downsampled ~seconds.
@@ -123,9 +124,45 @@ def _planet_seed(
 
 
 def _auto_margin_px(r_eq: float) -> float:
+    """Size-based upper bound, also used when the glow cannot be measured."""
     raw = max(_AUTO_MARGIN_MIN_PX, _AUTO_MARGIN_RADIUS_FRAC * float(r_eq))
-    # Keep the automatic estimate rounded to ten pixels; manual margins use one-pixel steps.
+    # Preserve the previous conservative bound; measured margins use whole pixels.
     return float(max(_AUTO_MARGIN_MIN_PX, 10.0 * round(raw / 10.0)))
+
+
+def _halo_margin_px(lum: np.ndarray, distance: np.ndarray, r_eq: float) -> float:
+    """Measure glow outside the planet/ring mask without following compact moons.
+
+    Use the 90th percentile in distance bands, rather than the maximum: moons
+    occupy only a small part of each band. Compare with the nearby sky beyond
+    the conservative margin, allowing for its noise/gradient spread. If there
+    is insufficient sky (e.g. a tight crop), keep the conservative margin.
+    """
+    limit = _auto_margin_px(r_eq)
+    if limit <= _AUTO_MARGIN_MIN_PX:
+        return limit
+    region = (distance > 0) & (distance < limit + _AUTO_MARGIN_SKY_WIDTH_PX)
+    distances = distance[region]
+    values = lum[region]
+    sky = values[distances >= limit]
+    if sky.size < _AUTO_MARGIN_MIN_SAMPLES:
+        return limit
+    sky_median, sky_high = np.percentile(sky, [50, 90])
+    threshold = max(
+        float(sky_high + 3.0 * (sky_high - sky_median)),
+        _AUTO_MARGIN_GLOW_FLOOR * float(lum.max()),
+    )
+    halo_edge = 0.0
+    for start in range(0, int(limit), _AUTO_MARGIN_BIN_PX):
+        end = start + _AUTO_MARGIN_BIN_PX
+        band = values[(distances >= start) & (distances < end)]
+        if band.size < _AUTO_MARGIN_MIN_SAMPLES:
+            return limit
+        if float(np.percentile(band, 90)) > threshold:
+            halo_edge = float(end)
+    # Keep the residual-smoothing footprint outside the measured glow.
+    pad = float(np.ceil(3.5 * _RESIDUAL_SMOOTH_SIGMA))
+    return min(limit, max(_AUTO_MARGIN_MIN_PX, halo_edge + pad))
 
 
 def auto_planet_margin(
@@ -135,10 +172,11 @@ def auto_planet_margin(
 ) -> float:
     """Exclusion distance used when ``planet_margin`` is 0 (Auto)."""
     lum = _luminance(data, is_grayscale)
-    _planet, r_eq = _planet_seed(lum, planet_floor)
+    planet, r_eq = _planet_seed(lum, planet_floor)
     if r_eq <= 0.0:
         return _AUTO_MARGIN_MIN_PX
-    return _auto_margin_px(r_eq)
+    distance = ndimage.distance_transform_edt(~planet)
+    return _halo_margin_px(lum, distance, r_eq)
 
 
 def _planet_exclusion(
@@ -148,9 +186,9 @@ def _planet_exclusion(
     planet, r_eq = _planet_seed(lum, planet_floor)
     if r_eq <= 0.0:
         return np.zeros(lum.shape, dtype=bool), 0.0
-    if margin <= 0.0:
-        margin = _auto_margin_px(r_eq)
     distance = ndimage.distance_transform_edt(~planet)
+    if margin <= 0.0:
+        margin = _halo_margin_px(lum, distance, r_eq)
     return distance <= margin, r_eq
 
 

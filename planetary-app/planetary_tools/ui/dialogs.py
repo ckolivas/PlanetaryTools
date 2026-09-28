@@ -862,8 +862,9 @@ class MoonEnhanceDialog(_FilterDialog):
         self.margin_auto = QCheckBox("Auto")
         self.margin_auto.setChecked(True)
         self.margin_auto.setToolTip(
-            "Half the planet's equivalent radius, enough for limb/ring glow "
-            "without swallowing nearby moons."
+            "Measure the surrounding glow to protect the planet and rings "
+            "while retaining nearby moons. Uses a conservative size-based "
+            "margin if there is insufficient surrounding sky."
         )
         self.margin_auto.toggled.connect(self._on_margin_auto_toggled)
         self.margin_auto.toggled.connect(lambda _: self.params_changed.emit())
@@ -2330,7 +2331,7 @@ def edit_filter_params(
             if key == "planet_margin":
                 spin.setSpecialValueText("Auto")
                 spin.setToolTip(
-                    "Set to 0 for Auto (half the planet's equivalent radius)."
+                    "Set to 0 for Auto (measure the surrounding planet/ring glow)."
                 )
             spin.setValue(float(params.get(key, fdef.default_params[key])))
             form.addRow(label, spin)

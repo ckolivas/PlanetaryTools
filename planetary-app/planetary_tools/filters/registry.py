@@ -403,7 +403,7 @@ FILTERS: dict[str, FilterDef] = {
             "retain_relative_brightness": False,
             "sensitivity": 8.0,
             "radius_scale": 0.5,
-            # 0 = auto: max(20, 0.5 × planet equivalent radius) px, rounded to 10.
+            # 0 = auto: measure surrounding glow within a size-based limit.
             "planet_margin": 0.0,
             "max_moons": 12,
         }),
