@@ -8,8 +8,11 @@ Pipeline
    on the subject — softer stacks peak at coarser scales.
 4. Score residual energy at scales derived from that PSF proxy:
    * fine high-pass MAD (bulk noise)
-   * excess p99 tail beyond a Gaussian expectation (sparse speckles)
+   * a bounded-weight p99 contribution (sparse speckles)
    * mid-scale band-pass MAD (coarser salt), lightly weighted
+   Remove the smooth component of each residual first so subject curvature
+   is not scored as grain. Combine MAD and tail amplitudes without dividing
+   by MAD: an inverse-MAD boost can decrease as actual noise increases.
 
 Peak-normalized so global stretch does not inflate the score.
 
@@ -58,12 +61,10 @@ _BP_MIN_WIDTH = 1.0
 
 # For unit MAD of a Gaussian, |x| p99 ≈ 3.8 · MAD.
 _GAUSS_P99_OVER_MAD = 3.8
-# Linear excess of p99 over the Gaussian expectation (sparse speckles).
-_EXCESS_TAIL_WEIGHT = 0.45
-# When p99/MAD exceeds this, multiply score further — soft stacks that look
-# smooth (low MAD) but explode into coarse salt when sharpened (blue.png).
-_TAIL_RATIO_REF = 6.0
-_TAIL_RATIO_BOOST = 0.55
+# Mix bulk MAD with the p99 amplitude expressed on the same MAD scale.
+# Positive weights keep either statistic from reducing the score when it
+# increases. Do not multiply by p99/MAD or subtract MAD from the tail term.
+_TAIL_WEIGHT = 0.25
 # Texture scale above this is treated as a soft / large-PSF source (blue≈4.3;
 # good/poor≈3.9). Soft sources get mid-scale salt weighted much more heavily.
 _TEXTURE_SOFT_REF = 4.15
@@ -73,10 +74,8 @@ _BANDPASS_MAD_WEIGHT_COLOR = 0.10  # colour: avoid scoring chroma structure
 # Soft mono band-pass: catch coarse wavelet salt that fine residual misses.
 _SOFT_BAND_MAD_WEIGHT = 0.20
 _SOFT_BAND_MAD_FROM_S = 0.90  # extra × max(0, s − soft_ref)
-_SOFT_BAND_EXCESS_WEIGHT = 0.25
-_SOFT_BAND_EXCESS_FROM_S = 1.20
 # Colour: channel-wise sharpen injects L residual; keep MAD-focused scoring.
-_COLOR_EXCESS_TAIL_WEIGHT = 0.10
+_COLOR_TAIL_WEIGHT = 0.10
 
 NOISE_DISPLAY_SCALE = 1000.0
 _LUMINANCE_BLOCK_PIXELS = 65536
@@ -169,6 +168,19 @@ def _p99_abs(values: np.ndarray) -> float:
     if values.size == 0:
         return 0.0
     return float(np.percentile(np.abs(values), 99.0))
+
+
+def _residual_noise_level(values: np.ndarray, tail_weight: float) -> float:
+    """MAD-scale amplitude with a finite contribution from sparse speckles.
+
+    For Gaussian residuals both terms estimate the same amplitude. A sparse
+    tail still contributes when MAD is zero, but cannot be amplified by a
+    small denominator or decline merely because the bulk MAD rises.
+    """
+    return (
+        (1.0 - tail_weight) * _mad(values)
+        + tail_weight * _p99_abs(values) / _GAUSS_P99_OVER_MAD
+    )
 
 
 def _signal_mask(lum: np.ndarray) -> np.ndarray:
@@ -273,48 +285,35 @@ def _hybrid_noise_level(
     hp, bp_lo, bp_hi = _scales_from_texture(texture_scale)
     flat_q = _FLAT_QUANTILE_COLOR if chromatic else _FLAT_QUANTILE
     mask = _noise_sample_mask(lum, flat_quantile=flat_q)
-    fine = (lum - gaussian_filter(lum, hp, mode="reflect"))[mask]
+    fine = lum - gaussian_filter(lum, hp, mode="reflect")
+    # A single high-pass also responds to smooth curvature in the disk,
+    # rings and halo. High-pass the residual again before sampling; this
+    # rejects that broad component without discarding isolated speckles.
+    fine = (fine - gaussian_filter(fine, hp, mode="reflect"))[mask]
     if fine.size < _MIN_SAMPLES:
         return None
 
-    mad_fine = _mad(fine) / peak
-    p99_fine = _p99_abs(fine) / peak
-    excess_tail = max(0.0, p99_fine - _GAUSS_P99_OVER_MAD * mad_fine)
-
-    if chromatic:
-        # Colour: channel-wise sharpen injects L residual; heavy-tail boosts
-        # over-score good colour stacks. Prefer bulk MAD with mild excess.
-        fine_score = mad_fine + _COLOR_EXCESS_TAIL_WEIGHT * excess_tail
-        soft = 0.0
-    else:
-        fine_score = mad_fine + _EXCESS_TAIL_WEIGHT * excess_tail
-        # Heavy-tailed residual (high p99/MAD): soft mono stacks that explode
-        # into salt when sharpened (blue.png).
-        tail_ratio = p99_fine / (mad_fine + 1e-18)
-        fine_score *= 1.0 + _TAIL_RATIO_BOOST * max(
-            0.0, tail_ratio - _TAIL_RATIO_REF
-        )
-        soft = max(0.0, float(texture_scale) - _TEXTURE_SOFT_REF)
-        fine_score *= 1.0 + _TEXTURE_SOFT_BOOST * soft
+    fine_score = _residual_noise_level(
+        fine, _COLOR_TAIL_WEIGHT if chromatic else _TAIL_WEIGHT
+    ) / peak
+    soft = 0.0 if chromatic else max(0.0, float(texture_scale) - _TEXTURE_SOFT_REF)
+    fine_score *= 1.0 + _TEXTURE_SOFT_BOOST * soft
 
     band = (
         gaussian_filter(lum, bp_lo, mode="reflect")
         - gaussian_filter(lum, bp_hi, mode="reflect")
-    )[mask]
-    mad_band = _mad(band) / peak
+    )
+    band = (band - gaussian_filter(band, bp_lo, mode="reflect"))[mask]
     if chromatic:
-        band_score = _BANDPASS_MAD_WEIGHT_COLOR * mad_band
+        band_score = _BANDPASS_MAD_WEIGHT_COLOR * _mad(band) / peak
     elif soft > 0.0:
-        p99_band = _p99_abs(band) / peak
-        band_excess = max(0.0, p99_band - _GAUSS_P99_OVER_MAD * mad_band)
         # Soft mono: mid-scale salt after medium/coarse wavelet.
         band_score = (
-            (_SOFT_BAND_MAD_WEIGHT + _SOFT_BAND_MAD_FROM_S * soft) * mad_band
-            + (_SOFT_BAND_EXCESS_WEIGHT + _SOFT_BAND_EXCESS_FROM_S * soft)
-            * band_excess
-        )
+            (_SOFT_BAND_MAD_WEIGHT + _SOFT_BAND_MAD_FROM_S * soft)
+            * _residual_noise_level(band, _TAIL_WEIGHT)
+        ) / peak
     else:
-        band_score = _BANDPASS_MAD_WEIGHT * mad_band
+        band_score = _BANDPASS_MAD_WEIGHT * _mad(band) / peak
 
     return max(fine_score, band_score)
 
