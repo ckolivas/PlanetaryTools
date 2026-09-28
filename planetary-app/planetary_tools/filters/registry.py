@@ -12,6 +12,7 @@ from planetary_tools.core.brightness import (
     apply_channel_post_process,
     brightness_increase_pct,
     measure_brightness,
+    measure_channel_brightness,
 )
 from planetary_tools.core.noise import (
     absolute_noise,
@@ -79,6 +80,8 @@ class FilterOutputStats:
     # Absolute noise of the unfiltered input (same scale/probes as noise_level).
     # Matches across enhance dialogs for a given document.
     source_noise_level: float | None = None
+    # Per-channel ranges of the same pre-clip result for Levels/Curves.
+    channel_brightness: dict[str, BrightnessInfo] | None = None
 
 
 @dataclass
@@ -611,7 +614,10 @@ def _stats_from_raw(
                 chromatic=chromatic,
             )
 
-    return FilterOutputStats(brightness, increase, noise, source_noise)
+    channels = None
+    if _canonical_filter_id(filter_id) in {"levels", "curves"}:
+        channels = measure_channel_brightness(raw, is_grayscale)
+    return FilterOutputStats(brightness, increase, noise, source_noise, channels)
 
 
 def apply_filter_and_output_stats(

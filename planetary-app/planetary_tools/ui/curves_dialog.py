@@ -238,6 +238,7 @@ class CurveEditor(QWidget):
 class CurvesDialog(_FilterDialog):
     filter_id = 'curves'
     supports_presets = True
+    supports_channel_readouts = True
 
     def __init__(self, parent=None):
         self._settings = default_curves_params()
@@ -329,6 +330,11 @@ class CurvesDialog(_FilterDialog):
         self.editor.set_curve(curve, ch)
         self.pick.setEnabled(self._canvas is not None and curve['mode'] == 'smooth')
         self._update_histogram()
+        self._refresh_channel_readouts()
+
+    def _selected_readout_channel(self):
+        channel = self.channel.currentText()
+        return channel if channel in ('Red', 'Green', 'Blue', 'Alpha') else None
 
     def _curve_changed(self):
         self._settings['channels'][self.channel.currentText()] = deepcopy(self.editor.curve)

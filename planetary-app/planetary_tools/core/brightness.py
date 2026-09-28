@@ -64,6 +64,22 @@ def measure_brightness(data: np.ndarray, is_grayscale: bool) -> BrightnessInfo:
     return BrightnessInfo(lo * 100.0, hi * 100.0, lo < -1e-6 or hi > 1.0 + 1e-6)
 
 
+def measure_channel_brightness(
+    data: np.ndarray, is_grayscale: bool,
+) -> dict[str, BrightnessInfo]:
+    """Individual RGB/alpha ranges, in the same linear units as the overall readout."""
+    arr = np.asarray(data)
+    if arr.ndim != 3 or arr.shape[-1] < 3:
+        return {}
+    channels = {} if is_grayscale else {
+        name: measure_brightness(arr[..., index], True)
+        for index, name in enumerate(("Red", "Green", "Blue"))
+    }
+    if arr.shape[-1] == 4:
+        channels["Alpha"] = measure_brightness(arr[..., 3], True)
+    return channels
+
+
 def brightness_increase_pct(
     input_data: np.ndarray,
     output_data: np.ndarray,

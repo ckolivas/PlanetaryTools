@@ -985,6 +985,7 @@ class MainWindow(QMainWindow):
             stats.brightness_increase_pct,
             stats.noise_level,
             stats.source_noise_level,
+            channel_info=stats.channel_brightness,
         )
         preview_data = self._preview.display_data()
         if preview_data is not None:

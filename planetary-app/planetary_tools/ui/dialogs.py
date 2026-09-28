@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from planetary_tools.core.brightness import BrightnessInfo, measure_brightness
+from planetary_tools.core.brightness import BrightnessInfo, measure_brightness, measure_channel_brightness
 from planetary_tools.core.presets import (
     ensure_builtin_presets,
     reserved_preset_names,
@@ -196,11 +196,15 @@ class _FilterDialog(QWidget):
     filter_id: str = ""
     supports_presets: bool = False
     supports_clamp: bool = False
+    supports_channel_readouts: bool = False
 
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._title = title
         self._input_info: BrightnessInfo | None = None
+        self._input_channel_info: dict[str, BrightnessInfo] = {}
+        self._output_channel_info: dict[str, BrightnessInfo] = {}
+        self._channel_output_unavailable = ""
         # True while params_changed is emitted by something that is not a
         # hand edit (applying a preset, toggling preview), so the preset
         # combo is not switched to (None).
@@ -249,6 +253,19 @@ class _FilterDialog(QWidget):
         input_row.addWidget(self._help_icon)
         root.addLayout(input_row)
         root.addWidget(self._output_label)
+        self._channel_input_label: QLabel | None = None
+        self._channel_output_label: QLabel | None = None
+        if self.supports_channel_readouts:
+            self._channel_input_label = QLabel()
+            self._channel_output_label = QLabel()
+            for label in (self._channel_input_label, self._channel_output_label):
+                label.setStyleSheet("font-weight: bold;")
+                label.setToolTip(
+                    "Selected channel levels in linear light, matching the overall "
+                    "input/output values. Output is measured before clipping."
+                )
+                label.hide()
+                root.addWidget(label)
         if self._increase_label is not None:
             root.addWidget(self._increase_label)
         if self._noise_label is not None:
@@ -424,6 +441,11 @@ class _FilterDialog(QWidget):
         self._noise_texture_scale = noise_texture_scale
         self._noise_chromatic = noise_chromatic
         self._input_label.setText(self._input_info.format_line("Input — "))
+        if self.supports_channel_readouts:
+            self._input_channel_info = measure_channel_brightness(data, is_grayscale)
+            self._output_channel_info = {}
+            self._channel_output_unavailable = ""
+            self._refresh_channel_readouts()
         self._histogram_source = self._input_data
         self._histogram_is_grayscale = is_grayscale
         self.update_histogram_display(data)
@@ -446,7 +468,12 @@ class _FilterDialog(QWidget):
         increase_pct: float | None = None,
         noise_level: float | None = None,
         source_noise_level: float | None = None,
+        channel_info: dict[str, BrightnessInfo] | None = None,
     ) -> None:
+        if self.supports_channel_readouts:
+            self._output_channel_info = (channel_info or {}) if info is not None else {}
+            self._channel_output_unavailable = "(preview off)" if info is None else ""
+            self._refresh_channel_readouts()
         if info is None:
             self._output_label.setText("Output — (preview off)")
             if self._increase_label is not None:
@@ -481,6 +508,27 @@ class _FilterDialog(QWidget):
                 self._noise_label.setText(
                     f"Noise — {shown:.2f}  (before clipping)"
                 )
+
+    def _selected_readout_channel(self) -> str | None:
+        return None
+
+    def _refresh_channel_readouts(self) -> None:
+        if self._channel_input_label is None or self._channel_output_label is None:
+            return
+        channel = self._selected_readout_channel()
+        visible = channel in self._input_channel_info
+        self._channel_input_label.setVisible(visible)
+        self._channel_output_label.setVisible(visible)
+        if not visible:
+            return
+        self._channel_input_label.setText(
+            self._input_channel_info[channel].format_line(f"{channel} input — ")
+        )
+        output = self._output_channel_info.get(channel)
+        self._channel_output_label.setText(
+            output.format_line(f"{channel} output — ") if output is not None
+            else f"{channel} output — {self._channel_output_unavailable}".rstrip()
+        )
 
     def _add_double(
         self,
@@ -1335,6 +1383,7 @@ class LevelsDialog(_FilterDialog):
     filter_id = "levels"
     supports_presets = True
     supports_clamp = False
+    supports_channel_readouts = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
         self._channel_params = default_levels_params()
@@ -1419,6 +1468,10 @@ class LevelsDialog(_FilterDialog):
         data = self._channel_combo.currentData()
         return str(data) if data is not None else "L"
 
+    def _selected_readout_channel(self) -> str | None:
+        channel = self._current_channel()
+        return _LEVEL_CHANNEL_LABELS[channel] if channel in ("R", "G", "B") else None
+
     def _on_channel_changed(self) -> None:
         if self._loading_channel:
             return
@@ -1427,6 +1480,7 @@ class LevelsDialog(_FilterDialog):
             self._store_spins_in_channel(self._editing_channel)
             self._editing_channel = new_ch
         self._load_channel_into_spins(new_ch)
+        self._refresh_channel_readouts()
         self.params_changed.emit()
 
     def _on_level_spin_changed(self) -> None:
