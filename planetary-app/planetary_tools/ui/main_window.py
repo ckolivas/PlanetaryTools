@@ -530,16 +530,16 @@ class MainWindow(QMainWindow):
         self._update_undo_actions()
 
     def _update_undo_actions(self) -> None:
-        self._undo_act.setEnabled(self._undo.stack.can_undo())
-        self._redo_act.setEnabled(self._undo.stack.can_redo())
-        if self._undo.stack.can_undo():
-            self._undo_act.setText(f"Undo {self._undo.stack.undo_label()}")
-        else:
-            self._undo_act.setText("Undo")
-        if self._undo.stack.can_redo():
-            self._redo_act.setText(f"Redo {self._undo.stack.redo_label()}")
-        else:
-            self._redo_act.setText("Redo")
+        stack = self._undo.stack
+        for action, verb, enabled, label in (
+            (self._undo_act, "Undo", stack.can_undo(), stack.undo_label()),
+            (self._redo_act, "Redo", stack.can_redo(), stack.redo_label()),
+        ):
+            text = f"{verb} {label}".rstrip() if enabled else verb
+            action.setEnabled(enabled)
+            # Operation names can contain a literal ampersand (Saturation & Vibrance).
+            action.setText(text.replace("&", "&&"))
+            action.setToolTip(text)
 
     def _on_preview_busy(self, busy: bool) -> None:
         if busy:
@@ -1053,7 +1053,6 @@ class MainWindow(QMainWindow):
             restored = self._undo.stack.undo(
                 self._document.data,
                 self._document.is_grayscale,
-                "",
             )
             if restored:
                 data, gray = restored
@@ -1358,7 +1357,6 @@ class MainWindow(QMainWindow):
         result = self._undo.stack.undo(
             self._document.data,
             self._document.is_grayscale,
-            "",
         )
         if result is None:
             return
@@ -1376,7 +1374,6 @@ class MainWindow(QMainWindow):
         result = self._undo.stack.redo(
             self._document.data,
             self._document.is_grayscale,
-            "",
         )
         if result is None:
             return

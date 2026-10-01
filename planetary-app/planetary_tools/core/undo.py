@@ -16,7 +16,7 @@ class _Snapshot:
 
 
 class UndoStack:
-    """Stores image snapshots for undo/redo."""
+    """Stores snapshots labelled by the operation each history step reverses."""
 
     def __init__(self, max_depth: int = 30) -> None:
         self._undo: list[_Snapshot] = []
@@ -50,12 +50,11 @@ class UndoStack:
         self,
         current_data: np.ndarray,
         current_grayscale: bool,
-        current_label: str,
     ) -> tuple[np.ndarray, bool] | None:
         if not self._undo:
             return None
         self._redo.append(
-            _Snapshot(current_data.copy(), current_grayscale, current_label)
+            _Snapshot(current_data.copy(), current_grayscale, self._undo[-1].label)
         )
         snap = self._undo.pop()
         return snap.data, snap.is_grayscale
@@ -64,12 +63,11 @@ class UndoStack:
         self,
         current_data: np.ndarray,
         current_grayscale: bool,
-        current_label: str,
     ) -> tuple[np.ndarray, bool] | None:
         if not self._redo:
             return None
         self._undo.append(
-            _Snapshot(current_data.copy(), current_grayscale, current_label)
+            _Snapshot(current_data.copy(), current_grayscale, self._redo[-1].label)
         )
         snap = self._redo.pop()
         return snap.data, snap.is_grayscale
