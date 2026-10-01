@@ -145,6 +145,8 @@ class FftDenoiseUiTests(unittest.TestCase):
         panel.auto_button.click()
         before = panel.get_params()
         self.assertLess(before['start'], 60)
+        self.assertTrue(before['auto'])
+        self.assertFalse(any(c.text() == 'Auto for each image' for c in panel.findChildren(QCheckBox)))
         result = panel.build_preview_func()(image, True)
         panel.update_histogram_display(result.data)
         panel.show_difference.setChecked(True)
@@ -159,16 +161,45 @@ class FftDenoiseUiTests(unittest.TestCase):
         QTest.mouseMove(panel.graph, QPoint(x+20, int(rect.center().y())))
         QTest.mouseRelease(panel.graph, Qt.MouseButton.LeftButton)
         self.assertGreater(panel.start.value(), before['start'])
+        self.assertFalse(panel.get_params()['auto'])
         panel.set_params(before)
         panel.save_last_preset()
         reopened = FftDenoiseDialog()
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.get_params(), before)
-        panel.auto_each.setChecked(True)
-        self.assertFalse(panel.start.isEnabled())
+        self.assertTrue(panel.start.isEnabled())
+        observed = []
+        panel.params_changed.connect(lambda: observed.append(panel.get_params()))
+        panel.start.setValue(panel.start.value()+1)
+        self.assertFalse(observed[-1]['auto'])
+        self.assertEqual(observed[-1]['start'], panel.start.value())
+        panel.auto_button.click()
+        self.assertTrue(panel.get_params()['auto'])
         np.testing.assert_allclose(panel.build_filter_func()(image, True),
                                    apply_filter('fft_denoise', image, True, panel.get_params()))
         panel.grab().save('/tmp/fft-denoise-ui.png')
+
+    def test_auto_preset_recalculates_for_each_batch_image_after_sharpening(self):
+        from planetary_tools.batch.pipeline import (
+            PipelineStep, apply_pipeline, BatchWorkflow, workflow_to_dict, workflow_from_dict,
+        )
+        panel = FftDenoiseDialog()
+        self.addCleanup(panel.close)
+        image = planet()
+        panel.set_input_brightness(image, True)
+        panel.auto_button.click()
+        steps = [PipelineStep('wavelet_sharpen', {'fine': 8}),
+                 PipelineStep('fft_denoise', panel.get_params())]
+        workflow, warnings = workflow_from_dict(workflow_to_dict(BatchWorkflow(steps=steps)))
+        self.assertEqual(warnings, [])
+        rng = np.random.default_rng(17)
+        with patch('planetary_tools.filters.fft_denoise.analyse_spectrum', wraps=analyse_spectrum) as analyse:
+            for sigma in (.005, .03):
+                source = image + rng.normal(0, sigma, image.shape).astype(np.float32)
+                sharpened = apply_filter('wavelet_sharpen', source, True, {'fine': 8})
+                apply_pipeline(source, True, workflow.steps)
+                np.testing.assert_array_equal(analyse.call_args.args[0], sharpened)
+            self.assertEqual(analyse.call_count, 2)
 
     def test_preview_accept_cancel_and_undo(self):
         from planetary_tools.ui.main_window import MainWindow
@@ -210,7 +241,7 @@ class FftDenoiseUiTests(unittest.TestCase):
         def accept():
             dlg = QApplication.activeModalWidget()
             for check in dlg.findChildren(QCheckBox):
-                if check.text() == 'Auto for each image':
+                if check.text() == 'Auto':
                     check.setChecked(True)
             dlg.accept()
         QTimer.singleShot(20, accept)

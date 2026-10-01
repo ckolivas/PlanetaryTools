@@ -93,12 +93,13 @@ class FftDenoiseDialog(_FilterDialog):
 
     def __init__(self, parent=None):
         self._spectrum = None
+        self._auto_selected = False
         self._last_output = None
         super().__init__('FFT Denoise', parent)
         self.set_help_text('Use after sharpening to reduce amplified noise with a smooth FFT cutoff. '
                            'Start keeps lower frequencies unchanged; Feather is the transition width. '
                            'Negative Curve retains more detail, positive Curve removes more noise. '
-                           'Auto starting points estimates a curve from the current image. '
+                           'Auto estimates a curve from the current image and recalculates for each image in a batch. '
                            'Inspect fine detail and removed signal before applying, especially tiny moons or stars.')
 
     def _build_filter_params(self):
@@ -109,19 +110,20 @@ class FftDenoiseDialog(_FilterDialog):
         self.curve = self._add_double('Curve', -2, -5, 5, .1)
         for spin in (self.start, self.feather, self.curve):
             spin.setKeyboardTracking(False)
-            spin.valueChanged.connect(self._refresh_graph)
+            spin.valueChanged.disconnect()
+            spin.valueChanged.connect(self._manual_changed)
         self.start.setToolTip('Frequencies below this point are retained. 100% = 0.5 cycles/pixel.')
         self.feather.setToolTip('Width from the start to complete suppression. Wider transitions reduce ringing.')
         self.curve.setToolTip('Negative values retain more of the transition; positive values suppress more.')
         self.graph.markers_changed.connect(self._move_markers)
-        self.auto_button = QPushButton('Auto starting points')
+        self.auto_button = QPushButton('Auto')
+        self.auto_button.setToolTip(
+            "Choose starting points for this image. Saved Auto presets recalculate for each batch image. "
+            "Adjusting the curve switches back to manual settings."
+        )
         self.auto_button.setEnabled(False)
         self.auto_button.clicked.connect(self._auto)
         self._form.addRow(self.auto_button)
-        self.auto_each = QCheckBox('Auto for each image')
-        self.auto_each.setToolTip('Recalculate the curve for every input image, including batch processing.')
-        self.auto_each.toggled.connect(self._auto_toggled)
-        self._form.addRow(self.auto_each)
         self.note = QLabel('Auto estimates a starting point; inspect fine detail.')
         self.note.setWordWrap(True)
         self._form.addRow(self.note)
@@ -147,19 +149,17 @@ class FftDenoiseDialog(_FilterDialog):
         self.feather.setValue(feather)
         self.start.blockSignals(False)
         self.feather.blockSignals(False)
+        self._manual_changed()
+
+    def _manual_changed(self):
+        # Clear Auto before notifying the preview, so the edited values are used.
+        self._auto_selected = False
         self._refresh_graph()
         self.params_changed.emit()
 
-    def _auto_toggled(self, checked):
-        for widget in (self.start, self.feather, self.curve, self.graph):
-            widget.setEnabled(not checked)
-        if checked:
-            self._auto()
-        else:
-            self.params_changed.emit()
-
     def _auto(self):
         if self._spectrum is not None:
+            self._auto_selected = True
             settings = auto_parameters(self._spectrum)
             for key, value in settings.items():
                 spin = getattr(self, key)
@@ -176,7 +176,7 @@ class FftDenoiseDialog(_FilterDialog):
         self.auto_button.setEnabled(True)
         h, w = self._spectrum.shape
         self.note.setText(f'Analysis: {w} × {h} native pixels. Auto is a starting point; inspect fine detail.')
-        if self.auto_each.isChecked():
+        if self._auto_selected:
             self._auto()
         self._refresh_graph()
 
@@ -209,7 +209,7 @@ class FftDenoiseDialog(_FilterDialog):
     def get_params(self):
         params = super().get_params()
         params.update({key: getattr(self, key).value() for key in ('start', 'feather', 'curve')})
-        params['auto'] = self.auto_each.isChecked()
+        params['auto'] = self._auto_selected
         return params
 
     def set_params(self, params):
@@ -219,11 +219,7 @@ class FftDenoiseDialog(_FilterDialog):
             spin.blockSignals(True)
             spin.setValue(params.get(key, spin.value()))
             spin.blockSignals(False)
-        self.auto_each.blockSignals(True)
-        self.auto_each.setChecked(bool(params.get('auto', False)))
-        self.auto_each.blockSignals(False)
-        for widget in (self.start, self.feather, self.curve, self.graph):
-            widget.setEnabled(not self.auto_each.isChecked())
-        if self.auto_each.isChecked() and self._spectrum is not None:
+        self._auto_selected = bool(params.get('auto', False))
+        if self._auto_selected and self._spectrum is not None:
             self._auto()
         self._refresh_graph()

@@ -1929,7 +1929,8 @@ def edit_filter_params(
             spin.setValue(params.get(key, fdef.default_params[key]))
             form.addRow(label, spin)
             widgets[key] = spin
-        auto_box = QCheckBox("Auto for each image")
+        auto_box = QCheckBox("Auto")
+        auto_box.setToolTip("Choose a new denoise curve for each image, after preceding batch steps.")
         auto_box.setChecked(bool(params.get("auto", False)))
         form.addRow(auto_box)
         widgets["auto"] = auto_box

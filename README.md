@@ -7,7 +7,7 @@ Download the latest for Ubuntu & Windows here:
 https://github.com/ckolivas/PlanetaryTools/releases
 
 In the standalone application, **Enhance → FFT Denoise** is intended for use
-**after sharpening**. Choose **Auto starting points**, then fine-tune Start,
+**after sharpening**. Choose **Auto**, then fine-tune Start,
 Feather width and Curve while inspecting the preview. The graph shows input
 power (blue) and predicted filtered power (red); drag its green start and red
 feather-end markers to adjust the transition. Frequencies use percent of
@@ -19,7 +19,8 @@ and looks for broad noise peaks caused by sharpening or drizzle. Its choices are
 starting estimates, not guaranteed optimal settings. **Show removed signal**
 amplifies the difference to reveal detail loss or ringing; it does not change the
 saved image. Check small moons and stars when tuning. Presets and batch processing
-are supported, with **Auto for each image** recalculating after preceding steps.
+are supported: **Auto** recalculates for each batch image after preceding steps.
+Adjusting the curve after Auto switches to fixed manual settings.
 
 Animate can export GIF, animated PNG, WebP, or MP4 video. FFmpeg libraries are
 bundled through PyAV for MP4 export and motion interpolation; no separate FFmpeg
