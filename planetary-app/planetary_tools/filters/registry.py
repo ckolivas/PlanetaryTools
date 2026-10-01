@@ -38,6 +38,7 @@ from planetary_tools.core.crop import (
 from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
 from planetary_tools.filters.moon_enhance import moon_enhance
+from planetary_tools.filters.fft_denoise import DEFAULT_FFT_DENOISE_PARAMS, fft_denoise
 from planetary_tools.filters.deglow import DEFAULT_DEGLOW_PARAMS, deglow
 from planetary_tools.filters.saturation import apply_saturation_vibrance
 from planetary_tools.filters.stretch import stretch_contrast_oklab
@@ -56,6 +57,7 @@ _LEGACY_CLAMP_PARAM = "rescale"
 ENHANCE_FILTER_IDS = frozenset({
     "wavelet_sharpen",
     "wavelet_denoise",
+    "fft_denoise",
     "adaptive_deconv",
     "wiener_deconv",
 })
@@ -118,6 +120,15 @@ class WaveletDenoiseDef(FilterDef):
             params.get("medium", 1.0),
             params.get("coarse", 0.0),
         )
+
+
+@dataclass
+class FftDenoiseDef(FilterDef):
+    def apply(self, data, is_grayscale, params):
+        return fft_denoise(data, is_grayscale, **{
+            key: params.get(key, default)
+            for key, default in DEFAULT_FFT_DENOISE_PARAMS.items()
+        })
 
 
 @dataclass
@@ -370,6 +381,10 @@ FILTERS: dict[str, FilterDef] = {
             "target_noise": 3.0,
             "target_contrast": 15.0,
         }),
+    ),
+    "fft_denoise": FftDenoiseDef(
+        id="fft_denoise", label="FFT Denoise",
+        default_params=_with_defaults(DEFAULT_FFT_DENOISE_PARAMS),
     ),
     "wavelet_denoise": WaveletDenoiseDef(
         id="wavelet_denoise",

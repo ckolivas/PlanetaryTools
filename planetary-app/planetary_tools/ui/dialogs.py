@@ -1918,6 +1918,29 @@ def edit_filter_params(
         auto_box.toggled.connect(_sync_wavelet_auto)
         _sync_wavelet_auto(auto_box.isChecked())
         widgets["_sync_auto"] = _sync_wavelet_auto
+    elif filter_id == "fft_denoise":
+        for key, label, lo, hi in (("start", "Start (% Nyquist)", 0., 141.4),
+                                   ("feather", "Feather width (%)", .5, 141.4),
+                                   ("curve", "Curve", -5., 5.)):
+            spin = QDoubleSpinBox()
+            spin.setRange(lo, hi)
+            spin.setDecimals(1)
+            spin.setKeyboardTracking(False)
+            spin.setValue(params.get(key, fdef.default_params[key]))
+            form.addRow(label, spin)
+            widgets[key] = spin
+        auto_box = QCheckBox("Auto for each image")
+        auto_box.setChecked(bool(params.get("auto", False)))
+        form.addRow(auto_box)
+        widgets["auto"] = auto_box
+
+        def _sync_fft_auto(checked):
+            for key in ("start", "feather", "curve"):
+                widgets[key].setEnabled(not checked)
+
+        auto_box.toggled.connect(_sync_fft_auto)
+        _sync_fft_auto(auto_box.isChecked())
+        widgets["_sync_auto"] = _sync_fft_auto
     elif filter_id == "wavelet_denoise":
         for key in ("fine", "medium", "coarse"):
             spin = QDoubleSpinBox()

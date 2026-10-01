@@ -48,6 +48,7 @@ from planetary_tools.ui.align_rgb_dialog import AlignRgbDialog
 from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
 from planetary_tools.ui.compose_dialog import RGBComposeDialog
 from planetary_tools.ui.curves_dialog import CurvesDialog
+from planetary_tools.ui.fft_denoise_dialog import FftDenoiseDialog
 from planetary_tools.ui.dialogs import (
     FILTER_PANEL_WIDTH,
     AdaptiveDeconvDialog,
@@ -304,6 +305,11 @@ class MainWindow(QMainWindow):
         self._denoise_act.triggered.connect(self._run_wavelet_denoise)
         enhance_menu.addAction(self._denoise_act)
 
+        self._fft_denoise_act = QAction("FFT Denoise…", self)
+        self._fft_denoise_act.setToolTip("Reduce frequency-domain noise with a smooth cutoff and automatic starting points.")
+        self._fft_denoise_act.triggered.connect(self._run_fft_denoise)
+        enhance_menu.addAction(self._fft_denoise_act)
+
         self._deconv_act = QAction("Adaptive &Deconvolution…", self)
         self._deconv_act.setToolTip(
             "Sharpen detail using adaptive deconvolution, useful for final sharpening."
@@ -513,7 +519,7 @@ class MainWindow(QMainWindow):
         for act in (
             self._save_act, self._save_as_act, self._scale_act, self._rotate_act,
             self._crop_act,
-            self._sharpen_act, self._denoise_act, self._deconv_act,
+            self._sharpen_act, self._denoise_act, self._fft_denoise_act, self._deconv_act,
             self._moon_enhance_act, self._deglow_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
             self._levels_act, self._curves_act, self._extract_component_act, self._rgb_decompose_act,
@@ -1062,6 +1068,10 @@ class MainWindow(QMainWindow):
             WaveletSharpenDialog(self._document.is_grayscale, self),
             "Wavelet Sharpen",
         )
+
+    def _run_fft_denoise(self) -> None:
+        if self._document is not None:
+            self._run_filter_dialog(FftDenoiseDialog(self), "FFT Denoise")
 
     def _run_wavelet_denoise(self) -> None:
         self._run_filter_dialog(WaveletDenoiseDialog(self), "Wavelet Denoise")
