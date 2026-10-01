@@ -9,7 +9,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
 from PyQt6.QtCore import Qt, QPoint, QTimer
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QCheckBox
+from PyQt6.QtWidgets import QApplication, QCheckBox, QDoubleSpinBox
 
 from planetary_tools.filters.fft_denoise import (
     MAX_FREQUENCY, Spectrum, analyse_spectrum, auto_parameters, fft_denoise, transfer,
@@ -59,6 +59,12 @@ class FftDenoiseTests(unittest.TestCase):
         out = fft_denoise(image, start=20, feather=30, curve=0)
         region = np.s_[40:-40, 40:-40]
         self.assertLess(np.mean((out[region]-(.5+low)[region])**2), 1e-8)
+
+    def test_negative_start_is_applied_instead_of_clamped_to_zero(self):
+        image = np.full((48, 64), .5, np.float32)
+        out = fft_denoise(image, start=-20, feather=40, curve=0)
+        np.testing.assert_allclose(out, .25, atol=1e-7)
+        np.testing.assert_allclose(fft_denoise(image, start=0, feather=40, curve=0), image, atol=1e-7)
 
     def test_no_wraparound_at_opposite_edge(self):
         image = np.zeros((128, 128), np.float32)
@@ -201,6 +207,28 @@ class FftDenoiseUiTests(unittest.TestCase):
                 np.testing.assert_array_equal(analyse.call_args.args[0], sharpened)
             self.assertEqual(analyse.call_count, 2)
 
+    def test_negative_start_preset_and_marker_drag(self):
+        panel = FftDenoiseDialog()
+        self.addCleanup(panel.close)
+        panel.show()
+        self.app.processEvents()
+        panel.start.setValue(-15)
+        self.assertEqual(panel.get_params()['start'], -15)
+        panel.save_last_preset()
+        reopened = FftDenoiseDialog()
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.start.value(), -15)
+        graph = panel.graph
+        rect = graph.plot_rect()
+        self.assertLess(graph.minimum_frequency(), -15)
+        x = int(graph.frequency_x(-15))
+        QTest.mousePress(graph, Qt.MouseButton.LeftButton, pos=QPoint(x, int(rect.center().y())))
+        QTest.mouseMove(graph, QPoint(int(graph.frequency_x(-30)), int(rect.center().y())))
+        QTest.mouseRelease(graph, Qt.MouseButton.LeftButton)
+        self.assertAlmostEqual(panel.start.value(), -30, delta=1)
+        self.assertFalse(panel.get_params()['auto'])
+        panel.grab().save('/tmp/fft-negative-start.png')
+
     def test_preview_accept_cancel_and_undo(self):
         from planetary_tools.ui.main_window import MainWindow
         from planetary_tools.core.document import ImageDocument
@@ -240,6 +268,7 @@ class FftDenoiseUiTests(unittest.TestCase):
         from planetary_tools.ui.dialogs import edit_filter_params
         def accept():
             dlg = QApplication.activeModalWidget()
+            dlg.findChildren(QDoubleSpinBox)[0].setValue(-25)
             for check in dlg.findChildren(QCheckBox):
                 if check.text() == 'Auto':
                     check.setChecked(True)
@@ -247,6 +276,7 @@ class FftDenoiseUiTests(unittest.TestCase):
         QTimer.singleShot(20, accept)
         result = edit_filter_params('fft_denoise', {'auto': False}, True)
         self.assertTrue(result[0]['auto'])
+        self.assertEqual(result[0]['start'], -25)
 
 
 if __name__ == '__main__':

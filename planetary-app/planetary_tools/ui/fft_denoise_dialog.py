@@ -5,7 +5,7 @@ from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QPalette, QPen, 
 from PyQt6.QtWidgets import QCheckBox, QLabel, QPushButton, QWidget
 
 from planetary_tools.filters.fft_denoise import (
-    MAX_FREQUENCY, analyse_spectrum, auto_parameters, transfer,
+    MAX_FREQUENCY, MIN_START, analyse_spectrum, auto_parameters, transfer,
 )
 from planetary_tools.ui.dialogs import _FilterDialog
 
@@ -19,12 +19,29 @@ class SpectrumGraph(QWidget):
         self.spectrum = None
         self.settings = dict(start=60., feather=40., curve=-2.)
         self._drag = None
+        self._drag_minimum = 0.
         self.setToolTip('Blue: input power. Red: predicted filtered power. '
                         'Drag the green start or red feather-end marker. '
                         '100% Nyquist is 0.5 cycles/pixel; diagonal frequencies extend to 141%.')
 
     def plot_rect(self):
         return QRectF(12, 25, self.width()-24, self.height()-57)
+
+    def minimum_frequency(self):
+        # Keep the axis stable throughout a drag; expand after release.
+        if self._drag is not None:
+            return self._drag_minimum
+        return max(MIN_START, min(0., np.floor(self.settings['start']/50)*50))
+
+    def frequency_x(self, frequency):
+        r = self.plot_rect()
+        lo = self.minimum_frequency()
+        return r.left() + (frequency-lo)/(MAX_FREQUENCY-lo)*r.width()
+
+    def position_frequency(self, x):
+        r = self.plot_rect()
+        lo = self.minimum_frequency()
+        return lo + (x-r.left())/r.width()*(MAX_FREQUENCY-lo)
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -34,8 +51,10 @@ class SpectrumGraph(QWidget):
         p.setPen(self.palette().color(QPalette.ColorRole.WindowText))
         p.drawText(12, 17, 'Power spectrum (log)')
         p.drawText(12, self.height()-7, 'Frequency (% Nyquist)')
-        for tick in (0, 50, 100, 140):
-            x = r.left()+tick/MAX_FREQUENCY*r.width()
+        for tick in (-100, -50, 0, 50, 100, 140):
+            if tick < self.minimum_frequency():
+                continue
+            x = self.frequency_x(tick)
             p.setPen(QColor('#323b48'))
             p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
             p.setPen(self.palette().color(QPalette.ColorRole.WindowText))
@@ -49,13 +68,13 @@ class SpectrumGraph(QWidget):
                 heights = np.clip((10*np.log10(np.maximum(power/peak, 1e-10))+100)/100, 0, 1)
                 path = QPainterPath()
                 for i, (f, value) in enumerate(zip(s.frequency, heights)):
-                    point = QPointF(r.left()+f/MAX_FREQUENCY*r.width(), r.bottom()-value*r.height())
+                    point = QPointF(self.frequency_x(f), r.bottom()-value*r.height())
                     path.moveTo(point) if i == 0 else path.lineTo(point)
                 p.setPen(QPen(QColor(colour), 1.4))
                 p.drawPath(path)
         for f, colour in ((self.settings['start'], '#78db88'),
                           (self.settings['start']+self.settings['feather'], '#ff7777')):
-            x = r.left()+min(f, MAX_FREQUENCY)/MAX_FREQUENCY*r.width()
+            x = self.frequency_x(min(f, MAX_FREQUENCY))
             p.setPen(QPen(QColor(colour), 1.5))
             p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
         p.end()
@@ -63,8 +82,8 @@ class SpectrumGraph(QWidget):
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton or not self.plot_rect().contains(event.position()):
             return
-        r = self.plot_rect()
-        f = (event.position().x()-r.left())/r.width()*MAX_FREQUENCY
+        f = self.position_frequency(event.position().x())
+        self._drag_minimum = self.minimum_frequency()
         start = self.settings['start']
         end = min(MAX_FREQUENCY, start+self.settings['feather'])
         self._drag = 'start' if abs(f-start) <= abs(f-end) else 'end'
@@ -73,8 +92,7 @@ class SpectrumGraph(QWidget):
     def mouseMoveEvent(self, event):
         if self._drag is None:
             return
-        r = self.plot_rect()
-        f = float(np.clip((event.position().x()-r.left())/r.width()*MAX_FREQUENCY, 0, MAX_FREQUENCY))
+        f = float(np.clip(self.position_frequency(event.position().x()), MIN_START, MAX_FREQUENCY))
         start, feather = self.settings['start'], self.settings['feather']
         if self._drag == 'start':
             start = f
@@ -84,6 +102,7 @@ class SpectrumGraph(QWidget):
 
     def mouseReleaseEvent(self, event):
         self._drag = None
+        self.update()
 
 
 class FftDenoiseDialog(_FilterDialog):
@@ -105,14 +124,15 @@ class FftDenoiseDialog(_FilterDialog):
     def _build_filter_params(self):
         self.graph = SpectrumGraph()
         self._form.addRow(self.graph)
-        self.start = self._add_double('Start (% Nyquist)', 60, 0, 141.4, 1)
+        self.start = self._add_double('Start (% Nyquist)', 60, MIN_START, 141.4, 1)
         self.feather = self._add_double('Feather width (%)', 40, .5, 141.4, 1)
         self.curve = self._add_double('Curve', -2, -5, 5, .1)
         for spin in (self.start, self.feather, self.curve):
             spin.setKeyboardTracking(False)
             spin.valueChanged.disconnect()
             spin.valueChanged.connect(self._manual_changed)
-        self.start.setToolTip('Frequencies below this point are retained. 100% = 0.5 cycles/pixel.')
+        self.start.setToolTip('Frequencies below this point are retained. Negative Start values begin the transition before zero, '
+                              'attenuating even the lowest frequencies. 100% = 0.5 cycles/pixel.')
         self.feather.setToolTip('Width from the start to complete suppression. Wider transitions reduce ringing.')
         self.curve.setToolTip('Negative values retain more of the transition; positive values suppress more.')
         self.graph.markers_changed.connect(self._move_markers)

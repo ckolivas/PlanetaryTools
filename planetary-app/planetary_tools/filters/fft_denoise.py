@@ -9,6 +9,7 @@ import numpy as np
 from scipy import fft, ndimage
 
 MAX_FREQUENCY = 100 * np.sqrt(2)
+MIN_START = -141.4
 DEFAULT_FFT_DENOISE_PARAMS = dict(start=60.0, feather=40.0, curve=-2.0, auto=False)
 
 
@@ -40,7 +41,7 @@ def fft_denoise(data, is_grayscale=False, *, start=60., feather=40., curve=-2., 
         start, feather, curve = (settings[k] for k in ('start', 'feather', 'curve'))
     if not np.isfinite([start, feather, curve]).all():
         raise ValueError('FFT Denoise parameters must be finite.')
-    start = float(np.clip(start, 0, MAX_FREQUENCY))
+    start = float(np.clip(start, MIN_START, MAX_FREQUENCY))
     if start >= 141.4:
         return arr.copy()
     h, w = planes.shape[:2]
