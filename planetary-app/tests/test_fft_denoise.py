@@ -12,7 +12,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QCheckBox, QDoubleSpinBox
 
 from planetary_tools.filters.fft_denoise import (
-    MAX_FREQUENCY, Spectrum, analyse_spectrum, auto_parameters, fft_denoise, transfer,
+    MAX_FREQUENCY, MIN_START, Spectrum, analyse_spectrum, auto_parameters, fft_denoise, transfer,
 )
 from planetary_tools.filters.registry import apply_filter, batch_filters
 from planetary_tools.ui.fft_denoise_dialog import FftDenoiseDialog
@@ -99,6 +99,21 @@ class FftDenoiseTests(unittest.TestCase):
             self.assertLess(np.mean((out-reference)**2), np.mean((sharpened-reference)**2)*.1)
             region = np.s_[100:150, 90:170]
             self.assertLess(abs(float(out[region].std()/reference[region].std())-1), .08)
+
+    def test_auto_selects_negative_start_for_broad_signal_rolloff(self):
+        f = np.linspace(0, MAX_FREQUENCY, 257)
+        # A gradual signal rolloff into a flat noise floor is better matched
+        # by a transition that begins below zero than a flat passband.
+        for scale in (7., 12.):
+            spectrum = Spectrum(f, 1 + 10*np.exp(-f/scale), 1., (512, 512))
+            settings = auto_parameters(spectrum)
+            self.assertGreaterEqual(settings['start'], MIN_START)
+            self.assertLess(settings['start'], 0)
+            # Automatic filtering must use the selected negative value too.
+            source = planet()
+            with patch('planetary_tools.filters.fft_denoise.analyse_spectrum', return_value=spectrum):
+                np.testing.assert_array_equal(fft_denoise(source, auto=True),
+                                              fft_denoise(source, **settings))
 
     def test_auto_suppresses_spectral_upturn_instead_of_preserving_it(self):
         f = np.linspace(0, MAX_FREQUENCY, 257)

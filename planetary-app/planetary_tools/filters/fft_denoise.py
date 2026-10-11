@@ -153,11 +153,20 @@ def auto_parameters(spectrum):
     # more strongly than disagreement in the noisy tail.
     weights = np.where(target > .8, 4., 1.)
     best = (float('inf'), 60., 40., -2.)
-    for start in np.arange(4., 101., 2.):
+    # Include zero and the full negative Start range at the same 2% spacing.
+    # Prefer nonnegative starts on exact ties to avoid unnecessary attenuation
+    # of the lowest frequencies.
+    starts = np.concatenate((np.arange(0., 101., 2.),
+                             np.arange(-2., MIN_START, -2.), [MIN_START]))
+    for start in starts:
         for feather in (12., 20., 30., 40., 55., 75., 100.):
             for curve in (-3., -2., -1., 0., 1., 2., 3.):
                 gain = transfer(f, start, feather, curve)
-                error = float(np.mean(weights*(gain-target)**2))
+                # Early transitions can remove useful low-frequency detail.
+                # Favour retaining a little excess over cutting below the
+                # estimated signal response when the curve cannot match both.
+                fit_weights = weights * np.where(gain < target, 4., 1.)
+                error = float(np.mean(fit_weights*(gain-target)**2))
                 if error < best[0]:
                     best = error, start, feather, curve
     return dict(zip(('start', 'feather', 'curve'), map(float, best[1:])))
