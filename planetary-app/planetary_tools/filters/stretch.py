@@ -1,4 +1,4 @@
-"""Stretch Contrast OKLab — equivalent of the GIMP plug-in."""
+"""Stretch contrast through OKLab lightness while preserving RGB proportions."""
 
 from __future__ import annotations
 

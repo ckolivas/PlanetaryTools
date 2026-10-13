@@ -1,4 +1,4 @@
-"""Adaptive deconvolution — numpy/scipy port of the GIMP plug-in."""
+"""Adaptive Moffat deconvolution using NumPy and SciPy."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from scipy.ndimage import convolve, uniform_filter
 
 from planetary_tools.core.colour import linear_luminance
 
-# Moffat PSF (gamma=1, beta=2, 5x5) — matches GIMP plug-in
+# Moffat PSF (gamma=1, beta=2, 5x5)
 _GAMMA = 1.0
 _BETA = 2.0
 _PSF_SIZE = 5
@@ -74,9 +74,8 @@ def adaptive_deconvolution(
 ) -> np.ndarray:
     """Adaptive Moffat deconvolution without hard-capping highlights at 100%.
 
-    The GIMP plug-in floors results with ``min(result, min(2*peak, 1))``, which
-    always clamps when the image is already at full scale.  We leave values
-    open so overshoot is visible; optional dialog clamp handles 100% limiting.
+    Results retain highlight overshoot for the preview and brightness readout.
+    The optional dialog clamp handles limiting to 100%.
 
     On RGB, ``luminance=True`` sharpens BT.709 luma and adds the delta back
     to linear RGB. ``luminance=False`` deconvolves each channel independently.

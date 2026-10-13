@@ -1,127 +1,62 @@
-This is a set of tools designed for processing stacked planetary image captures.
+# Planetary Tools
 
-Contains Planetary Tools standalone application and plug-ins for GIMP v3
+Planetary Tools (PT) is a standalone desktop application for processing stacked
+planetary images. Sharpen detail, reduce noise, correct colour, enhance moons,
+align frames and create animations in one application.
 
-Standalone application requires no installation, simply run the executable.
-Download the latest for Ubuntu & Windows here:
-https://github.com/ckolivas/PlanetaryTools/releases
+**[Download the latest release](https://github.com/ckolivas/PlanetaryTools/releases/latest)**
+ · **[Read the illustrated manual](docs/manual.md)**
+ · **[Download the PDF manual](Planetary-Tools-Manual.pdf)**
 
-In the standalone application, **Enhance → FFT Denoise** is intended for use
-**after sharpening**. Choose **Auto**, then fine-tune Start,
-Feather width and Curve while inspecting the preview. The graph shows input
-power (blue) and predicted filtered power (red); drag its green start and red
-feather-end markers to adjust the transition. Frequencies use percent of
-Nyquist, so settings are independent of image dimensions. Negative Curve
-values retain more detail in the transition; positive values suppress more.
+![Planetary Tools showing Saturn with the Levels panel](docs/images/workspace_dock.png)
 
-Auto fits a smooth cutoff to the current image's estimated signal/noise spectrum
-and looks for broad noise peaks caused by sharpening or drizzle. Its choices are
-starting estimates, not guaranteed optimal settings. **Show removed signal**
-amplifies the difference to reveal detail loss or ringing; it does not change the
-saved image. Check small moons and stars when tuning. Presets and batch processing
-are supported: **Auto** recalculates for each batch image after preceding steps.
-Adjusting the curve after Auto switches to fixed manual settings.
+## Get started
 
-Animate can export GIF, animated PNG, WebP, or MP4 video. FFmpeg libraries are
-bundled through PyAV for MP4 export and motion interpolation; no separate FFmpeg
-installation is required. The MP4 constant quality (CRF)
-control ranges from 0 (lossless, the default) to 51 (lowest quality/smallest files).
-Lossless preserves the 8-bit sRGB animation frames exactly; higher precision
-source images are converted to 8-bit sRGB, as with the other animation formats.
-MP4 retains the chosen frame rate and back-and-forth sequence. Loop playback is
-controlled by the video player. Playback requires support for H.264 RGB (4:4:4).
+1. Download the executable for your operating system from
+   [Releases](https://github.com/ckolivas/PlanetaryTools/releases). Builds are
+   provided for Linux, Windows and Apple Silicon macOS. On Linux and macOS,
+   make the downloaded file executable if needed.
+2. Launch PT and open a stacked image using **File > Open**.
+3. Choose a tool from **Enhance** or **Colours**, compare its preview, then
+   click **OK** to apply it.
+4. Use **File > Save As** to save a processed copy in your chosen format and
+   bit depth.
 
-Animate also offers **Generate frames with motion interpolation** for all output
-formats. It reads UTC capture times from WinJUPOS filenames such as
-`2026-09-11-1506_4-CK.png` (15:06:24, a decimal fraction of a minute) or
-`20260911_1506.4_CK.png`, and PVOL names such as
-`s2026-09-11_15-06-24_rgb_ck.png` (seconds optional). Frames are sorted by time
-and rounded to the nearest chosen interval, default **1 minute**, with halfway
-times rounded up. The table shows original and rounded timestamps. Files that
-round to the same time must be removed or given a smaller interval.
+The standalone binaries include the Python runtime and application dependencies.
+MP4 export and motion interpolation use bundled FFmpeg libraries through PyAV;
+a separate FFmpeg executable is not required.
 
-Missing frames are generated with the built-in FFmpeg `minterpolate` motion
-compensation filter. Use aligned images with similar
-brightness for best results. Original frames remain at their rounded times,
-and frame rate still controls playback speed. The interval controls observation
-time between frames, not playback time. The feature does not rename source files.
+The manual covers every tool with screenshots, including the
+[author's suggested sharpening workflow](docs/manual.md#authors-sharpening-workflow)
+for one-shot colour images.
 
-Source builds install PyAV (`av`) from `planetary-app/requirements.txt`. Release
-builds use PyAV binary wheels and bundle their FFmpeg shared libraries with
-PyInstaller. CI runs interpolation, lossless MP4 encode/decode, and a Qt window
-smoke test from the packaged executable with an empty PATH before publishing.
+## Tools
 
+- **Sharpen and denoise:** Wavelet Sharpen, Adaptive Deconvolution, Wavelet
+  Denoise and post-sharpening FFT Denoise with automatic starting settings.
+- **Planet and moons:** Moon Enhance, Deglow and Merge Wavelet Detail.
+- **Colour:** Align RGB, camera colour-correction presets, Curves, Levels,
+  Saturation & Vibrance, Extract Component, and RGB composition/decomposition.
+- **Geometry:** scale, rotate, flip, crop and expand the image canvas.
+- **Sequences:** Derotate/Align, batch processing and animation with optional
+  timestamp-based motion interpolation. Export GIF, APNG, WebP or MP4.
 
-GIMP plugins:
+Processing uses floating-point linear image data. Tools provide previews,
+operation-labelled undo/redo and reusable presets where applicable.
 
-The whole set of directories and their files should go into the user's GIMP v3 plug-ins directory.
+## Development
 
-On Linux this is usually in ~/.config/GIMP/3.0/plug-ins/
+The application, tests, benchmarks and packaging configuration live in
+[`planetary-app/`](planetary-app/). See the
+[development guide](docs/development.md) for source setup, tests and standalone
+build commands.
 
-On Windows this is usually in C:\Users\username\AppData\Roaming\GIMP\3.0\plug-ins
+Documentation describes the current development tree. A published release may
+not yet include every feature shown in the manual.
 
-This can be configured within GIMP under Settings->Folders->Plug-Ins
+## License and author
 
+Planetary Tools is free software under the GNU General Public License;
+see [LICENSE](LICENSE) and [COPYING](COPYING).
 
-A suggested processing workflow for stacked planetary images would be:
-
-Wavelet Sharpen->
-
-Deconvolution (non-adaptive)->
-
-+/-WinJUPOS derotation->
-
-Wavelet Denoise->
-
-Adaptive Deconvolution
-
-
-The OKLab tools may be helpful to those interested, though not strictly planetary image processing tools.
-
-
-Wavelet Sharpen
-
-  Filters->Enhance->Wavelet Sharpen
-
-Provides 3 sliders for fine, medium, and coarse detail sharpening.
-
-Adaptive Deconvolution
-
-  Filters->Enhance->Adaptive Deconvolution
-
-Provides a single slider for performing fine deconvolution.
-Adaptive option makes sharpening contrast dependent, allowing more sharpening in areas of the image that tolerate it more before becoming noisy.
-OKLab option performs sharpening on OKLab luminance to avoid sharpening colour noise, but has gradual saturation loss the more is applied.
-
-Wavelet Denoise
-
-  Filters->Enhance->Wavelet Denoise
-
-Provides 3 sliders equivalent to wavelet sharpen's settings for denoising.
-
-Stretch Contrast OKLab
-
-  Colours->Auto->Stretch Contrast OKLab
-
-Performs a contrast stretch on OKLab Luminance which most accurately preserves perceptual colour balance.
-
-OKLab Luminance
-
-  Colours->Desaturate->OKLab Luminance
-
-Does a simple desaturation to OKLab luminance.
-
-OKLab Decomposose
-
-  Colours->Components->OKLab Decompose
-
-Creates a new image with layers consistuted from OKLab L, a, and b channels. RGB input only.
-
-OKLab Compose
-
-  Colours->Components->OKLab Compose
-
-Creates a new image from 3 selected layers corresponding to OKLab L, a, and b channels.
-
-Con Kolivas 2026
-<kernel@kolivas.org>
+Con Kolivas · <kernel@kolivas.org>

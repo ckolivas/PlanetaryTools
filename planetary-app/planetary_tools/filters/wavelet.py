@@ -1,4 +1,4 @@
-"""Wavelet sharpen and denoise matching GIMP plug-in-wavelet-decompose + GEGL ops."""
+"""Wavelet sharpening and denoising with GEGL-compatible decomposition."""
 
 from __future__ import annotations
 
@@ -175,7 +175,7 @@ def wavelet_sharpen(
     chunky: float = 0.0,
     luminance: bool = False,
 ) -> np.ndarray:
-    """Wavelet sharpen matching GIMP plug-in-wavelet-sharpen.
+    """Sharpen four spatial scales with independent wavelet detail amounts.
 
     Decompose and merge operate in R'G'B' perceptual float (matching
     gegl:wavelet-blur-1d).  The unsharp-mask step converts each scale
