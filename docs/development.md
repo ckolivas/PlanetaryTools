@@ -10,8 +10,8 @@
 | `planetary-app/tests/` | Automated regression tests |
 | `planetary-app/benchmarks/` | Image-processing and performance experiments |
 | `planetary-app/run.py` | Source and packaged application entry point |
-| `planetary-app/planetary-app.spec` | PyInstaller standalone executable configuration |
-| `.github/workflows/build-planetary-app.yml` | Linux, Windows and macOS release builds |
+| `planetary-app/planetary-tools.spec` | PyInstaller standalone executable configuration |
+| `.github/workflows/build-planetary-tools.yml` | Linux, Windows and macOS release builds |
 | `docs/manual.md`, `docs/images/` | Illustrated browser-readable user manual |
 | `Planetary-Tools-Manual.pdf` | Downloadable manual |
 
@@ -69,16 +69,19 @@ Build on the target operating system. With the environment activated, run from
 
 ```sh
 python -m pip install pyinstaller
-pyinstaller --clean planetary-app.spec
-python scripts/check_packaged_media.py dist/planetary-app
+pyinstaller --clean planetary-tools.spec
+python scripts/check_packaged_media.py dist/planetary-tools
 ```
 
-On Windows, the last argument is `dist/planetary-app.exe`. The smoke test checks
+The executable is named `planetary-tools` (`planetary-tools.exe` on Windows).
+The source directory remains `planetary-app/`.
+
+On Windows, the last argument is `dist/planetary-tools.exe`. The smoke test checks
 the packaged GUI and media support with an empty `PATH`, including motion
 interpolation and lossless MP4 encode/decode. Run it against the newly built
 binary before publishing.
 
-The [release workflow](../.github/workflows/build-planetary-app.yml) builds Linux,
+The [release workflow](../.github/workflows/build-planetary-tools.yml) builds Linux,
 Windows and Apple Silicon macOS executables on `v*` tag pushes. Manual workflow
 runs can build without publishing, or rebuild an explicitly selected release
 with its existing tag.

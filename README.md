@@ -14,7 +14,10 @@ align frames and create animations in one application.
 
 1. Download the executable for your operating system from
    [Releases](https://github.com/ckolivas/PlanetaryTools/releases). Builds are
-   provided for Linux, Windows and Apple Silicon macOS. On Linux and macOS,
+   provided for Linux (`planetary-tools-linux`), Windows
+   (`planetary-tools-windows.exe`) and Apple Silicon macOS
+   (`planetary-tools-macos`). Older releases may use the previous executable
+   name. On Linux and macOS,
    make the downloaded file executable if needed.
 2. Launch PT and open a stacked image using **File > Open**.
 3. Choose a tool from **Enhance** or **Colours**, compare its preview, then

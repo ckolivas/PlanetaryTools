@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "planetary-app"
+name = "planetary-tools"
 dynamic = ["version"]
 description = "Standalone planetary imaging processing application"
 readme = "README.md"
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.gui-scripts]
-planetary-app = "planetary_tools.ui.main_window:run_app"
+planetary-tools = "planetary_tools.ui.main_window:run_app"
 
 [tool.setuptools.packages.find]
 where = ["."]

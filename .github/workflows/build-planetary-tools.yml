@@ -1,4 +1,4 @@
-name: Build and Release planetary-app
+name: Build and Release Planetary Tools
 
 on:
   push:
@@ -21,16 +21,16 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            binary: planetary-app
-            asset: planetary-app-linux
+            binary: planetary-tools
+            asset: planetary-tools-linux
           - os: windows-latest
-            binary: planetary-app.exe
-            asset: planetary-app-windows.exe
+            binary: planetary-tools.exe
+            asset: planetary-tools-windows.exe
           # Apple Silicon (arm64) runner — covers modern Macs. For Intel Macs
           # add a second entry with os: macos-13 if you still need x86_64.
           - os: macos-latest
-            binary: planetary-app
-            asset: planetary-app-macos
+            binary: planetary-tools
+            asset: planetary-tools-macos
 
     runs-on: ${{ matrix.os }}
 
@@ -61,7 +61,19 @@ jobs:
 
       - name: Build with PyInstaller
         working-directory: planetary-app
-        run: pyinstaller --clean planetary-app.spec
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          spec = Path('planetary-tools.spec')
+          if not spec.exists():
+              # Manual rebuilds may check out a release predating the rename.
+              legacy = Path('planetary-app.spec')
+              spec.write_text(legacy.read_text(encoding='utf-8').replace(
+                  "name='planetary-app'", "name='planetary-tools'"), encoding='utf-8')
+          subprocess.run([sys.executable, '-m', 'PyInstaller', '--clean', str(spec)], check=True)
 
       - name: Test bundled interpolation and MP4 without external FFmpeg
         working-directory: planetary-app
