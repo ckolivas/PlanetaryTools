@@ -39,6 +39,7 @@ def run(report_path: str) -> int:
                 decoded = [frame.to_ndarray(format='rgb24') for frame in container.decode(video=0)]
             np.testing.assert_array_equal(decoded, frames)
         app = QApplication.instance() or QApplication([])
+        report['qt_platform'] = app.platformName()
         window = MainWindow()
         try:
             window._set_document(ImageDocument(first.astype(np.float32)/255))

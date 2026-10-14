@@ -69,22 +69,66 @@ Build on the target operating system. With the environment activated, run from
 
 ```sh
 python -m pip install pyinstaller
-pyinstaller --clean planetary-tools.spec
+pyinstaller --clean --noconfirm planetary-tools.spec
+```
+
+Linux and Windows produce the single-file executable `planetary-tools` or
+`planetary-tools.exe`. On macOS, the spec uses an onedir build wrapped in
+`dist/Planetary Tools.app`, with its Python, Qt and media libraries inside the
+bundle. Its display name and version are recorded in `Info.plist`.
+
+Test the Linux executable with:
+
+```sh
 python scripts/check_packaged_media.py dist/planetary-tools
 ```
 
-The executable is named `planetary-tools` (`planetary-tools.exe` on Windows).
-The source directory remains `planetary-app/`.
+On Windows, use `dist/planetary-tools.exe`. The smoke test checks the packaged
+GUI and media support with an empty `PATH`, including motion interpolation and
+lossless MP4 encode/decode.
 
-On Windows, the last argument is `dist/planetary-tools.exe`. The smoke test checks
-the packaged GUI and media support with an empty `PATH`, including motion
-interpolation and lossless MP4 encode/decode. Run it against the newly built
-binary before publishing.
+### macOS ZIP and Finder launch
 
-The [release workflow](../.github/workflows/build-planetary-tools.yml) builds Linux,
-Windows and Apple Silicon macOS executables on `v*` tag pushes. Manual workflow
-runs can build without publishing, or rebuild an explicitly selected release
-with its existing tag.
+Build on a Mac of the intended architecture. Package the complete `.app` using
+`ditto` to retain executable permissions, framework symlinks and metadata:
+
+```sh
+ditto -c -k --sequesterRsrc --keepParent "dist/Planetary Tools.app" dist/planetary-tools-macos.zip
+python scripts/check_packaged_macos.py dist/planetary-tools-macos.zip --architecture "$(uname -m)"
+```
+
+The validator extracts the actual ZIP, checks bundle identity/version,
+permissions, symlinks, native architecture and its code signature, then runs
+the media test with an empty `PATH`. It also launches the extracted `.app`
+through macOS Launch Services (`open`), exercising the same launch mechanism
+as Finder with native Cocoa GUI support.
+
+PyInstaller applies ad-hoc signing. This is not Developer ID signing or Apple
+notarization; downloaded builds can still require the first-launch approval
+described in the [README](../README.md).
+
+### Release builds
+
+The [release workflow](../.github/workflows/build-planetary-tools.yml) builds:
+
+| Runner | Release asset |
+| --- | --- |
+| `ubuntu-latest` | `planetary-tools-linux` |
+| `windows-latest` | `planetary-tools-windows.exe` |
+| `macos-15` (Apple Silicon) | `planetary-tools-macos-arm64.zip` |
+| `macos-15-intel` (Intel) | `planetary-tools-macos-intel.zip` |
+
+The Mac builds use native Python and dependency wheels on their respective
+architectures. See [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+and [PyInstaller's app-bundle documentation](https://pyinstaller.org/en/stable/usage.html#building-macos-app-bundles).
+
+`v*` tag pushes publish the tested assets. Manual runs with no release tag
+produce downloadable workflow artifacts without publishing a release. For an
+existing release, supply its tag: the workflow uses that tag's application code
+and version with the current workflow's packaging spec and validation scripts.
+This also allows older releases with the original spec name to receive the new
+Mac ZIP packaging without moving their tags. Existing release assets with other
+names are retained; the new Mac ZIPs have distinct architecture-specific names.
 
 ## Documentation changes
 

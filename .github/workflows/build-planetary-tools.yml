@@ -26,11 +26,14 @@ jobs:
           - os: windows-latest
             binary: planetary-tools.exe
             asset: planetary-tools-windows.exe
-          # Apple Silicon (arm64) runner — covers modern Macs. For Intel Macs
-          # add a second entry with os: macos-13 if you still need x86_64.
-          - os: macos-latest
-            binary: planetary-tools
-            asset: planetary-tools-macos
+          - os: macos-15
+            binary: Planetary Tools.app/Contents/MacOS/planetary-tools
+            asset: planetary-tools-macos-arm64.zip
+            architecture: arm64
+          - os: macos-15-intel
+            binary: Planetary Tools.app/Contents/MacOS/planetary-tools
+            asset: planetary-tools-macos-intel.zip
+            architecture: x86_64
 
     runs-on: ${{ matrix.os }}
 
@@ -40,6 +43,31 @@ jobs:
         with:
           # Use the current workflow to repair a release without moving its tag.
           ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+
+      # Rebuilding an older release uses that tag's app code with this workflow's
+      # packaging and validators, including the Mac bundle and both architectures.
+      - name: Checkout current packaging for a release rebuild
+        if: inputs.release_tag != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-packaging
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /planetary-app/planetary-tools.spec
+            /planetary-app/scripts/
+
+      - name: Apply current packaging to the selected release
+        if: inputs.release_tag != ''
+        shell: python
+        run: |
+          from pathlib import Path
+          import shutil
+          source = Path('.release-packaging/planetary-app')
+          target = Path('planetary-app')
+          shutil.copy2(source / 'planetary-tools.spec', target / 'planetary-tools.spec')
+          for name in ('check_packaged_media.py', 'check_packaged_macos.py'):
+              shutil.copy2(source / 'scripts' / name, target / 'scripts' / name)
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -61,28 +89,35 @@ jobs:
 
       - name: Build with PyInstaller
         working-directory: planetary-app
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess
-          import sys
-
-          spec = Path('planetary-tools.spec')
-          if not spec.exists():
-              # Manual rebuilds may check out a release predating the rename.
-              legacy = Path('planetary-app.spec')
-              spec.write_text(legacy.read_text(encoding='utf-8').replace(
-                  "name='planetary-app'", "name='planetary-tools'"), encoding='utf-8')
-          subprocess.run([sys.executable, '-m', 'PyInstaller', '--clean', str(spec)], check=True)
+        run: pyinstaller --clean --noconfirm planetary-tools.spec
 
       - name: Test bundled interpolation and MP4 without external FFmpeg
+        if: runner.os != 'macOS'
         working-directory: planetary-app
         run: python scripts/check_packaged_media.py "dist/${{ matrix.binary }}"
 
-      - name: Prepare binary for release
+      - name: Prepare executable for release
+        if: runner.os != 'macOS'
         working-directory: planetary-app
         shell: bash
         run: cp "dist/${{ matrix.binary }}" "dist/${{ matrix.asset }}"
+
+      - name: Package Mac application
+        if: runner.os == 'macOS'
+        working-directory: planetary-app
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/Planetary Tools.app" "dist/${{ matrix.asset }}"
+
+      - name: Test extracted Mac app and Finder launch
+        if: runner.os == 'macOS'
+        working-directory: planetary-app
+        run: python scripts/check_packaged_macos.py "dist/${{ matrix.asset }}" --architecture "${{ matrix.architecture }}"
+
+      - name: Upload tested build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: planetary-app/dist/${{ matrix.asset }}
+          if-no-files-found: error
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
@@ -90,3 +125,4 @@ jobs:
         with:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
           files: planetary-app/dist/${{ matrix.asset }}
+          fail_on_unmatched_files: true
