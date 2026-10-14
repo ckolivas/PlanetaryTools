@@ -142,6 +142,7 @@ def scale_rgb_by_oklab_L(
     L_new: np.ndarray,
     *,
     peak: float,
+    clamp: bool = True,
 ) -> np.ndarray:
     """Scale linear RGB so OKLab L moves toward ``L_new`` without clipping.
 
@@ -150,6 +151,8 @@ def scale_rgb_by_oklab_L(
     channel value equals ``peak``. Rewriting L in OKLab and converting
     back is not equivalent — L is cube-root-like, so that path cubes
     linear RGB and blows the result.
+
+    With ``clamp=False``, omit the highlight limit and retain peaks above 1.
     """
     rgb = np.asarray(rgb, dtype=np.float32)
     V = np.max(rgb, axis=-1)
@@ -161,12 +164,13 @@ def scale_rgb_by_oklab_L(
     with np.errstate(divide="ignore", invalid="ignore"):
         f_desired = np.where(L_arr > 1e-7, L_tgt / L_arr, 0.0)
         f_max = np.where(V > 1e-7, 1.0 / V, f_desired)
-    f = np.minimum(f_desired, f_max)
+    f = np.minimum(f_desired, f_max) if clamp else f_desired
     out_max = float(np.max(V * f))
     if out_max < 1e-7:
         return np.array(rgb, copy=True)
     f = f * (peak / out_max)
-    return clamp01(rgb * f[..., None].astype(np.float32))
+    result = rgb * f[..., None].astype(np.float32)
+    return clamp01(result) if clamp else result
 
 
 def linear_luminance(rgb: np.ndarray) -> np.ndarray:

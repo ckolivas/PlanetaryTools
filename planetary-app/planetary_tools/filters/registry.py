@@ -453,7 +453,7 @@ FILTERS: dict[str, FilterDef] = {
         id="levels",
         label="Levels",
         requires_rgb=True,
-        default_params={"channels": default_levels_params()},
+        default_params={"channels": default_levels_params(), CLAMP_PARAM: True},
     ),
     "merge_wavelet_detail": MergeWaveletDetailDef(
         id="merge_wavelet_detail",

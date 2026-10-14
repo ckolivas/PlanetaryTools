@@ -1377,6 +1377,16 @@ class SaturationVibranceDialog(_FilterDialog):
         self.vibrance.blockSignals(False)
 
 
+def _make_levels_clamp_box(checked: bool = True) -> QCheckBox:
+    box = QCheckBox("Clamp to 100%")
+    box.setChecked(checked)
+    box.setToolTip(
+        "Limit highlights during Levels adjustments. Disable to retain values "
+        "above 100% for further processing."
+    )
+    return box
+
+
 class LevelsDialog(_FilterDialog):
     """Per-channel input/output levels with preset save/load."""
 
@@ -1456,6 +1466,10 @@ class LevelsDialog(_FilterDialog):
         layout.addWidget(reset_ch)
         layout.addWidget(reset_all)
         self._form.addRow(row)
+
+        self._clamp_high = _make_levels_clamp_box()
+        self._clamp_high.toggled.connect(lambda _: self.params_changed.emit())
+        self._form.addRow(self._clamp_high)
 
         self.set_help_text(
             "Luminance uses OKLab L as the brightness measure, applied by "
@@ -1575,6 +1589,7 @@ class LevelsDialog(_FilterDialog):
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
         self._store_spins_in_channel(self._editing_channel)
+        p[CLAMP_PARAM] = self._clamp_high.isChecked()
         p["channels"] = {
             ch: dict(self._channel_params[ch]) for ch in LEVEL_CHANNELS
         }
@@ -1583,6 +1598,9 @@ class LevelsDialog(_FilterDialog):
     def set_params(self, params: dict[str, Any]) -> None:
         super().set_params(params)
         self._channel_params = normalize_levels_params(params)
+        self._clamp_high.blockSignals(True)
+        self._clamp_high.setChecked(bool(params.get(CLAMP_PARAM, True)))
+        self._clamp_high.blockSignals(False)
         self._editing_channel = self._current_channel()
         self._load_channel_into_spins(self._editing_channel)
 
@@ -2070,6 +2088,9 @@ def edit_filter_params(
             widgets[key] = spin
     elif filter_id == "levels":
         channel_data = normalize_levels_params(params)
+        clamp_box = _make_levels_clamp_box(bool(params.get(CLAMP_PARAM, True)))
+        form.addRow(clamp_box)
+        widgets[CLAMP_PARAM] = clamp_box
         channel_combo = QComboBox()
         for ch in LEVEL_CHANNELS:
             channel_combo.addItem(_LEVEL_CHANNEL_LABELS[ch], ch)

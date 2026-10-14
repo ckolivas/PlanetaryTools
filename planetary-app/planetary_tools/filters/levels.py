@@ -75,6 +75,7 @@ def normalize_levels_params(params: dict[str, Any]) -> dict[str, dict[str, float
 def _apply_output_curve(
     values: np.ndarray,
     levels: dict[str, float],
+    *, clamp: bool = True,
 ) -> np.ndarray:
     """Map channel values through the output range first."""
     if _is_identity_output(levels):
@@ -84,12 +85,14 @@ def _apply_output_curve(
     out_max = float(levels["out_max"])
     out_span = out_max - out_min
     v = np.asarray(values, dtype=np.float64)
-    return (out_min + np.clip(v, 0.0, 1.0) * out_span).astype(np.float32)
+    v = np.clip(v, 0.0, 1.0) if clamp else np.maximum(v, 0.0)
+    return (out_min + v * out_span).astype(np.float32)
 
 
 def _apply_input_curve(
     values: np.ndarray,
     levels: dict[str, float],
+    *, clamp: bool = True,
 ) -> np.ndarray:
     """Remap values through input black/white points and gamma."""
     if _is_identity_input(levels):
@@ -105,7 +108,7 @@ def _apply_input_curve(
         return np.full_like(values, out_min, dtype=np.float32)
 
     norm = (np.asarray(values, dtype=np.float64) - in_min) / span
-    norm = np.clip(norm, 0.0, 1.0)
+    norm = np.clip(norm, 0.0, 1.0) if clamp else np.maximum(norm, 0.0)
     if abs(gamma - 1.0) >= 1e-6:
         norm = np.power(norm, 1.0 / gamma)
     return norm.astype(np.float32)
@@ -114,15 +117,18 @@ def _apply_input_curve(
 def apply_levels_curve(
     values: np.ndarray,
     levels: dict[str, float],
+    *, clamp: bool = True,
 ) -> np.ndarray:
     """Apply output mapping, then input mapping and gamma."""
     if is_identity_levels(levels):
         return np.asarray(values, dtype=np.float32)
-    out = _apply_output_curve(values, levels)
-    return _apply_input_curve(out, levels)
+    out = _apply_output_curve(values, levels, clamp=clamp)
+    return _apply_input_curve(out, levels, clamp=clamp)
 
 
-def _apply_oklab_l(rgb: np.ndarray, levels: dict[str, float]) -> np.ndarray:
+def _apply_oklab_l(
+    rgb: np.ndarray, levels: dict[str, float], *, clamp: bool = True,
+) -> np.ndarray:
     """Remap OKLab L, then apply it by scaling linear RGB (as stretch does).
 
     Rewriting L in OKLab and converting back cubes linear light and does not
@@ -131,46 +137,49 @@ def _apply_oklab_l(rgb: np.ndarray, levels: dict[str, float]) -> np.ndarray:
     """
     if is_identity_levels(levels):
         return rgb
-    work = clamp01(rgb)
+    work = clamp01(rgb) if clamp else np.maximum(rgb, 0.0)
     L = rgb_to_oklab_L(work)
-    L_new = apply_levels_curve(L, levels)
-    peak = float(np.clip(np.max(L_new), 0.0, 1.0))
-    return scale_rgb_by_oklab_L(work, L, L_new, peak=peak)
+    L_new = apply_levels_curve(L, levels, clamp=clamp)
+    peak = float(np.clip(np.max(L_new), 0.0, 1.0) if clamp else np.max(L_new))
+    return scale_rgb_by_oklab_L(work, L, L_new, peak=peak, clamp=clamp)
 
 
 def _apply_srgb_rgb_output(
     rgb: np.ndarray,
     channels: dict[str, dict[str, float]],
+    *, clamp: bool = True,
 ) -> np.ndarray:
     """Output pass on GIMP-matched sRGB-encoded R, G, B."""
     if all(_is_identity_output(channels[ch]) for ch in ("R", "G", "B")):
         return rgb
 
-    srgb = linear_to_srgb(rgb)
+    srgb = linear_to_srgb(rgb, clamp=clamp)
     for idx, ch in enumerate(("R", "G", "B")):
         if not _is_identity_output(channels[ch]):
-            srgb[..., idx] = _apply_output_curve(srgb[..., idx], channels[ch])
+            srgb[..., idx] = _apply_output_curve(srgb[..., idx], channels[ch], clamp=clamp)
     return srgb_to_linear(srgb)
 
 
 def _apply_srgb_rgb_input(
     rgb: np.ndarray,
     channels: dict[str, dict[str, float]],
+    *, clamp: bool = True,
 ) -> np.ndarray:
     """Input pass on GIMP-matched sRGB-encoded R, G, B."""
     if all(_is_identity_input(channels[ch]) for ch in ("R", "G", "B")):
         return rgb
 
-    srgb = linear_to_srgb(rgb)
+    srgb = linear_to_srgb(rgb, clamp=clamp)
     for idx, ch in enumerate(("R", "G", "B")):
         if not _is_identity_input(channels[ch]):
-            srgb[..., idx] = _apply_input_curve(srgb[..., idx], channels[ch])
+            srgb[..., idx] = _apply_input_curve(srgb[..., idx], channels[ch], clamp=clamp)
     return srgb_to_linear(srgb)
 
 
 def apply_levels(data: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     """Apply OKLab L (RGB-scaled, as stretch) then sRGB-encoded R, G, B."""
     channels = normalize_levels_params(params)
+    clamp = bool(params.get("clamp", True))
     if all(is_identity_levels(channels[ch]) for ch in LEVEL_CHANNELS):
         return np.asarray(data, dtype=np.float32)
 
@@ -179,15 +188,16 @@ def apply_levels(data: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     if rgb.ndim == 2:
         rgb = np.stack([rgb, rgb, rgb], axis=-1)
 
-    rgb = _apply_oklab_l(rgb, channels["L"])
-    rgb = _apply_srgb_rgb_output(rgb, channels)
-    rgb = _apply_srgb_rgb_input(rgb, channels)
+    rgb = _apply_oklab_l(rgb, channels["L"], clamp=clamp)
+    rgb = _apply_srgb_rgb_output(rgb, channels, clamp=clamp)
+    rgb = _apply_srgb_rgb_input(rgb, channels, clamp=clamp)
     return rgb.astype(np.float32)
 
 
 def levels_params_for_preset(params: dict[str, Any]) -> dict[str, Any]:
     """Return serialisable channel levels for preset storage."""
-    return {"channels": deepcopy(normalize_levels_params(params))}
+    return {"channels": deepcopy(normalize_levels_params(params)),
+            "clamp": bool(params.get("clamp", True))}
 
 
 def _channel_values(data: np.ndarray, channel: str) -> np.ndarray:

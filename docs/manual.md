@@ -594,6 +594,7 @@ Adjust black point, white point and midtones for Luminance or an individual RGB 
 2. Adjust Gamma for midtones: 1.00 is unchanged and values above 1 brighten midtones.
 3. Set Output minimum and maximum to rescale or offset brightness. PT applies output mapping before input mapping and gamma, so recheck the combined result when changing both.
 4. Use Auto Balance for an automatic RGB starting point, Reset for the current channel, or Reset all for every channel.
+5. Clamp to 100% is on by default. Turn it off to retain highlights above 100% for further processing; this choice is saved with presets and batch steps.
 
 ### Auto Balance
 
