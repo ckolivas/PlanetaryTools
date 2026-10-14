@@ -850,7 +850,9 @@ class MoonEnhanceDialog(_FilterDialog):
             "Detects faint moons outside the planet's disk and ring envelope "
             "and brightens them toward the target brightness. Enable Retain "
             "relative brightness to set the brightest moon's target while "
-            "keeping fainter moons proportionally fainter. The planet and "
+            "keeping fainter moons proportionally fainter. Pseudo-relative "
+            "brightness lifts faint moons more while retaining their brightness "
+            "order. The planet and "
             "empty sky are left untouched. Detection re-runs when Sensitivity, "
             "Planet margin, or Max moons change; brightness, relative "
             "brightness, and Radius scale update instantly."
@@ -882,6 +884,18 @@ class MoonEnhanceDialog(_FilterDialog):
             lambda _: self.params_changed.emit()
         )
         self._form.addRow(self.retain_relative_brightness)
+        self.pseudo_relative_brightness = QCheckBox("Pseudo-relative brightness")
+        self.pseudo_relative_brightness.setToolTip(
+            "Compress relative brightness differences with a square root: a "
+            "moon at 1% of the brightest moon targets 10% of its brightness. "
+            "Requires Retain relative brightness; maximum gain still applies."
+        )
+        self.pseudo_relative_brightness.setEnabled(False)
+        self.pseudo_relative_brightness.toggled.connect(
+            lambda _: self.params_changed.emit()
+        )
+        self.retain_relative_brightness.toggled.connect(self._on_relative_toggled)
+        self._form.addRow(self.pseudo_relative_brightness)
         self.sensitivity = self._add_double(
             "Sensitivity", fdef.default_params["sensitivity"], 1.0, 50.0,
             step=0.5, decimals=1,
@@ -910,8 +924,9 @@ class MoonEnhanceDialog(_FilterDialog):
         self.margin_auto = QCheckBox("Auto")
         self.margin_auto.setChecked(True)
         self.margin_auto.setToolTip(
-            "Measure the surrounding glow to protect the planet and rings "
-            "while retaining nearby moons. Uses a conservative size-based "
+            "Follow the local glow around the disk and rings while retaining "
+            "nearby moons. The displayed value is the largest local padding, "
+            "not a uniform distance. Uses a conservative size-based "
             "margin if there is insufficient surrounding sky."
         )
         self.margin_auto.toggled.connect(self._on_margin_auto_toggled)
@@ -930,6 +945,11 @@ class MoonEnhanceDialog(_FilterDialog):
         self.max_moons.setToolTip(
             "Keep at most this many detections, strongest first."
         )
+
+    def _on_relative_toggled(self, checked: bool) -> None:
+        self.pseudo_relative_brightness.setEnabled(checked)
+        if not checked:
+            self.pseudo_relative_brightness.setChecked(False)
 
     def _on_margin_auto_toggled(self, checked: bool) -> None:
         self.planet_margin.setEnabled(not checked)
@@ -952,6 +972,10 @@ class MoonEnhanceDialog(_FilterDialog):
         p.update({
             "brightness": self.brightness.value(),
             "retain_relative_brightness": self.retain_relative_brightness.isChecked(),
+            "pseudo_relative_brightness": (
+                self.retain_relative_brightness.isChecked()
+                and self.pseudo_relative_brightness.isChecked()
+            ),
             "sensitivity": self.sensitivity.value(),
             "radius_scale": self.radius_scale.value(),
             "planet_margin": (
@@ -978,6 +1002,12 @@ class MoonEnhanceDialog(_FilterDialog):
             bool(params.get("retain_relative_brightness", False))
         )
         self.retain_relative_brightness.blockSignals(False)
+        self.pseudo_relative_brightness.blockSignals(True)
+        self.pseudo_relative_brightness.setChecked(
+            bool(params.get("pseudo_relative_brightness", False))
+        )
+        self._on_relative_toggled(self.retain_relative_brightness.isChecked())
+        self.pseudo_relative_brightness.blockSignals(False)
         margin = float(params.get("planet_margin", 0.0))
         auto = margin <= 0.0
         self.margin_auto.blockSignals(True)
@@ -1818,6 +1848,9 @@ def _apply_params_to_batch_widgets(
             sync_auto(bool(widgets["auto"].isChecked()))
         else:
             sync_auto()
+    sync_relative = widgets.get("_sync_relative")
+    if callable(sync_relative):
+        sync_relative(widgets["retain_relative_brightness"].isChecked())
 
 
 def edit_filter_params(
@@ -2447,6 +2480,23 @@ def edit_filter_params(
         )
         form.addRow(relative)
         widgets["retain_relative_brightness"] = relative
+        pseudo = QCheckBox("Pseudo-relative brightness")
+        pseudo.setChecked(bool(params.get("pseudo_relative_brightness", False)))
+        pseudo.setToolTip(
+            "Lift faint moons more using square-root brightness ratios while "
+            "keeping their brightness order. Requires Retain relative brightness."
+        )
+        form.addRow(pseudo)
+        widgets["pseudo_relative_brightness"] = pseudo
+
+        def _sync_relative(checked: bool) -> None:
+            pseudo.setEnabled(checked)
+            if not checked:
+                pseudo.setChecked(False)
+
+        relative.toggled.connect(_sync_relative)
+        widgets["_sync_relative"] = _sync_relative
+        _sync_relative(relative.isChecked())
     else:
         layout.addWidget(QLabel("No numeric parameters for this filter."))
 

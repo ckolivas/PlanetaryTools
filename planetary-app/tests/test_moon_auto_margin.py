@@ -15,6 +15,34 @@ def planet(sigma=2):
 
 
 class MoonAutoMarginTests(unittest.TestCase):
+    def test_ringed_planet_uses_local_padding_and_no_artificial_rim_peaks(self):
+        y, x = np.indices((384, 512))
+        disk = ((x-256)**2 + (y-192)**2 < 70**2).astype(np.float32)
+        rings = (((x-256)/160)**2 + ((y-192)/15)**2 < 1).astype(np.float32)
+        image = (ndimage.gaussian_filter(np.maximum(disk*.6, rings*.35), 2)
+                 + ndimage.gaussian_filter(disk*.03, 20))
+        positions = ((152, 386), (70, 100), (300, 425))
+        for pos, peak in zip(positions, (.01, .02, .0004)):
+            image[pos] += peak
+        seed, _ = moon._planet_seed(image, moon.DEFAULT_PLANET_FLOOR)
+        distance = ndimage.distance_transform_edt(~seed)
+        margin = moon.auto_planet_margin(image, True)
+        # The disk's wider halo would hide the close moon above the rings if
+        # its largest padding were imposed on every part of Saturn's outline.
+        self.assertGreater(margin, distance[positions[0]])
+        detections, exclusion = moon.detect_moons(
+            image, sensitivity=10, planet_margin=0, max_moons=12,
+        )
+        self.assertEqual({(d.y, d.x) for d in detections}, set(positions))
+        self.assertTrue(exclusion[seed].all())
+        self.assertFalse(any(exclusion[p] for p in positions))
+        rotated, rotated_mask = moon.detect_moons(
+            np.rot90(image), sensitivity=10, planet_margin=0, max_moons=12,
+        )
+        self.assertEqual({(d.y, d.x) for d in rotated},
+                         {(image.shape[1]-1-x, y) for y, x in positions})
+        np.testing.assert_array_equal(rotated_mask, np.rot90(exclusion))
+
     def test_sharp_planet_keeps_close_single_pixel_moon(self):
         image = planet()
         positions = {(45, 192), (192, 45), (192, 302), (335, 192)}
@@ -78,7 +106,9 @@ class MoonImageMarginTests(unittest.TestCase):
             self.assertTrue(any(np.hypot(d.y-y, d.x-x) <= 2 for d in detections),
                             (filename, margin, detections))
         manual, _ = moon._planet_exclusion(lum, moon.DEFAULT_PLANET_FLOOR, margin)
-        np.testing.assert_array_equal(exclusion, manual)
+        # Auto follows local disk/ring glow; its displayed maximum is a
+        # conservative uniform manual margin, not the same mask.
+        self.assertFalse(np.any(exclusion & ~manual))
         output = moon.moon_enhance(doc.data, doc.is_grayscale, 25, 8, .5, 0, len(expected))
         np.testing.assert_array_equal(output[exclusion], doc.data[exclusion])
         for d in detections:
@@ -94,6 +124,33 @@ class MoonImageMarginTests(unittest.TestCase):
 
     def test_earlier_four_moon_image(self):
         self.check_detections('4moons.png', ((210, 357), (195, 621), (139, 1054), (103, 1744)))
+
+    def test_saturn_close_and_faint_moons(self):
+        margin = self.check_detections('moontest.png', ((160, 620), (214, 528), (264, 694)))
+        self.assertLess(margin, 28)
+
+    def test_saturn_pseudo_relative_lifts_faint_moon_and_protects_planet(self):
+        path = ROOT / 'moontest.png'
+        if not path.exists():
+            self.skipTest('Local moontest.png regression image is not installed')
+        from planetary_tools.io.loader import load_image
+        doc = load_image(path, pin_noise=False)
+        lum = moon._luminance(doc.data, doc.is_grayscale)
+        detections, exclusion = moon.detect_moons(
+            lum, sensitivity=8, planet_margin=0, max_moons=3,
+        )
+        strict = moon.moon_enhance(doc.data, doc.is_grayscale, 25, 8, .5, 0, 3,
+                                  retain_relative_brightness=True)
+        pseudo = moon.moon_enhance(doc.data, doc.is_grayscale, 25, 8, .5, 0, 3,
+                                  retain_relative_brightness=True, pseudo_relative_brightness=True)
+        strict_lum = moon._luminance(strict, doc.is_grayscale)
+        pseudo_lum = moon._luminance(pseudo, doc.is_grayscale)
+        ordered = sorted(detections, key=lambda d: d.peak_l, reverse=True)
+        peaks = [float(pseudo_lum[d.y-2:d.y+3, d.x-2:d.x+3].max()) for d in ordered]
+        self.assertGreater(peaks[0], peaks[1])
+        self.assertGreater(peaks[1], peaks[2])
+        self.assertGreater(float(pseudo_lum[264, 694]), float(strict_lum[264, 694])*5)
+        np.testing.assert_array_equal(pseudo[exclusion], doc.data[exclusion])
 
 
 if __name__ == '__main__':

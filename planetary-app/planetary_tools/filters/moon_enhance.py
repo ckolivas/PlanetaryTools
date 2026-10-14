@@ -10,9 +10,9 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
 1. Planet mask: seed at ``planet_floor × L.max()`` (the max, not a percentile —
    on a wide field p99 of luminance is sky), keep the largest connected
    component, and exclude everything within ``margin`` px of it (Euclidean
-   distance transform). Auto measures the surrounding glow, with a small
-   safety pad, within a size-based limit (half the equivalent radius, min
-   20 px). Sharper stacks need less padding to retain nearby moons.
+   distance transform). Auto follows the connected disk/ring glow locally,
+   with a small safety pad and a size-based limit (half the equivalent radius,
+   min 20 px), rather than spreading the widest halo around the whole planet.
 2. Background: median filter at ×4 downsample, upsampled — removes sky
    gradients and planet glow so moons appear as compact positive residual.
 3. Detection: local SNR against a local median/MAD noise map (sky noise is
@@ -24,6 +24,8 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
    preserves hue. Planet pixels inside the exclusion zone are bit-identical.
    Optionally use the brightest detected moon's peak for every gain, retaining
    the relative peak brightness of the moons instead of equalising them.
+   Pseudo-relative mode compresses peak ratios with a square root so faint
+   moons receive more gain while keeping the brightness ordering.
 
 Detection (steps 1-3, ~2.5 s at 1600×3088) is cached on an image fingerprint +
 detection params so brightness-only preview updates are instant.
@@ -45,10 +47,12 @@ DEFAULT_PLANET_FLOOR = 0.05
 # half-radius margin alone hides close moons around sharply processed planets.
 _AUTO_MARGIN_RADIUS_FRAC = 0.5
 _AUTO_MARGIN_MIN_PX = 20.0
-_AUTO_MARGIN_BIN_PX = 5
 _AUTO_MARGIN_SKY_WIDTH_PX = 15
 _AUTO_MARGIN_MIN_SAMPLES = 64
-_AUTO_MARGIN_GLOW_FLOOR = 1e-4  # fraction of the image peak
+# Protect the substantial connected glow, not every trace of diffuse sky haze.
+# Fainter residuals are handled by background subtraction and source-shape tests.
+_AUTO_MARGIN_GLOW_FLOOR = 2e-3  # fraction of the image peak
+_AUTO_MARGIN_OPEN_SIZE = 13  # remove compact sources before following the halo
 
 # Background / noise maps are computed at this downsample factor. Full-res
 # median filtering at these kernel sizes takes minutes; downsampled ~seconds.
@@ -130,39 +134,37 @@ def _auto_margin_px(r_eq: float) -> float:
     return float(max(_AUTO_MARGIN_MIN_PX, 10.0 * round(raw / 10.0)))
 
 
-def _halo_margin_px(lum: np.ndarray, distance: np.ndarray, r_eq: float) -> float:
-    """Measure glow outside the planet/ring mask without following compact moons.
+def _auto_exclusion(
+    lum: np.ndarray, planet: np.ndarray, distance: np.ndarray, r_eq: float,
+) -> np.ndarray:
+    """Follow connected, broad glow instead of using one margin on every limb.
 
-    Use the 90th percentile in distance bands, rather than the maximum: moons
-    occupy only a small part of each band. Compare with the nearby sky beyond
-    the conservative margin, allowing for its noise/gradient spread. If there
-    is insufficient sky (e.g. a tight crop), keep the conservative margin.
+    A ringed planet has very different halo widths above the rings and around
+    the disk. Opening removes compact moons; propagation keeps only glow
+    attached to the planet. Sky statistics and a peak-relative floor prevent
+    diffuse background haze from swallowing nearby sources. A tight crop
+    without enough sky retains the conservative distance-based fallback.
     """
     limit = _auto_margin_px(r_eq)
+    fallback = distance <= limit
     if limit <= _AUTO_MARGIN_MIN_PX:
-        return limit
-    region = (distance > 0) & (distance < limit + _AUTO_MARGIN_SKY_WIDTH_PX)
-    distances = distance[region]
-    values = lum[region]
-    sky = values[distances >= limit]
+        return fallback
+    sky = lum[(distance >= limit) & (distance < limit + _AUTO_MARGIN_SKY_WIDTH_PX)]
     if sky.size < _AUTO_MARGIN_MIN_SAMPLES:
-        return limit
+        return fallback
     sky_median, sky_high = np.percentile(sky, [50, 90])
     threshold = max(
         float(sky_high + 3.0 * (sky_high - sky_median)),
         _AUTO_MARGIN_GLOW_FLOOR * float(lum.max()),
     )
-    halo_edge = 0.0
-    for start in range(0, int(limit), _AUTO_MARGIN_BIN_PX):
-        end = start + _AUTO_MARGIN_BIN_PX
-        band = values[(distances >= start) & (distances < end)]
-        if band.size < _AUTO_MARGIN_MIN_SAMPLES:
-            return limit
-        if float(np.percentile(band, 90)) > threshold:
-            halo_edge = float(end)
-    # Keep the residual-smoothing footprint outside the measured glow.
+    broad = ndimage.grey_opening(lum, size=_AUTO_MARGIN_OPEN_SIZE)
+    halo = ndimage.binary_propagation(
+        planet, mask=planet | ((broad > threshold) & fallback),
+    )
+    halo = ndimage.binary_fill_holes(halo)
     pad = float(np.ceil(3.5 * _RESIDUAL_SMOOTH_SIGMA))
-    return min(limit, max(_AUTO_MARGIN_MIN_PX, halo_edge + pad))
+    local = ndimage.distance_transform_edt(~halo) <= pad
+    return ((distance <= _AUTO_MARGIN_MIN_PX) | local) & fallback
 
 
 def auto_planet_margin(
@@ -170,13 +172,18 @@ def auto_planet_margin(
     is_grayscale: bool = False,
     planet_floor: float = DEFAULT_PLANET_FLOOR,
 ) -> float:
-    """Exclusion distance used when ``planet_margin`` is 0 (Auto)."""
+    """Largest local Auto padding, for display or a conservative manual start."""
     lum = _luminance(data, is_grayscale)
     planet, r_eq = _planet_seed(lum, planet_floor)
     if r_eq <= 0.0:
         return _AUTO_MARGIN_MIN_PX
     distance = ndimage.distance_transform_edt(~planet)
-    return _halo_margin_px(lum, distance, r_eq)
+    exclusion = _auto_exclusion(lum, planet, distance, r_eq)
+    # In a tight crop the mask may cover the entire image before reaching the
+    # fallback distance. Keep reporting the conservative fallback in that case.
+    if exclusion.all():
+        return _auto_margin_px(r_eq)
+    return float(np.ceil(distance[exclusion].max()))
 
 
 def _planet_exclusion(
@@ -188,7 +195,7 @@ def _planet_exclusion(
         return np.zeros(lum.shape, dtype=bool), 0.0
     distance = ndimage.distance_transform_edt(~planet)
     if margin <= 0.0:
-        margin = _halo_margin_px(lum, distance, r_eq)
+        return _auto_exclusion(lum, planet, distance, r_eq), r_eq
     return distance <= margin, r_eq
 
 
@@ -232,7 +239,8 @@ def detect_moons(
     bg = _resample(ndimage.median_filter(small, size=_BG_KERNEL_SMALL), w, h)
 
     residual = np.clip(lum - bg, 0.0, None)
-    residual[exclusion] = 0.0
+    # Measure the original residual: cutting a halo at the exclusion rim
+    # before smoothing creates artificial compact peaks and distorts FWHM.
     smooth = ndimage.gaussian_filter(residual, _RESIDUAL_SMOOTH_SIGMA)
 
     smooth_small = _resample(smooth, small_w, small_h)
@@ -244,10 +252,9 @@ def detect_moons(
     sigma = 1.4826 * _resample(mad_small, w, h)
     sigma_floor = max(_SIGMA_FLOOR_FRAC * float(lum.max()), 1e-12)
     snr = (smooth - med) / np.maximum(sigma, sigma_floor)
-    snr[exclusion] = 0.0
 
     peaks = (snr == ndimage.maximum_filter(snr, size=_NMS_WINDOW)) & (
-        snr > sensitivity
+        (snr > sensitivity) & ~exclusion
     )
     ys, xs = np.nonzero(peaks)
     detections: list[MoonDetection] = []
@@ -320,12 +327,18 @@ def _gain_field(
     radius_scale: float,
     max_gain: float,
     retain_relative_brightness: bool = False,
+    pseudo_relative_brightness: bool = False,
 ) -> np.ndarray:
     h, w = shape
     gain = np.ones((h, w), dtype=np.float32)
     brightest_peak = max((det.peak_l for det in detections), default=0.0)
     for det in detections:
-        peak = brightest_peak if retain_relative_brightness else det.peak_l
+        peak = det.peak_l
+        if retain_relative_brightness:
+            # target * sqrt(moon / brightest), expressed as a gain denominator.
+            # The core guard also ignores stale preset flags when relative is off.
+            peak = (np.sqrt(max(det.peak_l, 0.0) * brightest_peak)
+                    if pseudo_relative_brightness else brightest_peak)
         g = target_l / max(peak, 1e-12)
         g = float(np.clip(g, 1.0, max_gain))
         if g <= 1.0:
@@ -353,12 +366,15 @@ def moon_enhance(
     planet_floor: float = DEFAULT_PLANET_FLOOR,
     max_gain: float = DEFAULT_MAX_GAIN,
     retain_relative_brightness: bool = False,
+    pseudo_relative_brightness: bool = False,
 ) -> np.ndarray:
     """Brighten detected moons toward ``brightness_pct`` of full scale.
 
     With ``retain_relative_brightness``, set a common gain from the brightest
     detected moon, preserving relative peak luminance. Otherwise each moon has
-    its own gain. Gains never dim a moon and are limited by ``max_gain``.
+    its own gain. ``pseudo_relative_brightness`` compresses those ratios with
+    a square root, only when relative mode is enabled. Gains never dim a moon
+    and are limited by ``max_gain``.
     """
     arr = np.asarray(data, dtype=np.float32)
     lum = _luminance(arr, is_grayscale)
@@ -370,7 +386,7 @@ def moon_enhance(
         return arr.copy()
     gain = _gain_field(
         lum.shape, detections, target_l, radius_scale, max_gain,
-        retain_relative_brightness,
+        retain_relative_brightness, pseudo_relative_brightness,
     )
     # Hard guarantee: gain tails from moons near the margin must not lift the
     # planet or its glow.

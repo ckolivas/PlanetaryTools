@@ -373,9 +373,9 @@ Find and brighten compact moons outside the planet and ring protection area whil
 
 ### How to use
 
-1. Start with Planet margin Auto enabled. If an inner moon is excluded, disable Auto and reduce the margin cautiously; manual values start at 1 pixel.
+1. Start with Planet margin Auto enabled. Auto follows the local glow around the disk and rings; the displayed number is its largest padding, rather than a uniform margin. If an inner moon is excluded, disable Auto and reduce the margin cautiously; manual values start at 1 pixel.
 2. Adjust Sensitivity to detect the desired moons. Lower values admit fainter candidates but also more noise. Limit Max moons if false detections appear.
-3. Set Max moon brightness. Enable Retain relative brightness to apply a common boost based on the brightest detected moon.
+3. Set Max moon brightness. Enable Retain relative brightness to apply a common boost based on the brightest detected moon. With that enabled, Pseudo-relative brightness gives faint moons a stronger lift while keeping their brightness order: a moon at 1% of the brightest moon targets 10% instead. The maximum gain still limits very faint sources. Leave this off for strict brightness ratios.
 4. Adjust Radius scale if the brightening footprint is too tight or too broad, then compare the result at 100% zoom.
 
 ### Relative brightness
