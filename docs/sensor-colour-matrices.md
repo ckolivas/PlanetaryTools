@@ -567,3 +567,66 @@ rounded terms so every row sums to one:
 
 Select **IMX664** again to load the revised built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX676 — recalculated 19 October 2026
+
+Source: the author-supplied `IMX676.jpg`, 1200 × 1570 pixels, headed
+**Quantum Efficiency**, identifying the ASI676MC and plotting relative response
+on a 0–1 scale. No internet references were used. Source SHA-256:
+`6ebadafd8d08f710e3c0f8d081421ff24516b5291d91871144acdeac3d35ef8f`.
+
+The stated estimated 83% peak QE does not affect the calculation: a common
+amplitude factor cancels when dividing each subtraction area by its channel's
+total. Only the plotted RGB traces within the ideal 400–680 nm bandpass are used.
+
+Grid-line centres were located from median grayscale darkness relative to the
+light background. Pixel coordinates were mapped by linear interpolation between
+neighbouring ticks. Zero-based pixel coordinates, rounded here to 0.001 pixel:
+
+- Wavelengths 400, 450, …, 1000 nm: x = 181.500, 256.221, 331.157, 405.541,
+  480.500, 555.157, 629.763, 704.669, 779.224, 854.155, 928.669, 1003.431, 1078.331.
+- Responses 0, 0.1, …, 1.0: y = 1321.608, 1262.881, 1204.217, 1145.662,
+  1087.275, 1028.426, 969.664, 910.500, 852.698, 793.974, 735.331.
+
+For each colour, select pixels whose corresponding 8-bit RGB channel is greater
+than 100 and exceeds both other channels by more than 60. Use the median trace
+row in each column. The one-column red gap near its blue crossing and two-column
+blue gap near its green crossing were interpolated linearly; the latter spans
+about 1.3 nm of missing samples. The first sampled column, x = 182 (about
+400.33 nm), was extended constantly back to 400 nm. Text and labels outside the
+plot were excluded.
+
+The [digitised samples](data/imx676-sensitivity.csv) retain native horizontal
+sampling plus exact integration boundaries. Trapezoidal integration gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 105.21217 | R_G = 4.77048 | R_B = 3.70614 |
+| Green | 152.75759 | G_R = 12.10159 | G_B = 6.51336 |
+| Blue | 90.37506 | B_R = 10.19381 | B_G = 6.82892 |
+
+Areas are in relative-response units × nm. Before rounding, the matrix is
+approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.080567 | -0.045341 | -0.035225 |
+| G | -0.079221 | 1.121859 | -0.042639 |
+| B | -0.112794 | -0.075562 | 1.188357 |
+
+Varying the colour-difference thresholds by ±15 RGB levels changes coefficients
+by at most 0.000051 without changing the rounded preset. Line thickness, axis
+placement and the original plotted curves also limit accuracy; these remain
+approximate graph readings rather than original sensor measurements.
+
+Round the off-diagonals to three decimals, then derive the diagonals from those
+rounded terms so every row sums to one:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.080** | **-0.045** | **-0.035** |
+| G | **-0.079** | **1.122** | **-0.043** |
+| B | **-0.113** | **-0.076** | **1.189** |
+
+Select **IMX676** again to load the revised built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
