@@ -1,18 +1,65 @@
-# Sensor colour-subtraction calculations
+# Sensor colour-subtraction matrices: method and values
 
-These notes record recalculations of built-in sensor presets from graphs supplied
-by the author. Only explicitly recalculated sensors are covered; the other stored
-presets have not yet been revalidated against their source graphs.
+This standalone reference explains how PT's built-in camera colour-correction
+matrices were derived from the sensor-response graphs supplied by the author.
+It covers all 12 current sensor presets, recalculated on 19 October 2026. Only
+those supplied graphs were used; no internet reference curves were substituted.
 
-## Method
+- [Derivation method](#derivation-method)
+- [Current preset values](#current-preset-values)
+- [Worked example](#worked-example-imx715)
+- [Applying and checking the matrices](#applying-and-checking-the-matrices)
 
-Use an ideal rectangular 400–680 nm bandpass. Integrate each channel over that
-range to obtain its total. The coloured filter-transmission curves on a graph are
-not multiplied into the sensor response for this calculation.
+The sensor sections below retain source filenames and hashes, digitisation
+settings, integrated areas, unrounded coefficients and uncertainty notes.
+Their linked CSV files contain the digitised response samples.
 
-Define the subtraction areas as follows, truncating every interval to the bandpass:
+## Derivation method
 
-| Area | Channel | Wavelength interval (nm) |
+### 1. Define the bandpass and read the graph
+
+Assume an ideal rectangular **400–680 nm bandpass**: transmission is one inside
+this interval and zero outside it. Do not multiply plotted filter-transmission
+curves into the sensor responses. In particular, the infrared response beyond
+680 nm contributes nothing to these calculations.
+
+Calibrate image pixel coordinates against labelled wavelength and response ticks.
+Identify each RGB curve by its colour, excluding legends, grid lines, labels,
+watermarks and unrelated filter curves. Use the median vertical position of its
+matching pixels in each horizontal column as the trace centre. Map those centres
+to wavelength and response, interpolating between calibration ticks where used.
+The individual sensor notes specify the calibration and selection thresholds.
+
+Linearly interpolate short gaps where one curve covers another. Where a trace
+starts slightly after 400 nm, extend its first measured response back to the
+boundary and record that approximation. Add exact samples at 400, 450, 500, 550,
+600, 650 and 680 nm so every integration limit is represented.
+
+The source may use a 0–1 or 0–100 response scale. Keep that scale consistently for
+each channel: multiplying a whole channel by a constant cancels in its area
+ratios. Therefore an overall quoted peak QE, such as 80%, does not need to be
+applied separately.
+
+### 2. Integrate the total and subtraction areas
+
+For each channel C, calculate its total response area:
+
+```text
+C_total = integral from 400 to 680 nm of C(wavelength) d(wavelength)
+```
+
+Use trapezoidal integration of the digitised samples:
+
+```text
+area = sum over adjacent samples i:
+       (wavelength[i+1] - wavelength[i]) * (response[i] + response[i+1]) / 2
+```
+
+Define the six subtraction areas as follows. Each label names the measured
+channel first and the input channel to be subtracted second; for example, R_G
+is an area under the **red** curve, not under the green curve.
+
+| Area | Measured curve | Wavelength interval (nm) |
 | --- | --- | --- |
 | R_G | Red | 500–550 |
 | R_B | Red | 400–500 |
@@ -21,12 +68,115 @@ Define the subtraction areas as follows, truncating every interval to the bandpa
 | B_G | Blue | 550–600 |
 | B_R | Blue | 600–680 |
 
-Each off-diagonal coefficient is minus that area divided by the total area of its
-**output** channel. Each diagonal is one minus the sum of its two negative
-coefficients. Rows are output R, G, B; columns are input R, G, B. PT applies the
-matrix to linear RGB. Equal-RGB input remains unchanged because each row sums to
-one. This is the author's prescribed subtraction heuristic, not a fitted
-colourimetric calibration or an exact inversion of sensor spectral mixing.
+The original “above 650”, “below 450” and “above 600” definitions are clipped to
+the assumed bandpass. Areas have units of plotted response × nm; their ratios
+are dimensionless.
+
+### 3. Calculate and round the coefficients
+
+Divide each subtraction area by the total for its **output channel**, and negate
+it. Then choose the diagonal to make each row sum to one:
+
+```text
+RG = -R_G / R_total       RB = -R_B / R_total
+GR = -G_R / G_total       GB = -G_B / G_total
+BR = -B_R / B_total       BG = -B_G / B_total
+
+RR = 1 - RG - RB
+GG = 1 - GR - GB
+BB = 1 - BR - BG
+```
+
+Keep unrounded coefficients in the calculation notes. For PT's stored presets,
+**round the six off-diagonal coefficients to three decimal places first**, then
+calculate the diagonals from those rounded values. Do not round all nine
+independently: that can leave a row sum different from one.
+
+Negative off-diagonal entries subtract a proportion of the other input colours.
+The diagonal entries consequently exceed one, compensating so equal-RGB input
+remains neutral and keeps its original value.
+
+### 4. Assess uncertainty
+
+Repeat extraction with slightly looser and stricter colour thresholds and compare
+the resulting coefficients. Record any changes to the rounded preset. This checks
+sensitivity to pixel selection; it is not a complete error bound. Line thickness,
+axis placement, interpolation, image compression and the original published graph
+also limit accuracy. Three stored decimals do not imply three-decimal physical
+accuracy.
+
+This is the author's prescribed colour-subtraction heuristic. It is not a fitted
+colourimetric calibration or an exact inversion of sensor spectral mixing. The
+areas use the response curves without weighting by an illuminant, target spectrum
+or a measured filter-transmission profile. Results for other bandpasses require
+recalculation.
+
+## Current preset values
+
+Rows are **output R, G, B**; columns within each row are **input R, G, B**.
+Every row below sums to one. Values match the application's
+[`SENSOR_MATRICES`](../planetary-app/planetary_tools/filters/colour_matrix.py).
+
+| Sensor | R output row (RR, RG, RB) | G output row (GR, GG, GB) | B output row (BR, BG, BB) |
+| --- | --- | --- | --- |
+| IMX183 | 1.080; -0.037; -0.043 | -0.037; 1.059; -0.022 | -0.042; -0.029; 1.071 |
+| IMX224 | 1.081; -0.036; -0.045 | -0.049; 1.071; -0.022 | -0.066; -0.042; 1.108 |
+| IMX290 | 1.072; -0.033; -0.039 | -0.044; 1.064; -0.020 | -0.052; -0.034; 1.086 |
+| IMX462 | 1.076; -0.029; -0.047 | -0.023; 1.040; -0.017 | -0.021; -0.022; 1.043 |
+| IMX485 | 1.086; -0.036; -0.050 | -0.047; 1.069; -0.022 | -0.052; -0.041; 1.093 |
+| IMX571 | 1.065; -0.028; -0.037 | -0.038; 1.060; -0.022 | -0.036; -0.026; 1.062 |
+| IMX585 | 1.050; -0.022; -0.028 | -0.051; 1.067; -0.016 | -0.051; -0.025; 1.076 |
+| IMX662 | 1.084; -0.046; -0.038 | -0.079; 1.121; -0.042 | -0.112; -0.055; 1.167 |
+| IMX664 | 1.051; -0.022; -0.029 | -0.049; 1.066; -0.017 | -0.045; -0.026; 1.071 |
+| IMX676 | 1.080; -0.045; -0.035 | -0.079; 1.122; -0.043 | -0.113; -0.076; 1.189 |
+| IMX678 | 1.081; -0.045; -0.036 | -0.078; 1.120; -0.042 | -0.107; -0.072; 1.179 |
+| IMX715 | 1.087; -0.046; -0.041 | -0.078; 1.120; -0.042 | -0.111; -0.054; 1.165 |
+
+## Worked example: IMX715
+
+From the supplied graph, trapezoidal integration gives a red total of about
+104.65044, a red 500–550 nm area of 4.80264, and a red 400–500 nm area of 4.28063.
+Thus:
+
+```text
+RG = -4.80264 / 104.65044 = approximately -0.045892 -> -0.046
+RB = -4.28063 / 104.65044 = approximately -0.040904 -> -0.041
+RR = 1 - (-0.046) - (-0.041) = 1.087
+```
+
+The resulting red output is `1.087 * R - 0.046 * G - 0.041 * B`.
+For equal inputs R = G = B = 0.5, the result is 0.5. Repeat the same procedure
+using the green and blue totals and their respective subtraction areas.
+
+## Applying and checking the matrices
+
+PT applies the matrix to linear RGB values:
+
+```text
+R_out = RR * R_in + RG * G_in + RB * B_in
+G_out = GR * R_in + GG * G_in + GB * B_in
+B_out = BR * R_in + BG * G_in + BB * B_in
+```
+
+This describes the matrix operation itself; output range handling in the tool is
+a separate step. Subtraction can produce negative values and diagonal gains can
+produce values above 1.
+
+Choose the named sensor preset again in Colour Correction to load the revised
+built-in values. Saved Last settings, personal presets and existing batch
+workflows retain their own matrices.
+
+The [matrix regression tests](../planetary-app/tests/test_colour_matrix.py)
+reintegrate the linked CSV samples to check the stored coefficients, verify
+neutral preservation including values outside 0–1, and check that refreshing
+built-in presets preserves personal settings. Run them from the repository root:
+
+```sh
+PYTHONPATH=planetary-app:planetary-app/tests planetary-app/.venv/bin/python -m unittest test_colour_matrix
+```
+
+These checks validate implementation and consistency with the recorded samples;
+they do not independently establish the physical accuracy of the graphs.
 
 ## IMX462 — recalculated 19 October 2026
 

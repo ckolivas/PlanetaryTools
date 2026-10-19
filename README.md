@@ -44,6 +44,10 @@ The manual covers every tool with screenshots, including the
 [author's suggested sharpening workflow](docs/manual.md#authors-sharpening-workflow)
 for one-shot colour images.
 
+The separate [sensor colour-matrix reference](docs/sensor-colour-matrices.md)
+explains the graph digitisation, area calculations and rounding method, and lists
+all built-in camera matrices.
+
 ## Tools
 
 - **Sharpen and denoise:** Wavelet Sharpen, Adaptive Deconvolution, Wavelet
