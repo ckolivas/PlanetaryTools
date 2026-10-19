@@ -378,3 +378,61 @@ rounded terms to preserve unit row sums:
 
 Select **IMX571** again to load the revised built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX585 — recalculated 19 October 2026
+
+Source: the author-supplied `IMX585-QE.jpg`, 1156 × 1000 pixels, titled **IMX585 QE
+Curve**, with relative response plotted on a 0–1 scale. No internet references
+were used. Source SHA-256:
+`338f274a0e4c2ebaa9904904b3151f77befac9c22e65b2e49481ab07ee20ae87`.
+
+Grid-line centres were located using median grayscale darkness across the plot.
+Pixel positions were mapped by linear interpolation between neighbouring ticks.
+Zero-based pixel coordinates, rounded here to 0.001 pixel:
+
+- Wavelengths 400, 450, …, 1000 nm: x = 140.500, 220.624, 300.624, 381.624,
+  461.624, 541.624, 621.624, 701.624, 782.624, 862.624, 942.624, 1022.624, 1103.500.
+- Responses 0, 0.1, …, 1.0: y = 865.500, 805.624, 745.624, 684.624, 624.500,
+  564.500, 504.500, 444.500, 384.500, 324.500, 264.500.
+
+Trace pixels have their matching RGB component above 100 and more than 60 above
+each other component. Their median vertical position was measured in each column.
+A single missing red column at a crossing was interpolated (about 0.62 nm).
+The first sampled trace values extend about 0.31 nm to reach the 400 nm boundary.
+The title and legend are outside the sampled plot area. Only the 400–680 nm
+bandpass contributes to the calculation; the high near-infrared responses do not.
+
+The [digitised samples](data/imx585-sensitivity.csv) retain native horizontal
+samples and exact integration boundaries. Trapezoidal integration gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 102.19372 | R_G = 2.29376 | R_B = 2.89997 |
+| Green | 121.70174 | G_R = 6.17197 | G_B = 1.89745 |
+| Blue | 72.08331 | B_R = 3.66472 | B_G = 1.82947 |
+
+Areas are in relative-response units × nm. Before rounding, the matrix is
+approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.050822 | -0.022445 | -0.028377 |
+| G | -0.050714 | 1.066305 | -0.015591 |
+| B | -0.050840 | -0.025380 | 1.076220 |
+
+Changing the colour-dominance threshold by ±15 RGB levels changed coefficients
+by at most 0.000034 without changing the rounded preset. Axis placement,
+line thickness and JPEG compression also limit accuracy; these remain approximate
+graph readings rather than original sensor measurements.
+
+Round the off-diagonals to three decimals, then calculate the diagonals from
+those rounded values to preserve unit row sums:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.050** | **-0.022** | **-0.028** |
+| G | **-0.051** | **1.067** | **-0.016** |
+| B | **-0.051** | **-0.025** | **1.076** |
+
+Select **IMX585** again to load the revised built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
