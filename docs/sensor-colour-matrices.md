@@ -691,3 +691,65 @@ rounded terms so every row sums to one:
 
 Select **IMX678** again to load the revised built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX715 — recalculated 19 October 2026
+
+Source: the author-supplied `IMX715.jpg`, 1200 × 1379 pixels, headed
+**Quantum Efficiency**, identifying the ASI715MC and plotting relative response
+on a 0–1 scale. No internet references were used. Source SHA-256:
+`9454b056d935218e0f2502d6f4807cc6d31cc2adc187e6792578d00ac0032240`.
+
+The stated estimated 80% peak QE does not affect the calculation: a common
+amplitude factor cancels when dividing each subtraction area by its channel's
+total. Only the plotted RGB traces within the ideal 400–680 nm bandpass are used.
+
+Grid-line centres were located from median grayscale darkness relative to the
+light background. Pixel coordinates were mapped by linear interpolation between
+neighbouring ticks. Zero-based pixel coordinates, rounded here to 0.001 pixel:
+
+- Wavelengths 400, 450, …, 1000 nm: x = 185.000, 259.000, 333.885, 408.000,
+  482.500, 557.000, 631.243, 706.000, 780.000, 854.757, 929.000, 1003.375, 1078.000.
+- Responses 0, 0.1, …, 1.0: y = 1159.897, 1101.115, 1043.000, 984.375,
+  926.000, 867.757, 809.000, 751.000, 692.214, 634.000, 575.500.
+
+For each colour, select pixels whose corresponding 8-bit RGB channel is greater
+than 100 and exceeds both other channels by more than 60. Use the median trace
+row in each column. Short gaps at curve crossings were interpolated linearly:
+three green columns near 590 nm, two blue columns near 482 nm and one blue column
+near 561 nm. The longest run spans about 2.0 nm of missing samples. All three
+traces have a sample at 400 nm. Text and labels outside the plot were excluded.
+
+The [digitised samples](data/imx715-sensitivity.csv) retain native horizontal
+sampling plus exact integration boundaries. Trapezoidal integration gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 104.65044 | R_G = 4.80264 | R_B = 4.28063 |
+| Green | 150.41553 | G_R = 11.74112 | G_B = 6.33534 |
+| Blue | 87.33233 | B_R = 9.72053 | B_G = 4.70436 |
+
+Areas are in relative-response units × nm. Before rounding, the matrix is
+approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.086796 | -0.045892 | -0.040904 |
+| G | -0.078058 | 1.120177 | -0.042119 |
+| B | -0.111305 | -0.053867 | 1.165172 |
+
+Varying the colour-difference thresholds by ±15 RGB levels changes coefficients
+by at most 0.000062 without changing the rounded preset. Line thickness, axis
+placement and the original plotted curves also limit accuracy; these remain
+approximate graph readings rather than original sensor measurements.
+
+Round the off-diagonals to three decimals, then derive the diagonals from those
+rounded terms so every row sums to one:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.087** | **-0.046** | **-0.041** |
+| G | **-0.078** | **1.120** | **-0.042** |
+| B | **-0.111** | **-0.054** | **1.165** |
+
+Select **IMX715** again to load the revised built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
