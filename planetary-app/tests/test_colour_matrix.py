@@ -78,5 +78,10 @@ class Imx485MatrixTests(Imx462MatrixTests):
     old_matrix = [[1.180, -.123, -.018], [-.124, 1.169, -.087], [-.344, -.078, 1.185]]
 
 
+class Imx571MatrixTests(Imx462MatrixTests):
+    sensor = 'IMX571'
+    old_matrix = [[1.208, -.147, -.061], [-.005, 1.024, -.018], [-.041, -.092, 1.133]]
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -319,3 +319,62 @@ rounded values so every row sums to one:
 
 Select **IMX485** again to load the updated built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX571 — recalculated 19 October 2026
+
+Source: the author-supplied `imx571.png`, 1200 × 900 pixels, with relative response
+plotted on a 0–100% scale. No internet references were used. Source SHA-256:
+`baba30c79731f44fcfb7a0fc3cd2633a03001c3b0fcb223d3365604358f49317`.
+
+Median grayscale darkness located the grid-line centres. Pixel positions were
+mapped by linear interpolation between neighbouring ticks. Zero-based pixel
+coordinates, rounded here to 0.001 pixel:
+
+- Wavelengths 400, 450, …, 1000 nm: x = 182.000, 256.552, 331.000, 405.115,
+  479.885, 554.000, 628.500, 703.000, 777.110, 851.885, 926.000, 1000.369, 1075.000.
+- Responses 0, 10, …, 100%: y = 704.885, 646.000, 588.000, 529.369, 471.000,
+  412.631, 354.000, 296.000, 237.115, 179.000, 120.500.
+
+Trace pixels have their matching RGB component above 100 and more than 60 above
+each other component. Their median vertical position was measured in each
+column. Short gaps at crossings were interpolated; the largest is eleven green
+columns (about 7.4 nm), obscured by red near 407–414 nm. The short visible green
+segment at the 400 nm edge was retained. The bandpass ends at 680 nm, excluding
+the near-infrared response shown on the rest of the graph.
+
+The [digitised samples](data/imx571-sensitivity.csv) contain native horizontal
+samples plus exact integration boundaries. Trapezoidal integration gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 9095.77 | R_G = 250.97 | R_B = 339.30 |
+| Green | 13219.49 | G_R = 496.25 | G_B = 285.16 |
+| Blue | 8588.67 | B_R = 308.94 | B_G = 226.10 |
+
+Areas are in relative-response percentage units × nm. Before rounding, the
+matrix is approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.064895 | -0.027592 | -0.037303 |
+| G | -0.037539 | 1.059110 | -0.021571 |
+| B | -0.035971 | -0.026326 | 1.062297 |
+
+Changing the colour-dominance threshold by ±15 RGB levels changes coefficients
+by at most 0.000098. G_B/G_total is close to a rounding boundary: the less strict
+threshold rounds it to 0.021 instead of 0.022, with the green diagonal changing
+accordingly. The stored preset follows the central extraction threshold used
+above. Axis placement, line thickness and interpolation also limit accuracy;
+these are approximate readings from a graph, not original sensor measurements.
+
+Round off-diagonals to three decimals and derive the diagonals from those
+rounded terms to preserve unit row sums:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.065** | **-0.028** | **-0.037** |
+| G | **-0.038** | **1.060** | **-0.022** |
+| B | **-0.036** | **-0.026** | **1.062** |
+
+Select **IMX571** again to load the revised built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
