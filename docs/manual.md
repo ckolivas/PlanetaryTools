@@ -416,11 +416,11 @@ Reduce diffuse glow surrounding a bright planet while protecting its disk and ri
 
 ### Defaults
 
-Amount 100%, Glow scale 7, Protect above 7%, Protection margin 7 pixels and Feather 15 pixels are the current defaults. Blackpoint compensation is on, with min 5.0 and max 10.0.
+Amount 100%, Glow scale 7, Protect above 7%, Protection margin 7 pixels and Feather 15 pixels are the current defaults. Blackpoint compensation is on, with min 5.0% and max 10.0%.
 
 ### Blackpoint compensation
 
-After glow removal, this option applies a Value curve to the whole image using the same perceptual 0–255 scale as Curves. It sets a Corner point at input **min**, output **0**, and a Smooth point at input **max**, output **max**, retaining the white endpoint. Min must be lower than max. The smooth point can also affect tones above max, just as it does in Curves.
+After glow removal, this option applies a Value curve to the whole image using the same perceptual 0–100% scale as Curves. It sets a Corner point at input **min**, output **0**, and a Smooth point at input **max**, output **max**, retaining the white endpoint. Min must be lower than max. The smooth point can also affect tones above max, just as it does in Curves.
 
 The disk/ring protection mask applies to glow subtraction; the blackpoint curve affects the whole image. Compensation also runs when Amount is zero or no glow is detected. Disable compensation and set Amount to zero to leave the image unchanged. The toggle and both values are saved in presets and available in batch processing.
 
@@ -540,7 +540,7 @@ Map input brightness to output brightness with an editable curve. The horizontal
 ### How to use
 
 1. Choose Value or an individual colour channel. Alpha is available when the image has an alpha channel. Value is applied after the individual RGB curves.
-2. Click to add points and drag them. Select a point to edit its Input and Output numerically on a 0-255 coordinate scale; these coordinates do not reduce document bit depth.
+2. Click to add points and drag them. Select a point to edit its Input and Output numerically as percentages from 0% to 100%; these coordinates do not reduce document bit depth.
 3. Use Smooth or Freehand mode. Smooth/Corner changes the selected point type. Delete point or right-click removes a point; arrow keys move it and Shift increases the step.
 4. Enable Pick a curve point from the image to sample a location on the canvas. Reset channel or Reset all restores straight curves.
 

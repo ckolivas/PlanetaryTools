@@ -224,8 +224,8 @@ class CurvesUiTests(unittest.TestCase):
         editor = dialog.editor
         QTest.mouseClick(editor, Qt.MouseButton.LeftButton, pos=editor._position(.4, .65).toPoint())
         self.assertEqual(len(editor.curve['points']), 3)
-        dialog.output.setValue(180)
-        self.assertAlmostEqual(editor.curve['points'][editor.selected][1], 180/255)
+        dialog.output.setValue(70)
+        self.assertAlmostEqual(editor.curve['points'][editor.selected][1], 70/100)
         dialog.point_type.setCurrentText('Corner')
         value = dialog.get_params()['channels']['Value']
         self.assertEqual(value['points'][1][2], 'corner')
@@ -260,26 +260,26 @@ class CurvesUiTests(unittest.TestCase):
         dialog.input.setFocus()
         dialog.input.selectAll()
         typed = ''
-        for digit in '150.25':
+        for digit in '60.25':
             QTest.keyClicks(dialog.input, digit)
             typed += digit
             self.assertEqual(dialog.input.text(), typed)
             self.assertEqual(dialog.editor.curve['points'][2][0], .5)
         self.assertEqual(len(changes), 0)
         QTest.keyClick(dialog.input, Qt.Key.Key_Return)
-        self.assertEqual(dialog.input.value(), 150.25)
-        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 150.25/255)
+        self.assertEqual(dialog.input.value(), 60.25)
+        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 60.25/100)
         self.assertEqual(len(changes), 1)
 
         # Focus loss commits too, and stepping still updates immediately.
         dialog.input.selectAll()
-        QTest.keyClicks(dialog.input, '175.50')
+        QTest.keyClicks(dialog.input, '70.50')
         dialog.output.setFocus()
         self.app.processEvents()
-        self.assertEqual(dialog.input.value(), 175.5)
-        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 175.5/255)
+        self.assertEqual(dialog.input.value(), 70.5)
+        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 70.5/100)
         dialog.input.stepUp()
-        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 176.5/255)
+        self.assertAlmostEqual(dialog.editor.curve['points'][2][0], 71.5/100)
 
         # The final number is still constrained to preserve point order.
         dialog.input.setFocus()
@@ -298,7 +298,7 @@ class CurvesUiTests(unittest.TestCase):
         self.app.processEvents()
         dialog.editor.add_point(.5, .5)
         for coordinate, field, replacement in (
-            (0, dialog.input, '146.25'), (1, dialog.output, '183.75'),
+            (0, dialog.input, '56.25'), (1, dialog.output, '73.75'),
         ):
             with self.subTest(coordinate=coordinate):
                 before = dialog.get_params()
@@ -327,7 +327,7 @@ class CurvesUiTests(unittest.TestCase):
                 QTest.keyClick(field, Qt.Key.Key_Return)
                 self.assertEqual(field.value(), float(replacement))
                 self.assertAlmostEqual(dialog.editor.curve['points'][1][coordinate],
-                                       float(replacement)/255)
+                                       float(replacement)/100)
                 self.assertEqual(len(changes), 1)
 
     def test_empty_coordinates_restore_last_value_when_committed(self):
@@ -344,11 +344,11 @@ class CurvesUiTests(unittest.TestCase):
             self.assertEqual(field.text(), '')
             dialog.editor.setFocus()
             self.app.processEvents()
-            self.assertEqual(field.value(), 127.5)
-            self.assertEqual(field.text(), '127.50')
+            self.assertEqual(field.value(), 50.0)
+            self.assertEqual(field.text(), '50.00')
             self.assertEqual(dialog.get_params(), before)
         dialog.output.stepUp()
-        self.assertAlmostEqual(dialog.editor.curve['points'][1][1], 128.5/255)
+        self.assertAlmostEqual(dialog.editor.curve['points'][1][1], 51.0/100)
 
     def test_linear_histogram_toggle_renders_tones_on_black_background(self):
         from PyQt6.QtGui import QColor
@@ -389,6 +389,24 @@ class CurvesUiTests(unittest.TestCase):
         again.set_input_brightness(source, True)
         self.assertFalse(again.channel.model().item(1).isEnabled())
         self.assertGreater(again.editor.histogram.sum(), 0)
+
+    def test_percentage_display_preserves_normalized_curves_and_keyboard_steps(self):
+        dialog = CurvesDialog()
+        self.addCleanup(dialog.close)
+        params = default_curves_params()
+        params['channels']['Value']['points'].insert(1, [.25, .6, 'smooth'])
+        dialog.set_params(params)
+        dialog.editor.selected = 1
+        dialog._sync_point()
+        self.assertEqual((dialog.input.value(), dialog.output.value()), (25., 60.))
+        self.assertEqual((dialog.input.maximum(), dialog.output.maximum()), (100., 100.))
+        self.assertEqual(dialog.get_params(), params)
+        QTest.keyClick(dialog.editor, Qt.Key.Key_Right)
+        self.assertAlmostEqual(dialog.input.value(), 26.)
+        QTest.keyClick(dialog.editor, Qt.Key.Key_Up, Qt.KeyboardModifier.ShiftModifier)
+        self.assertAlmostEqual(dialog.output.value(), 70.)
+        self.assertEqual(dialog.get_params()['channels']['Value']['points'][1],
+                         [.26, .7, 'smooth'])
 
     def test_apply_cancel_undo_redo_and_image_picker(self):
         from planetary_tools.ui.main_window import MainWindow

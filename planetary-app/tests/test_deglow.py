@@ -11,7 +11,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox
 
 from planetary_tools.core.document import ImageDocument
-from planetary_tools.core.colour import srgb_to_linear
+from planetary_tools.core.colour import linear_to_srgb, srgb_to_linear
 from planetary_tools.filters.curves import apply_curves
 from planetary_tools.filters.deglow import DEFAULT_DEGLOW_PARAMS, deglow
 from planetary_tools.filters.registry import apply_filter, batch_filters
@@ -114,12 +114,14 @@ class DeglowTests(unittest.TestCase):
 
 class BlackpointCompensationTests(unittest.TestCase):
     def test_default_blackpoint_anchors_in_perceptual_units(self):
-        source = srgb_to_linear(np.array([[0., 2., 5., 7., 10., 255.]]) / 255)
+        source = srgb_to_linear(np.array([[0., 2., 5., 7., 10., 100.]]) / 100)
         result = deglow(source, True, amount=0)
         np.testing.assert_allclose(result[0, :3], 0, atol=1e-9)
         self.assertGreater(result[0, 3], 0)
         self.assertLess(result[0, 3], source[0, 3])
-        np.testing.assert_allclose(result[0, 4:], source[0, 4:], atol=1e-8)
+        # 10% lies between samples of the existing 256-sample Curves engine.
+        self.assertAlmostEqual(float(linear_to_srgb(result)[0, 4]), .1, delta=1/255)
+        self.assertEqual(result[0, 5], 1.)
         np.testing.assert_array_equal(
             deglow(source, True, amount=0, blackpoint_compensation=False), source)
 
@@ -128,15 +130,15 @@ class BlackpointCompensationTests(unittest.TestCase):
         rgb = np.stack([source, source*.8, source*.6], axis=-1)
         rgba = np.dstack([rgb, np.full_like(source, .7)])
         for data in (source, source[..., None], rgb, rgba):
-            for minimum, maximum in ((5., 10.), (2.5, 17.5), (0., 255.), (254.9, 255.)):
+            for minimum, maximum in ((5., 10.), (2.5, 17.5), (0., 100.), (99.9, 100.)):
                 with self.subTest(shape=data.shape, minimum=minimum, maximum=maximum):
                     before = data.copy()
                     # Equivalent to adding these points in the Curves panel,
                     # retaining its original black and white endpoints.
-                    points = [[minimum/255, 0., 'corner'], [maximum/255, maximum/255, 'smooth']]
+                    points = [[minimum/100, 0., 'corner'], [maximum/100, maximum/100, 'smooth']]
                     if minimum > 0:
                         points.insert(0, [0., 0., 'smooth'])
-                    if maximum < 255:
+                    if maximum < 100:
                         points.append([1., 1., 'smooth'])
                     glow_only = deglow(data, blackpoint_compensation=False)
                     expected = apply_curves(glow_only, {
@@ -150,13 +152,13 @@ class BlackpointCompensationTests(unittest.TestCase):
                         np.testing.assert_array_equal(actual[..., 3], data[..., 3])
 
     def test_compensation_runs_even_without_a_detectable_subject(self):
-        flat = np.full((20, 30), srgb_to_linear(np.array(3./255)), dtype=np.float32)
+        flat = np.full((20, 30), srgb_to_linear(np.array(3./100)), dtype=np.float32)
         np.testing.assert_array_equal(deglow(flat, True), np.zeros_like(flat))
         np.testing.assert_array_equal(deglow(flat, True, blackpoint_compensation=False), flat)
 
     def test_validation_and_batch_round_trip(self):
         source, _, _ = scene()
-        for minimum, maximum in ((5, 5), (10, 5), (-1, 10), (5, 256), (np.nan, 10), (5, np.inf)):
+        for minimum, maximum in ((5, 5), (10, 5), (-1, 10), (5, 101), (np.nan, 10), (5, np.inf)):
             with self.subTest(minimum=minimum, maximum=maximum), self.assertRaises(ValueError):
                 deglow(source, blackpoint_min=minimum, blackpoint_max=maximum)
         for enabled in (True, False):
@@ -206,6 +208,7 @@ class DeglowUITests(unittest.TestCase):
         low, high = (panel._deglow_spins[key] for key in ('blackpoint_min', 'blackpoint_max'))
         self.assertTrue(panel.blackpoint_compensation.isChecked())
         self.assertEqual((low.value(), high.value()), (5., 10.))
+        self.assertEqual((high.maximum(), low.suffix(), high.suffix()), (100., ' %', ' %'))
         self.assertFalse(low.keyboardTracking())
         changes = []
         panel.params_changed.connect(lambda: changes.append(panel.get_params()))
@@ -243,6 +246,8 @@ class DeglowUITests(unittest.TestCase):
                                       if box.text() == 'Blackpoint compensation')
                         low = widget.findChild(QDoubleSpinBox, 'blackpoint_min')
                         high = widget.findChild(QDoubleSpinBox, 'blackpoint_max')
+                        self.assertEqual(high.maximum(), 100.)
+                        self.assertEqual((low.suffix(), high.suffix()), (' %', ' %'))
                         presets = widget.findChild(QComboBox)
                         presets.setCurrentText('Last')
                         self.assertEqual((low.value(), high.value()), (20., 30.))

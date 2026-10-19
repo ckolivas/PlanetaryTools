@@ -38,10 +38,10 @@ DEGLOW_CONTROLS = (
      'Extra unchanged pixels around the protected subject.'),
     ('feather', 'Feather', 1.0, 200.0, 1, ' px',
      'Transition from the protected subject to full glow removal.'),
-    ('blackpoint_min', 'Blackpoint min', 0.0, 254.9, 1, '',
-     'Corner point: input Min, output 0. Uses the same perceptual 0–255 scale as Curves.'),
-    ('blackpoint_max', 'Blackpoint max', 0.1, 255.0, 1, '',
-     'Smooth point: input Max, output Max. Must be greater than Min; uses the perceptual 0–255 Curves scale.'),
+    ('blackpoint_min', 'Blackpoint min', 0.0, 99.9, 1, ' %',
+     'Corner point: input Min, output 0. Uses the same perceptual 0–100% scale as Curves.'),
+    ('blackpoint_max', 'Blackpoint max', 0.1, 100.0, 1, ' %',
+     'Smooth point: input Max, output Max. Must be greater than Min; uses the perceptual 0–100% Curves scale.'),
 )
 
 
@@ -61,19 +61,19 @@ def deglow(
 ) -> np.ndarray:
     """Remove glow, then optionally apply a Value curve in perceptual light.
 
-    Blackpoint coordinates use the Curves panel's 0–255 scale. Compensation
+    Blackpoint coordinates use the Curves panel's 0–100% scale. Compensation
     is independent of Amount and also runs when no removable glow is found.
     """
     if not (np.isfinite(blackpoint_min) and np.isfinite(blackpoint_max)
-            and 0 <= blackpoint_min < blackpoint_max <= 255):
-        raise ValueError('Blackpoint compensation requires 0 <= min < max <= 255.')
+            and 0 <= blackpoint_min < blackpoint_max <= 100):
+        raise ValueError('Blackpoint compensation requires 0 <= min < max <= 100.')
     result = _remove_glow(data, is_grayscale, amount=amount, radius=radius,
                           threshold=threshold, margin=margin, feather=feather)
     if not blackpoint_compensation:
         return result
-    points = [[blackpoint_min / 255, 0.0, 'corner'],
-              [blackpoint_max / 255, blackpoint_max / 255, 'smooth']]
-    if blackpoint_max < 255:
+    points = [[blackpoint_min / 100, 0.0, 'corner'],
+              [blackpoint_max / 100, blackpoint_max / 100, 'smooth']]
+    if blackpoint_max < 100:
         points.append([1.0, 1.0, 'smooth'])
     return apply_curves(result, {
         'trc': 'perceptual',

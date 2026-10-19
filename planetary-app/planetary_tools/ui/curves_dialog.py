@@ -71,7 +71,8 @@ class CurveEditor(QWidget):
         return QSize(360, 280)
 
     def plot_rect(self):
-        return QRectF(32, 24, max(1, self.width()-48), max(1, self.height()-54))
+        left = max(40, self.fontMetrics().horizontalAdvance('100%') + 6)
+        return QRectF(left, 24, max(1, self.width()-left-16), max(1, self.height()-54))
 
     def _position(self, x, y):
         r = self.plot_rect()
@@ -181,7 +182,7 @@ class CurveEditor(QWidget):
             Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down,
         ):
             x, y, _ = self.curve['points'][self.selected]
-            delta = 10/255 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1/255
+            delta = .10 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else .01
             self.move_selected(x + delta * ((event.key() == Qt.Key.Key_Right)-(event.key() == Qt.Key.Key_Left)),
                                y + delta * ((event.key() == Qt.Key.Key_Up)-(event.key() == Qt.Key.Key_Down)))
         else:
@@ -209,7 +210,7 @@ class CurveEditor(QWidget):
         painter.drawLine(self._position(0, 0), self._position(1, 1))
         path = QPainterPath()
         for i, value in enumerate(curve_samples(self.curve)):
-            pos = self._position(i/255, float(value))
+            pos = self._position(i/(N_SAMPLES-1), float(value))
             path.moveTo(pos) if i == 0 else path.lineTo(pos)
         painter.setPen(QPen(QColor(_COLOURS[self.channel]), 2))
         painter.drawPath(path)
@@ -225,14 +226,14 @@ class CurveEditor(QWidget):
         if clipped:
             painter.drawText(QRectF(r.left(), 0, r.width(), 20),
                              Qt.AlignmentFlag.AlignRight, "Tall peaks clipped")
-        painter.drawText(QRectF(r.left(), r.bottom()+5, r.width(), 22), Qt.AlignmentFlag.AlignCenter, 'Input')
-        painter.drawText(QRectF(0, r.bottom()-16, 28, 20), Qt.AlignmentFlag.AlignRight, '0')
-        painter.drawText(QRectF(0, r.top(), 28, 20), Qt.AlignmentFlag.AlignRight, '255')
-        painter.drawText(QRectF(r.right()-28, r.bottom()+5, 32, 22), Qt.AlignmentFlag.AlignRight, '255')
+        painter.drawText(QRectF(r.left(), r.bottom()+5, r.width(), 22), Qt.AlignmentFlag.AlignCenter, 'Input (%)')
+        painter.drawText(QRectF(0, r.bottom()-16, r.left()-4, 20), Qt.AlignmentFlag.AlignRight, '0%')
+        painter.drawText(QRectF(0, r.top(), r.left()-4, 20), Qt.AlignmentFlag.AlignRight, '100%')
+        painter.drawText(QRectF(r.right()-44, r.bottom()+5, 48, 22), Qt.AlignmentFlag.AlignRight, '100%')
         painter.save()
         painter.translate(12, r.center().y())
         painter.rotate(-90)
-        painter.drawText(QRectF(-40, -10, 80, 20), Qt.AlignmentFlag.AlignCenter, 'Output')
+        painter.drawText(QRectF(-40, -10, 80, 20), Qt.AlignmentFlag.AlignCenter, 'Output (%)')
         painter.restore()
 
 
@@ -281,12 +282,12 @@ class CurvesDialog(_FilterDialog):
         row = QHBoxLayout()
         self.input = QDoubleSpinBox()
         self.output = QDoubleSpinBox()
-        for label, spin in (('Input', self.input), ('Output', self.output)):
+        for label, spin in (('Input (%)', self.input), ('Output (%)', self.output)):
             # Allow blank and partial text in either coordinate. Moving the
             # point syncs both fields, so doing it per keystroke would refill
             # a cleared field or insert decimals before typing is complete.
             spin.setKeyboardTracking(False)
-            spin.setRange(0, 255)
+            spin.setRange(0, 100)
             spin.setDecimals(2)
             spin.setSingleStep(1)
             spin.valueChanged.connect(self._point_edited)
@@ -315,8 +316,8 @@ class CurvesDialog(_FilterDialog):
         row.addWidget(reset_all)
         self._form.addRow(row)
         self.set_help_text('Click the graph to add points and drag to reshape the curve. '
-                           'Delete or right-click a point to remove it. Arrow keys move a selected point; '
-                           'Shift moves ten levels. Value maps all RGB channels after their individual curves. '
+                           'Delete or right-click a point to remove it. Arrow keys move a selected point by 1%; '
+                           'Shift moves by 10%. Value maps all RGB channels after their individual curves. '
                            'Perceptual is GIMP’s default; Linear light works on linear pixel values.')
         self._sync_point()
 
@@ -363,14 +364,14 @@ class CurvesDialog(_FilterDialog):
         if enabled:
             x, y, kind = self.editor.curve['points'][self.editor.selected]
             self._loading = True
-            self.input.setValue(x*255)
-            self.output.setValue(y*255)
+            self.input.setValue(x*100)
+            self.output.setValue(y*100)
             self.point_type.setCurrentIndex(0 if kind == 'smooth' else 1)
             self._loading = False
 
     def _point_edited(self):
         if not self._loading:
-            self.editor.move_selected(self.input.value()/255, self.output.value()/255)
+            self.editor.move_selected(self.input.value()/100, self.output.value()/100)
 
     def _point_type_changed(self):
         if not self._loading and self.editor.selected >= 0:

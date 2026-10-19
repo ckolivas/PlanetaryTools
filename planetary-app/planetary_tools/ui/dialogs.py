@@ -1272,7 +1272,7 @@ class DeglowDialog(_FilterDialog):
             "Lower Protect above or increase Protection margin to protect more of "
             "the subject. Glow scale follows the diffuse halo. "
             "Blackpoint compensation applies a perceptual Value curve after glow removal: "
-            "Corner (Min, 0), Smooth (Max, Max), on the Curves 0–255 scale. "
+            "Corner (Min, 0), Smooth (Max, Max), on the Curves 0–100% scale. "
             "Toggle Preview on canvas to compare with the original."
         )
 
@@ -1317,7 +1317,7 @@ class DeglowDialog(_FilterDialog):
         for spin in self._deglow_spins.values():
             spin.blockSignals(True)
         # Release the previous pair's limits before loading another preset.
-        self._deglow_spins['blackpoint_min'].setMaximum(254.9)
+        self._deglow_spins['blackpoint_min'].setMaximum(99.9)
         self._deglow_spins['blackpoint_max'].setMinimum(0.1)
         for key, spin in self._deglow_spins.items():
             spin.setValue(float(params.get(key, FILTERS[self.filter_id].default_params[key])))
@@ -1847,7 +1847,7 @@ def _apply_params_to_batch_widgets(
     merged = {**defaults, **(params or {})}
 
     if filter_id == 'deglow':
-        for key, lo, hi in (('blackpoint_min', 0., 254.9), ('blackpoint_max', .1, 255.)):
+        for key, lo, hi in (('blackpoint_min', 0., 99.9), ('blackpoint_max', .1, 100.)):
             spin = widgets[key]
             spin.blockSignals(True)
             spin.setRange(lo, hi)
