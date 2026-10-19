@@ -1271,29 +1271,61 @@ class DeglowDialog(_FilterDialog):
             "Reduces diffuse sky glow while protecting the bright disk and rings. "
             "Lower Protect above or increase Protection margin to protect more of "
             "the subject. Glow scale follows the diffuse halo. "
+            "Blackpoint compensation applies a perceptual Value curve after glow removal: "
+            "Corner (Min, 0), Smooth (Max, Max), on the Curves 0–255 scale. "
             "Toggle Preview on canvas to compare with the original."
         )
 
     def _build_filter_params(self) -> None:
         self._deglow_spins = {}
+        self.blackpoint_compensation = QCheckBox('Blackpoint compensation')
+        self.blackpoint_compensation.setChecked(True)
+        self.blackpoint_compensation.setToolTip(
+            'Apply the blackpoint curve to the whole image after glow removal, even when Amount is zero.')
         for key, label, lo, hi, decimals, suffix, tip in DEGLOW_CONTROLS:
+            if key == 'blackpoint_min':
+                self._form.addRow(self.blackpoint_compensation)
             spin = self._add_double(label, FILTERS[self.filter_id].default_params[key],
-                                    lo, hi, step=1.0, decimals=decimals)
+                                    lo, hi, step=0.1 if key.startswith('blackpoint_') else 1.0,
+                                    decimals=decimals)
             spin.setSuffix(suffix)
             spin.setToolTip(tip)
             spin.setKeyboardTracking(False)
             self._deglow_spins[key] = spin
+        self.blackpoint_compensation.toggled.connect(self._sync_blackpoint_controls)
+        self.blackpoint_compensation.toggled.connect(lambda _: self.params_changed.emit())
+        for key in ('blackpoint_min', 'blackpoint_max'):
+            self._deglow_spins[key].valueChanged.connect(self._sync_blackpoint_controls)
+        self._sync_blackpoint_controls()
+
+    def _sync_blackpoint_controls(self, *_) -> None:
+        minimum = self._deglow_spins['blackpoint_min']
+        maximum = self._deglow_spins['blackpoint_max']
+        minimum.setMaximum(maximum.value() - 0.1)
+        maximum.setMinimum(minimum.value() + 0.1)
+        for spin in (minimum, maximum):
+            spin.setEnabled(self.blackpoint_compensation.isChecked())
 
     def get_params(self) -> dict[str, Any]:
         params = super().get_params()
         params.update({key: spin.value() for key, spin in self._deglow_spins.items()})
+        params['blackpoint_compensation'] = self.blackpoint_compensation.isChecked()
         return params
 
     def set_params(self, params: dict[str, Any]) -> None:
         super().set_params(params)
-        for key, spin in self._deglow_spins.items():
+        for spin in self._deglow_spins.values():
             spin.blockSignals(True)
+        # Release the previous pair's limits before loading another preset.
+        self._deglow_spins['blackpoint_min'].setMaximum(254.9)
+        self._deglow_spins['blackpoint_max'].setMinimum(0.1)
+        for key, spin in self._deglow_spins.items():
             spin.setValue(float(params.get(key, FILTERS[self.filter_id].default_params[key])))
+        self.blackpoint_compensation.blockSignals(True)
+        self.blackpoint_compensation.setChecked(bool(params.get('blackpoint_compensation', True)))
+        self.blackpoint_compensation.blockSignals(False)
+        self._sync_blackpoint_controls()
+        for spin in self._deglow_spins.values():
             spin.blockSignals(False)
 
 
@@ -1812,8 +1844,14 @@ def _apply_params_to_batch_widgets(
     defaults: dict[str, Any],
 ) -> None:
     """Push a params dict into widgets built by ``edit_filter_params``."""
-    del filter_id  # reserved for filter-specific handling
     merged = {**defaults, **(params or {})}
+
+    if filter_id == 'deglow':
+        for key, lo, hi in (('blackpoint_min', 0., 254.9), ('blackpoint_max', .1, 255.)):
+            spin = widgets[key]
+            spin.blockSignals(True)
+            spin.setRange(lo, hi)
+            spin.blockSignals(False)
 
     if "_levels_channels" in widgets:
         channel_data = widgets["_levels_channels"]
@@ -2436,16 +2474,38 @@ def edit_filter_params(
         _sync_crop_mode()
         widgets["_sync_auto"] = _sync_crop_mode
     elif filter_id == "deglow":
+        blackpoint = QCheckBox('Blackpoint compensation')
+        blackpoint.setChecked(bool(params.get('blackpoint_compensation', True)))
+        blackpoint.setToolTip(
+            'Apply the perceptual blackpoint curve after glow removal, even when Amount is zero.')
+        widgets['blackpoint_compensation'] = blackpoint
         for key, label, lo, hi, decimals, suffix, tip in DEGLOW_CONTROLS:
+            if key == 'blackpoint_min':
+                form.addRow(blackpoint)
             spin = QDoubleSpinBox()
+            spin.setObjectName(key)
             spin.setRange(lo, hi)
             spin.setDecimals(decimals)
+            spin.setSingleStep(.1 if key.startswith('blackpoint_') else 1.)
             spin.setSuffix(suffix)
             spin.setToolTip(tip)
             spin.setKeyboardTracking(False)
             spin.setValue(float(params.get(key, fdef.default_params[key])))
             form.addRow(label, spin)
             widgets[key] = spin
+
+        def _sync_blackpoint(*_) -> None:
+            minimum, maximum = widgets['blackpoint_min'], widgets['blackpoint_max']
+            minimum.setMaximum(maximum.value() - .1)
+            maximum.setMinimum(minimum.value() + .1)
+            minimum.setEnabled(blackpoint.isChecked())
+            maximum.setEnabled(blackpoint.isChecked())
+
+        blackpoint.toggled.connect(_sync_blackpoint)
+        for key in ('blackpoint_min', 'blackpoint_max'):
+            widgets[key].valueChanged.connect(_sync_blackpoint)
+        _sync_blackpoint()
+        widgets['_sync_auto'] = _sync_blackpoint
     elif filter_id == "moon_enhance":
         specs = (
             ("brightness", "Max moon brightness", 0.0, 100.0, 0, " %"),

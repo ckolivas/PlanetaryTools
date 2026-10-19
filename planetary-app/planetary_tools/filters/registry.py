@@ -159,7 +159,8 @@ class WienerDeconvDef(FilterDef):
 class DeglowDef(FilterDef):
     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
         return deglow(data, is_grayscale, **{
-            key: float(params.get(key, default))
+            key: bool(params.get(key, default)) if isinstance(default, bool)
+            else float(params.get(key, default))
             for key, default in DEFAULT_DEGLOW_PARAMS.items()
         })
 

@@ -411,11 +411,18 @@ Reduce diffuse glow surrounding a bright planet while protecting its disk and ri
 1. Start with the default controls and compare preview on/off, especially in the sky immediately outside the rings.
 2. Adjust Glow scale to follow the spatial size of the diffuse halo. Amount controls how much estimated glow is removed.
 3. Lower Protect above or increase Protection margin to protect more of the subject. Feather controls the transition into full glow removal.
-4. Inspect the planet edge and faint moons, then accept the result.
+4. Leave Blackpoint compensation enabled to darken the remaining sky, or disable it to retain the sky pedestal. Adjust Blackpoint min/max to control its curve.
+5. Inspect the planet edge and faint moons, then accept the result.
 
 ### Defaults
 
-Amount 100%, Glow scale 7, Protect above 7%, Protection margin 7 pixels and Feather 15 pixels are the current defaults.
+Amount 100%, Glow scale 7, Protect above 7%, Protection margin 7 pixels and Feather 15 pixels are the current defaults. Blackpoint compensation is on, with min 5.0 and max 10.0.
+
+### Blackpoint compensation
+
+After glow removal, this option applies a Value curve to the whole image using the same perceptual 0–255 scale as Curves. It sets a Corner point at input **min**, output **0**, and a Smooth point at input **max**, output **max**, retaining the white endpoint. Min must be lower than max. The smooth point can also affect tones above max, just as it does in Curves.
+
+The disk/ring protection mask applies to glow subtraction; the blackpoint curve affects the whole image. Compensation also runs when Amount is zero or no glow is detected. Disable compensation and set Amount to zero to leave the image unchanged. The toggle and both values are saved in presets and available in batch processing.
 
 ### Protection threshold
 

@@ -2,8 +2,9 @@
 
 Work in native linear light, estimating each colour channel separately. Bright
 regions are excluded from the background estimate; a median smooths the sampled
-background. A feathered protection mask leaves the disk/rings
-unchanged. The dark-sky pedestal is retained rather than forcing sky to black.
+background. A feathered protection mask leaves the disk/rings unchanged during
+glow removal. Optional blackpoint compensation then applies a perceptual curve
+to the whole image; without it, the dark-sky pedestal is retained.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from PIL import Image
 from scipy import ndimage
 
 from planetary_tools.core.colour import linear_luminance
+from planetary_tools.filters.curves import apply_curves
 
 DEFAULT_DEGLOW_PARAMS = {
     'amount': 100.0,
@@ -19,12 +21,15 @@ DEFAULT_DEGLOW_PARAMS = {
     'threshold': 7.0,
     'margin': 7.0,
     'feather': 15.0,
+    'blackpoint_compensation': True,
+    'blackpoint_min': 5.0,
+    'blackpoint_max': 10.0,
 }
 
 # Shared by the interactive panel and batch parameter editor.
 DEGLOW_CONTROLS = (
     ('amount', 'Amount', 0.0, 100.0, 1, ' %',
-     'Fraction of the estimated glow to remove. Zero leaves the image unchanged.'),
+     'Fraction of the estimated glow to remove. Zero disables glow removal; blackpoint compensation is independent.'),
     ('radius', 'Glow scale', 2.0, 300.0, 1, ' px',
      'Scale of the diffuse glow to estimate from the image background.'),
     ('threshold', 'Protect above', 0.1, 80.0, 1, ' %',
@@ -33,6 +38,10 @@ DEGLOW_CONTROLS = (
      'Extra unchanged pixels around the protected subject.'),
     ('feather', 'Feather', 1.0, 200.0, 1, ' px',
      'Transition from the protected subject to full glow removal.'),
+    ('blackpoint_min', 'Blackpoint min', 0.0, 254.9, 1, '',
+     'Corner point: input Min, output 0. Uses the same perceptual 0–255 scale as Curves.'),
+    ('blackpoint_max', 'Blackpoint max', 0.1, 255.0, 1, '',
+     'Smooth point: input Max, output Max. Must be greater than Min; uses the perceptual 0–255 Curves scale.'),
 )
 
 
@@ -47,6 +56,34 @@ def deglow(
     data: np.ndarray, is_grayscale: bool = False, *,
     amount: float = 100.0, radius: float = 7.0, threshold: float = 7.0,
     margin: float = 7.0, feather: float = 15.0,
+    blackpoint_compensation: bool = True,
+    blackpoint_min: float = 5.0, blackpoint_max: float = 10.0,
+) -> np.ndarray:
+    """Remove glow, then optionally apply a Value curve in perceptual light.
+
+    Blackpoint coordinates use the Curves panel's 0–255 scale. Compensation
+    is independent of Amount and also runs when no removable glow is found.
+    """
+    if not (np.isfinite(blackpoint_min) and np.isfinite(blackpoint_max)
+            and 0 <= blackpoint_min < blackpoint_max <= 255):
+        raise ValueError('Blackpoint compensation requires 0 <= min < max <= 255.')
+    result = _remove_glow(data, is_grayscale, amount=amount, radius=radius,
+                          threshold=threshold, margin=margin, feather=feather)
+    if not blackpoint_compensation:
+        return result
+    points = [[blackpoint_min / 255, 0.0, 'corner'],
+              [blackpoint_max / 255, blackpoint_max / 255, 'smooth']]
+    if blackpoint_max < 255:
+        points.append([1.0, 1.0, 'smooth'])
+    return apply_curves(result, {
+        'trc': 'perceptual',
+        'channels': {'Value': {'mode': 'smooth', 'points': points}},
+    })
+
+
+def _remove_glow(
+    data: np.ndarray, is_grayscale: bool = False, *,
+    amount: float, radius: float, threshold: float, margin: float, feather: float,
 ) -> np.ndarray:
     """Return a float32 image, preserving shape, alpha and protected pixels."""
     arr = np.asarray(data, dtype=np.float32)
