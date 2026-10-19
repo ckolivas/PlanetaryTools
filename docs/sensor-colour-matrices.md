@@ -198,3 +198,63 @@ preserve unit row sums gives:
 
 Select **IMX183** again to load the updated built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX224 — recalculated 19 October 2026
+
+Source: the author-supplied `IMX224.jpg`, 1269 × 784 pixels, with relative response
+plotted on a 0–1 scale. No internet references were used. Source SHA-256:
+`099c7dfbafa41a3404dc21f7d6ede47e817c50016a3066c9e61c3f6f9246411e`.
+
+The grid-line centres were measured using median grayscale darkness across the
+plot. The grid spacing is slightly uneven in this raster, so pixel coordinates
+were mapped by linear interpolation between neighbouring grid lines rather than
+using one global scale. Zero-based pixel coordinates, rounded here to 0.001 pixel:
+
+- Wavelengths 400, 450, …, 1000 nm: x = 151.876, 240.469, 329.088, 420.522,
+  509.161, 597.889, 686.513, 775.119, 863.829, 955.171, 1043.902, 1132.496, 1221.100.
+- Responses 0, 0.1, …, 1.0: y = 652.086, 596.715, 541.246, 485.897, 430.443,
+  375.011, 319.604, 264.103, 205.985, 150.570, 95.101.
+
+Trace pixels have their matching RGB component above 100 and more than 60 above
+each other component. Small disconnected colour fragments with fewer than 30
+pixels were excluded using eight-neighbour connectivity; these are JPEG fringes
+around the black labels, not parts of the curves. The median vertical trace
+position was measured in each column. A two-column gap in red was interpolated
+(about 1.1 nm); the first sampled values extend about 0.07 nm to reach 400 nm.
+The legend is outside the sampled plot area.
+
+The [digitised samples](data/imx224-sensitivity.csv) include the native horizontal
+samples and exact integration boundaries. Trapezoidal integration over the
+specified 400–680 nm bandpass gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 108.88953 | R_G = 3.88384 | R_B = 4.86541 |
+| Green | 129.12520 | G_R = 6.36448 | G_B = 2.84595 |
+| Blue | 78.12564 | B_R = 5.14754 | B_G = 3.25550 |
+
+Areas are in relative-response units × nm. Before rounding, the matrix is
+approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.080350 | -0.035668 | -0.044682 |
+| G | -0.049289 | 1.071329 | -0.022040 |
+| B | -0.065888 | -0.041670 | 1.107558 |
+
+Changing the colour-dominance threshold by ±15 RGB levels changed coefficients
+by at most 0.000075 without changing the rounded preset. Axis placement,
+compression and line thickness add uncertainty, so these remain approximate
+graph readings rather than original sensor measurements.
+
+Round the off-diagonals first and calculate the diagonals from those rounded
+values to preserve unit row sums:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.081** | **-0.036** | **-0.045** |
+| G | **-0.049** | **1.071** | **-0.022** |
+| B | **-0.066** | **-0.042** | **1.108** |
+
+Select **IMX224** again to load the revised built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
