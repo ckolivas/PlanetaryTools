@@ -75,7 +75,6 @@ from planetary_tools.ui.update_dialog import UpdateCheckDialog
 from planetary_tools.ui.recent_files import (
     add_recent,
     last_open_directory,
-    last_save_directory,
     last_save_filter,
     list_recent,
     remember_open_path,
@@ -726,7 +725,7 @@ class MainWindow(QMainWindow):
         if self._document is None:
             return True
         selected_filter = self._default_save_as_filter()
-        initial_path = Path(last_save_directory())
+        initial_path = Path(last_open_directory())
         if self._document.path is not None:
             filename = Path(self._document.path).name
             for format_name, extensions in (
@@ -1192,7 +1191,7 @@ class MainWindow(QMainWindow):
         path, selected = QFileDialog.getSaveFileName(
             self,
             "RGB Decompose to Files",
-            last_save_directory(),
+            last_open_directory(),
             self._save_as_filters(),
             selected_filter,
             options=self._save_as_dialog_options(),

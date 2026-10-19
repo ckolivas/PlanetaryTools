@@ -48,7 +48,6 @@ from planetary_tools.ui.recent_files import (
     last_output_number,
     remember_output_option,
     last_open_directory,
-    last_save_directory,
     remember_open_path,
     remember_save_path,
 )
@@ -484,7 +483,7 @@ class AnimateDialog(QDialog):
         fmt = self._fmt()
         start = self._output.text().strip()
         if not start:
-            start = last_save_directory()
+            start = last_open_directory()
         path, selected = QFileDialog.getSaveFileName(
             self, "Save animation", start,
             ";;".join([*_FORMAT_FILTERS.values(), "All Files (*)"]), _FORMAT_FILTERS[fmt],
