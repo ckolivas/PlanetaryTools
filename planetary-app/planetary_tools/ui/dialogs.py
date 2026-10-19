@@ -1270,8 +1270,7 @@ class DeglowDialog(_FilterDialog):
         self.set_help_text(
             "Reduces diffuse sky glow while protecting the bright disk and rings. "
             "Lower Protect above or increase Protection margin to protect more of "
-            "the subject. Glow scale follows the diffuse halo; single-pixel "
-            "moons and stars are excluded from its estimate. "
+            "the subject. Glow scale follows the diffuse halo. "
             "Toggle Preview on canvas to compare with the original."
         )
 

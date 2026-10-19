@@ -28,7 +28,7 @@ def scene():
 
 
 class DeglowTests(unittest.TestCase):
-    def test_single_pixel_sources_keep_signal_without_protecting_their_glow(self):
+    def test_single_pixel_sources_receive_glow_correction(self):
         base, disk, _ = scene()
         for scale in (2, 7, 10, 30, 80):
             for rgb in (False, True):
@@ -39,16 +39,30 @@ class DeglowTests(unittest.TestCase):
                     # the planet, at different phases of the downsample grid.
                     for y, x, strength in ((128, 210, .008), (95, 191, .01), (64, 130, 2.0)):
                         stars[y, x] += np.array([strength, strength*.7, strength*.4]) if rgb else strength
-                    clean = deglow(source, not rgb, radius=scale)
                     result = deglow(stars, not rgb, radius=scale)
-                    signal = stars - source
-                    np.testing.assert_allclose(result - clean, signal, atol=8e-5, rtol=.001)
+                    for y, x in ((128, 210), (95, 191), (64, 130)):
+                        self.assertTrue(np.all(result[y, x] < stars[y, x]))
                     np.testing.assert_array_equal(result[disk], stars[disk])
+
+    def test_single_bright_pixel_is_not_excluded_from_glow_estimate(self):
+        base, disk, _ = scene()
+        for rgb in (False, True):
+            with self.subTest(rgb=rgb):
+                source = np.stack([base, base*.8, base*.6], axis=-1) if rgb else base
+                stars = source.copy()
+                stars[64, 130] += np.array([2., 1.4, .8]) if rgb else 2.
+                clean = deglow(source, not rgb, radius=30)
+                result = deglow(stars, not rgb, radius=30)
+                # Previously the pre-sampling median discarded this source,
+                # preserving its signal to within float32 rounding. It now
+                # contributes to the normal background estimate instead.
+                lost_signal = (stars - source) - (result - clean)
+                self.assertTrue(np.all(lost_signal[64, 130] > 5e-5))
+                np.testing.assert_array_equal(result[disk], stars[disk])
 
     def test_removes_halo_preserves_disk_and_moon_contrast(self):
         source, disk, radius = scene()
-        # This scene's several-pixel moon needs a larger background scale
-        # than the default intended for single-pixel moons and stars.
+        # Use a background scale larger than this scene's several-pixel moon.
         out = deglow(source, True, radius=30, threshold=5, margin=3)
         np.testing.assert_array_equal(out[disk], source[disk])
         halo = (radius > 45) & (radius < 85)

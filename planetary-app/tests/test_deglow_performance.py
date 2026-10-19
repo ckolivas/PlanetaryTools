@@ -1,4 +1,4 @@
-"""Median reuse keeps Deglow's channel models and compact-source behavior."""
+"""Deglow model reuse preserves channel results without extra source filtering."""
 import unittest
 from unittest.mock import patch
 
@@ -16,8 +16,8 @@ class DeglowPerformanceTests(unittest.TestCase):
         for source in (mono, mono[::-1, ::2], np.asfortranarray(mono)):
             for radius in (2, 30, 80):
                 rgb = np.stack([source, source*.7, source*.4], axis=-1)
-                # Use first-channel luminance but the colour model path,
-                # which independently median-filters every colour channel.
+                # Compare grayscale processing with the colour model path
+                # while keeping the same first-channel protection mask.
                 with patch.object(module, 'linear_luminance', side_effect=lambda data: data[...,0]):
                     expected = module.deglow(rgb, False, radius=radius)
                 for data in (source, source[...,None], rgb):
@@ -28,15 +28,15 @@ class DeglowPerformanceTests(unittest.TestCase):
                     np.testing.assert_array_equal(actual, target)
                     np.testing.assert_array_equal(data, before)
 
-    def test_only_first_mono_channel_reuses_peak_median(self):
+    def test_only_peak_estimation_uses_full_resolution_median(self):
         mono, _, _ = scene()
         rgba = np.stack([mono, mono*.7, mono*.4, np.full_like(mono,.8)], axis=-1)
-        for data, gray, full_count in ((mono,False,1), (mono[...,None],False,1),
-                                      (rgba,True,3), (rgba,False,4)):
+        for data, gray in ((mono,False), (mono[...,None],False),
+                           (rgba,True), (rgba,False)):
             with patch.object(module.ndimage, 'median_filter', wraps=module.ndimage.median_filter) as median:
                 actual = module.deglow(data, gray)
             full_calls = [call for call in median.call_args_list if call.args[0].shape == mono.shape]
-            self.assertEqual(len(full_calls), full_count)
+            self.assertEqual(len(full_calls), 1)
             if data.ndim == 3 and data.shape[2] == 4:
                 np.testing.assert_array_equal(actual[...,3], data[...,3])
 
@@ -53,8 +53,7 @@ class DeglowPerformanceTests(unittest.TestCase):
                 expected = module.deglow(rgb, False)
             with patch.object(module.ndimage, 'median_filter', wraps=module.ndimage.median_filter) as median:
                 actual = module.deglow(rgb, False)
-            full_calls = [call for call in median.call_args_list if call.args[0].shape == mono.shape]
-            self.assertEqual(len(full_calls), 2 if changed == 'identical' else 4)
+            self.assertEqual(median.call_count, 2 if changed == 'identical' else 4)
             np.testing.assert_array_equal(actual.view(np.uint32), expected.view(np.uint32))
 
 

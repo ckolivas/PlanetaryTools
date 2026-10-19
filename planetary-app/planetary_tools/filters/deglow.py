@@ -1,8 +1,8 @@
 """Estimate and subtract diffuse sky glow while protecting the bright subject.
 
 Work in native linear light, estimating each colour channel separately. Bright
-regions are excluded from the background estimate; a median removes compact
-sources before smoothing. A feathered protection mask leaves the disk/rings
+regions are excluded from the background estimate; a median smooths the sampled
+background. A feathered protection mask leaves the disk/rings
 unchanged. The dark-sky pedestal is retained rather than forcing sky to black.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ DEGLOW_CONTROLS = (
     ('amount', 'Amount', 0.0, 100.0, 1, ' %',
      'Fraction of the estimated glow to remove. Zero leaves the image unchanged.'),
     ('radius', 'Glow scale', 2.0, 300.0, 1, ' px',
-     'Scale of the diffuse glow to estimate. Single-pixel sources are excluded before background sampling.'),
+     'Scale of the diffuse glow to estimate from the image background.'),
     ('threshold', 'Protect above', 0.1, 80.0, 1, ' %',
      'Protect pixels above this percentage of the subject peak above sky. Lower protects more of the disk and rings.'),
     ('margin', 'Protection margin', 0.0, 200.0, 1, ' px',
@@ -68,12 +68,7 @@ def deglow(
            else linear_luminance(colour))
     sky = float(np.percentile(lum, 10))
     # Suppress isolated hot pixels when measuring the subject peak.
-    peak_model = ndimage.median_filter(lum, size=3, mode='nearest')
-    peak = float(peak_model.max())
-    # In mono, luminance is exactly the first channel. Its median is also
-    # the first channel's glow-model source; avoid filtering it a second time.
-    if not (is_grayscale or colour.shape[2] == 1):
-        peak_model = None
+    peak = float(ndimage.median_filter(lum, size=3, mode='nearest').max())
     if peak <= sky:
         return arr.copy()
     bright = lum >= sky + (peak - sky)*threshold/100
@@ -115,14 +110,8 @@ def deglow(
         ):
             out[..., channel] = out[..., channel - 1]
             continue
-        # Remove single-pixel sources from the MODEL before downsampling can
-        # spread their flux into surrounding samples. The output still uses
-        # the untouched source pixels, minus only the smooth glow estimate.
-        model_source = (peak_model if peak_model is not None
-                        else ndimage.median_filter(source, size=3, mode='nearest'))
-        peak_model = None
         previous_source = source
-        small = _resize(model_source, shape).copy()
+        small = _resize(source, shape).copy()
         # Inpainting before the median keeps bright disk/ring light out of
         # the glow model; otherwise an ordinary blur creates dark edge halos.
         small[excluded] = small[tuple(nearest[:, excluded])]

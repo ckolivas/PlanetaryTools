@@ -402,7 +402,7 @@ A larger margin protects more halo and ring surroundings but may exclude a nearb
 
 **Enhance > Deglow**
 
-Reduce diffuse glow surrounding a bright planet while protecting its disk and rings. Compact single-pixel sources are excluded from the background estimate.
+Reduce diffuse glow surrounding a bright planet while protecting its disk and rings. Single-pixel sources have no special exemption from the background estimate.
 
 <img src="images/deglow.png" alt="Deglow interface" width="420">
 
