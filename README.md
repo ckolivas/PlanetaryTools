@@ -8,7 +8,7 @@ align frames and create animations in one application.
  · **[Read the illustrated manual](docs/manual.md)**
  · **[Download the PDF manual](Planetary-Tools-Manual.pdf)**
 
-![Planetary Tools showing Saturn with the Levels panel](docs/images/workspace_dock.png)
+![Planetary Tools showing Saturn with the Curves panel](docs/images/workspace_dock.png)
 
 ## Get started
 
@@ -23,7 +23,7 @@ align frames and create animations in one application.
    to **Applications**, then double-click it in Finder. No Terminal command
    or separate Python installation is needed. On Linux, make the executable
    runnable if needed.
-2. Launch PT and open a stacked image using **File > Open**.
+2. Launch PT and open a stacked image using **File > Open**, or drag one onto the main window.
 3. Choose a tool from **Enhance** or **Colours**, compare its preview, then
    click **OK** to apply it.
 4. Use **File > Save As** to save a processed copy in your chosen format and
@@ -52,11 +52,15 @@ for one-shot colour images.
 - **Colour:** Align RGB, camera colour-correction presets, Curves, Levels,
   Saturation & Vibrance, Extract Component, and RGB composition/decomposition.
 - **Geometry:** scale, rotate, flip, crop and expand the image canvas.
+- **Presentation:** Caption with system fonts, six placements, named web colours
+  and remembered text/style settings.
 - **Sequences:** Derotate/Align, batch processing and animation with optional
   timestamp-based motion interpolation. Export GIF, APNG, WebP or MP4.
 
 Processing uses floating-point linear image data. Tools provide previews,
-operation-labelled undo/redo and reusable presets where applicable.
+operation-labelled undo/redo and reusable presets where applicable. Undock tool
+panels and resize their graphs for finer adjustments; PT remembers each tool's
+floating size. See [the workspace guide](docs/manual.md#the-pt-workspace).
 
 ## Development
 

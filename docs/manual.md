@@ -2,7 +2,7 @@
 
 [Project overview and downloads](../README.md) · [PDF edition](../Planetary-Tools-Manual.pdf) · [Development guide](development.md)
 
-Revised **13 October 2026**. Covers working build **81fd691**, labelled **1.1.0** in the application, including features added after the published 1.1.0 release. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems.
+Revised **19 October 2026**. Covers application build **8f6796b**, labelled **1.2.1**, including development features added after the published 1.2.1 release. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
 
 ## Contents
 
@@ -52,11 +52,23 @@ Planetary Tools (PT) processes already-stacked planetary images. Open a still im
 1. Open an image with File > Open. A colour image enables the RGB tools; some controls are unavailable for grayscale images.
 2. Inspect the planet at View > Actual Size (100%). Use Zoom In/Out or Ctrl + mouse wheel to change magnification. Ordinary scrolling moves around a larger image.
 3. Choose a processing tool from Enhance or Colours. Its controls appear in the filter dock while the canvas remains visible.
-4. Use the dock title-bar buttons to undock or close a panel. Drag the floating panel's edges or corners to resize it; graphs expand for finer adjustments. Drag it back to an edge to reattach it. Hover over the buttons for help.
+4. Apply changes with OK, or Cancel to return to the image as it was when the tool opened.
+
+### Undocking, resizing and reattaching tool panels
+
+The tool panel beside the image can be undocked into a separate floating window. Click its title-bar undock button, then move the window by dragging its title bar. Hover over the undock/reattach and close buttons for help.
+
+Drag an edge or corner of the floating panel to resize it. The resize cursor appears within 10 pixels of the inside edge or corner, so you do not need to grab an exact one-pixel boundary. Curves, FFT Denoise and histogram graphs expand with the panel, allowing finer adjustments without changing the values represented by the graph.
+
+PT remembers each tool's floating size separately, including after restarting. When that tool is reopened while floating, or undocked again, its saved size is restored within the available screen space and the controls' minimum size. This changes the controls' size, not the image resolution or zoom.
+
+Click the reattach button, or drag the title bar to the left or right edge of the main window, to dock the panel again at its compact width. Closing a tool panel cancels unapplied changes; use OK to keep them. These dock controls apply to panels attached to the workspace. Tools such as Caption and Rotate already open in separate dialog windows.
+
+<img src="images/workspace_floating.png" alt="Undocked Curves panel enlarged to give its graph more space" width="600">
 
 ### Scope of this manual
 
-Screenshots show the current working build on Linux. Window decoration and keyboard shortcuts can differ on Windows and macOS; the tool names and processing controls are shared.
+Screenshots illustrate the documented controls on Linux. Window decoration and keyboard shortcuts can differ on Windows and macOS; the tool names and processing controls are shared.
 
 ### Example image
 
@@ -74,7 +86,7 @@ Drag rows within the Batch, Derotate/Align and Animate file lists to change thei
 
 **File > Open / Open Recent / Save / Save As**
 
-PT remembers file-dialog locations and the last selected output format. Save As starts with the current image name and adjusts its extension to the selected format.
+PT remembers file-dialog locations and the last selected output format. Save As starts in the last directory used to open an image, with the current image name, and adjusts its extension to the selected format. RGB Decompose also starts in the last open directory; Animate uses it when no output path is already entered. Batch keeps its own input/output directory choices.
 
 <img src="images/save.png" alt="Opening and saving images interface" width="760">
 
@@ -385,7 +397,7 @@ Find and brighten compact moons outside the planet and ring protection area whil
 
 ### Relative brightness
 
-With relative brightness off, each moon is boosted independently toward the target. With it on, the brightest moon sets the boost and fainter moons remain proportionally fainter.
+With Retain relative brightness off, each moon is boosted independently toward Max moon brightness. With it on, the brightest moon sets the boost and fainter moons remain proportionally fainter. Enable Pseudo-relative brightness as well to compress that brightness difference using a square-root mapping; this can make a very faint moon visible while preserving which moon is brightest. Pseudo-relative brightness is available only when Retain relative brightness is enabled.
 
 ### Limits
 
@@ -393,7 +405,7 @@ Moons already brighter than the target are not dimmed. Very faint detections can
 
 ### Protection margin
 
-A larger margin protects more halo and ring surroundings but may exclude a nearby moon. A smaller one can expose planetary glow to detection.
+Auto follows the non-circular disk and ring outline, including Saturn's rings, and estimates the local glow outside it. Its reported margin is the largest local padding, not a circle or a uniform gap around the planet. In manual mode, a larger margin protects more halo and ring surroundings but may exclude a nearby moon. A smaller one can expose planetary glow to detection.
 
 [Back to contents](#contents)
 
@@ -752,6 +764,8 @@ Extract Component changes the current image appearance to one component. RGB Com
 
 **Tools > Caption**
 
+<img src="images/caption.png" alt="Caption controls with system font, 12 pixel size, position, colour and border" width="420">
+
 Add freeform text to the current image. Enter multiple lines with Enter; long lines wrap within the border. Choose Top left, Top centre, Top right, Bottom left, Bottom centre or Bottom right.
 
 Select an installed system font and its size in image pixels, defaulting to 12 pixels. Bold, Underline and Italic can be combined. Text colour lists standard named web colours with colour swatches and hexadecimal values.
@@ -875,7 +889,7 @@ Input/output directories and output-depth preferences persist. The available pip
 
 Use view controls to inspect pixels and Help to identify the running version or check for a newer published release.
 
-<img src="images/about.png" alt="About Planetary Tools showing version 1.1.0" width="400">
+<img src="images/about.png" alt="About Planetary Tools showing version 1.2.1" width="400">
 
 <img src="images/updates.png" alt="Update check displaying a network connection error" width="550">
 
@@ -892,7 +906,7 @@ Use view controls to inspect pixels and Help to identify the running version or 
 
 ### Manual build identification
 
-This manual covers working build 81fd691, labelled 1.1.0 in the application. It includes changes made after the public 1.1.0 release, notably FFT Denoise and subsequent Auto improvements.
+This manual covers application build 8f6796b, labelled 1.2.1. It includes subsequent development changes such as drag-and-drop, resizable floating panels with remembered sizes, Deglow blackpoint compensation, percentage-based Curves and Caption. The version label alone does not identify all development changes; a published 1.2.1 binary may not include these additions.
 
 ### Updating
 
@@ -900,7 +914,7 @@ The check opens release information; it does not silently replace the executable
 
 ### Dock layout
 
-The filter dock contains its controls and any histogram. Use its title-bar button to detach it, then resize the floating panel to enlarge Curves, FFT Denoise or the RGB histogram. You can grab within 10 pixels of the inside edges or corners; the cursor changes to show the resize direction. Graph positions continue to represent the same values at any size. PT remembers each tool's floating size separately, including after restarting. Reopening a floating tool or undocking it again restores that size, limited by the available screen space and the controls' minimum size. Drag the panel to the left or right edge to reattach it at its compact width. Closing the panel cancels unapplied changes.
+See [The PT workspace](#the-pt-workspace) for undocking, resizing, remembered panel sizes and reattaching controls.
 
 [Back to contents](#contents)
 
@@ -919,7 +933,7 @@ Use this sequence as a starting structure, and compare each change at useful ima
 1. Open a stacked image and save a working copy. Crop or orient it as required, preserving faint objects you want to keep.
 2. Correct channel misregistration with Align RGB if needed. Apply restrained Wavelet Sharpen or Adaptive Deconvolution.
 3. Use FFT Denoise after sharpening, or try Wavelet Denoise. Inspect the limb, ring edges, belts and tiny moons before accepting.
-4. Refine Levels/Curves, colour and saturation. Use Deglow and Moon Enhance when appropriate, then export at the needed precision.
+4. Refine Levels/Curves, colour and saturation. Use Deglow and Moon Enhance when appropriate, then add a Caption if desired and export at the needed precision.
 
 ### Ringing or soft detail
 
@@ -935,7 +949,7 @@ Check crop bounds, Moon Enhance margin and sensitivity, and tone/clamp settings.
 
 ### Source and revision
 
-Revised 13 October 2026 with the author's camera-preset and sharpening guidance. Screenshots remain actual Qt renders of build 81fd691.
+Revised 19 October 2026 for application build 8f6796b. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
 
 [Back to contents](#contents)
 

@@ -137,3 +137,26 @@ Use relative links so documentation works on GitHub and in a local checkout.
 When changing user-facing guidance, update the downloadable PDF edition too.
 Keep the manual's build identification accurate: development documentation can
 include features that are not in the latest published binary.
+
+### Rebuilding the PDF manual
+
+The PDF is generated from `docs/manual.md` and `docs/images/`, so both editions
+share the same instructions. With ReportLab and Pillow installed in a documentation
+environment, run from the repository root:
+
+```sh
+python docs/scripts/build_manual.py
+```
+
+This updates `Planetary-Tools-Manual.pdf`. Use `--output` to build a review copy.
+The renderer embeds DejaVu Sans fonts; its default font directory is
+`/usr/share/fonts/truetype/dejavu`. If those fonts are elsewhere, pass
+`--font-dir /path/to/dejavu-fonts`, containing the regular, bold, oblique and
+bold-oblique TTF files. These are documentation dependencies, not application
+runtime dependencies.
+
+Update the revision date and application build in the Markdown, refresh screenshots
+of changed controls, rebuild the PDF, then render its pages for a visual check.
+Confirm the contents links, bookmarks and local Markdown image links before committing
+both editions. Screenshot captures should use isolated Qt settings and preset storage
+to avoid changing personal application preferences.
