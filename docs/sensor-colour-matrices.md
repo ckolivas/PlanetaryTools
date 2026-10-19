@@ -436,3 +436,70 @@ those rounded values to preserve unit row sums:
 
 Select **IMX585** again to load the revised built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX662 — recalculated 19 October 2026
+
+Source: the author-supplied `IMX662.png`, 591 × 445 pixels, labelled
+**FSM-IMX662C (Color)**, with relative response plotted on a 0–1 scale.
+No internet references were used. Source SHA-256:
+`1a4de495ab88322ef55f7169d4c45860edb151bad36a5ee4b12c716b2b64733b`.
+
+This source is noticeably blurred and contains colour speckles. Grid-line centres
+were estimated from median grayscale darkness, and positions were mapped by linear
+interpolation between neighbouring ticks. Zero-based pixel coordinates, rounded
+here to 0.001 pixel:
+
+- Wavelengths 400, 500, …, 1000 nm: x = 94.228, 173.413, 251.228, 330.685,
+  410.080, 488.070, 567.026.
+- Responses 0, 0.1, …, 1.0: y = 373.038, 344.168, 314.278, 284.494, 255.583,
+  224.998, 196.148, 165.349, 135.815, 105.657, 76.955.
+
+The dark central traces were selected using the following 8-bit RGB conditions:
+
+- Red: R > G + 40, R > B + 30, G < 180.
+- Green: G > R + 20, G > B + 10, R < 180.
+- Blue: B > R + 20, B > G + 10, R < 180.
+
+The lower colour-difference thresholds accommodate the muted green and blue
+traces. Isolated green components smaller than four pixels were removed using
+eight-neighbour connectivity; the continuous green trace was retained. The median
+trace row in each column was used, with linear interpolation across missing blue
+sections. The longest missing run is six columns (about 7.6 nm) near the green/blue
+crossing around 480 nm. Other blue gaps near 543–568 nm occur where it is faint or
+crosses red. These interpolations and the broad, blurred lines limit accuracy.
+
+The [digitised samples](data/imx662-sensitivity.csv) retain native horizontal
+samples plus exact integration boundaries. Trapezoidal integration within
+400–680 nm gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 104.74397 | R_G = 4.80427 | R_B = 3.96809 |
+| Green | 151.96475 | G_R = 11.96102 | G_B = 6.39191 |
+| Blue | 87.94749 | B_R = 9.84714 | B_G = 4.86220 |
+
+Areas are in relative-response units × nm. Before rounding, the matrix is
+approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.083751 | -0.045867 | -0.037884 |
+| G | -0.078709 | 1.120771 | -0.042062 |
+| B | -0.111966 | -0.055285 | 1.167251 |
+
+Varying the colour-difference thresholds by ±5 RGB levels changes coefficients
+by at most 0.000497. The three-decimal preset remains unchanged in these checks,
+but this does not establish three-decimal physical accuracy: blur, interpolation
+and axis placement add uncertainty beyond threshold selection.
+
+Round off-diagonals to three decimals, then calculate the diagonals from those
+rounded values so every row sums to one:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.084** | **-0.046** | **-0.038** |
+| G | **-0.079** | **1.121** | **-0.042** |
+| B | **-0.112** | **-0.055** | **1.167** |
+
+Select **IMX662** again to load the revised built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
