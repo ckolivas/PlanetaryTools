@@ -630,3 +630,64 @@ rounded terms so every row sums to one:
 
 Select **IMX676** again to load the revised built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX678 — recalculated 19 October 2026
+
+Source: the author-supplied `IMX678.png`, 2242 × 1272 pixels, showing RGB relative
+response on a 0–1 scale. No internet references were used. Source SHA-256:
+`2512eebd22dbac1148fedeb380463368e3131380acbc9d79725d4e3128bb6c4a`.
+
+Grid-line centres were located from median grayscale darkness relative to the
+white background. Pixel coordinates were mapped by linear interpolation between
+neighbouring ticks. Zero-based pixel coordinates, rounded here to 0.001 pixel:
+
+- Wavelengths 400, 450, …, 1000 nm: x = 281.518, 427.368, 571.186, 715.000,
+  858.648, 1002.297, 1146.104, 1291.933, 1435.753, 1579.565, 1723.398, 1867.223,
+  2012.698.
+- Responses 0, 0.1, …, 1.0: y = 1099.398, 1008.276, 919.347, 830.228,
+  739.094, 649.963, 560.843, 469.712, 380.574, 289.463, 200.326.
+
+For each colour, select pixels whose corresponding 8-bit RGB channel is greater
+than 100 and exceeds both other channels by more than 60. Use the median trace
+row in each column. The three-column red gap near its blue crossing (about
+1.0 nm of missing samples) was interpolated linearly. The first visible trace
+column, x = 282 (about 400.17 nm), was extended constantly back to 400 nm.
+The legend and labels are outside the sampled plot area. Only the ideal
+400–680 nm bandpass was integrated.
+
+The [digitised samples](data/imx678-sensitivity.csv) retain native horizontal
+sampling plus exact integration boundaries. Trapezoidal integration gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 103.94550 | R_G = 4.63048 | R_B = 3.70490 |
+| Green | 150.58724 | G_R = 11.77524 | G_B = 6.27617 |
+| Blue | 88.99020 | B_R = 9.55856 | B_G = 6.43772 |
+
+Areas are in relative-response units × nm. Before rounding, the matrix is
+approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.080190 | -0.044547 | -0.035643 |
+| G | -0.078195 | 1.119873 | -0.041678 |
+| B | -0.107411 | -0.072342 | 1.179753 |
+
+Varying the colour-difference thresholds by ±15 RGB levels changes coefficients
+by at most 0.000136. With the looser threshold, B_R rounds to -0.108 instead of
+-0.107, making the derived blue diagonal 1.180 instead of 1.179. The central
+threshold values below are retained. This final-digit sensitivity, line thickness
+and axis placement limit accuracy; these are approximate graph readings rather
+than original sensor measurements.
+
+Round the off-diagonals to three decimals, then derive the diagonals from those
+rounded terms so every row sums to one:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.081** | **-0.045** | **-0.036** |
+| G | **-0.078** | **1.120** | **-0.042** |
+| B | **-0.107** | **-0.072** | **1.179** |
+
+Select **IMX678** again to load the revised built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
