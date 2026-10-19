@@ -51,7 +51,7 @@ Planetary Tools (PT) processes already-stacked planetary images. Open a still im
 1. Open an image with File > Open. A colour image enables the RGB tools; some controls are unavailable for grayscale images.
 2. Inspect the planet at View > Actual Size (100%). Use Zoom In/Out or Ctrl + mouse wheel to change magnification. Ordinary scrolling moves around a larger image.
 3. Choose a processing tool from Enhance or Colours. Its controls appear in the filter dock while the canvas remains visible.
-4. Use the dock title-bar buttons to undock or close a panel. Drag a floating dock back to an edge to reattach it. Hover over the buttons for help.
+4. Use the dock title-bar buttons to undock or close a panel. Drag the floating panel's edges or corners to resize it; graphs expand for finer adjustments. Drag it back to an edge to reattach it. Hover over the buttons for help.
 
 ### Scope of this manual
 
@@ -874,7 +874,7 @@ The check opens release information; it does not silently replace the executable
 
 ### Dock layout
 
-The filter dock contains its controls and any histogram. Use its title-bar button to detach it, or drag it to the left or right edge to reattach it. Closing the panel cancels unapplied changes.
+The filter dock contains its controls and any histogram. Use its title-bar button to detach it, then resize the floating panel to enlarge Curves, FFT Denoise or the RGB histogram. Graph positions continue to represent the same values at any size. Drag the panel to the left or right edge to reattach it at its compact width. Closing the panel cancels unapplied changes.
 
 [Back to contents](#contents)
 

@@ -1,8 +1,8 @@
 """Spectrum-guided FFT denoise controls and automatic initial settings."""
 import numpy as np
-from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt6.QtWidgets import QCheckBox, QLabel, QPushButton, QWidget
+from PyQt6.QtWidgets import QCheckBox, QLabel, QPushButton, QSizePolicy, QWidget
 
 from planetary_tools.filters.fft_denoise import (
     MAX_FREQUENCY, MIN_START, analyse_spectrum, auto_parameters, transfer,
@@ -16,6 +16,7 @@ class SpectrumGraph(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(320, 160)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.spectrum = None
         self.settings = dict(start=60., feather=40., curve=-2.)
         self._drag = None
@@ -105,6 +106,38 @@ class SpectrumGraph(QWidget):
         self.update()
 
 
+class _DifferencePreview(QLabel):
+    """Scale the cached display image on resize without recomputing the filter."""
+    def __init__(self):
+        super().__init__()
+        self._image = QPixmap()
+        self.setMinimumSize(320, 96)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def sizeHint(self):
+        return QSize(320, 96)
+
+    def set_image(self, image):
+        self._image = QPixmap.fromImage(image)
+        self._rescale()
+
+    def setText(self, text):
+        self._image = QPixmap()
+        super().setText(text)
+
+    def _rescale(self):
+        if not self._image.isNull():
+            self.setPixmap(self._image.scaled(
+                self.contentsRect().size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._rescale()
+
+
 class FftDenoiseDialog(_FilterDialog):
     filter_id = 'fft_denoise'
     supports_presets = True
@@ -150,9 +183,7 @@ class FftDenoiseDialog(_FilterDialog):
         self.show_difference = QCheckBox('Show removed signal')
         self.show_difference.toggled.connect(self._update_difference)
         self._form.addRow(self.show_difference)
-        self.difference = QLabel()
-        self.difference.setFixedSize(320, 96)
-        self.difference.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.difference = _DifferencePreview()
         self.difference.setToolTip('Amplified signed input minus output: red = removed, cyan = added. '
                                    'Visible edges indicate detail loss or ringing. Display only; never saved to the image.')
         self.difference.hide()
@@ -223,8 +254,7 @@ class FftDenoiseDialog(_FilterDialog):
         rgb = np.ascontiguousarray(rgb*255, dtype=np.uint8)
         h, w = rgb.shape[:2]
         img = QImage(rgb.data, w, h, rgb.strides[0], QImage.Format.Format_RGB888).copy()
-        self.difference.setPixmap(QPixmap.fromImage(img).scaled(
-            self.difference.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.difference.set_image(img)
 
     def get_params(self):
         params = super().get_params()

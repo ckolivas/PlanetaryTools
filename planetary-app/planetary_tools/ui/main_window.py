@@ -96,6 +96,7 @@ class _ToolDock(QDockWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setAutoFillBackground(True)
+        self._panel_width: int | None = None
         self._redock_refresh = QTimer(self)
         self._redock_refresh.setSingleShot(True)
         self._redock_refresh.timeout.connect(self._refresh_after_redock)
@@ -114,7 +115,22 @@ class _ToolDock(QDockWidget):
         if close_button is not None:
             close_button.setToolTip("Close panel and cancel unapplied changes.")
 
+    def set_panel_width(self, width: int) -> None:
+        """Keep docked controls compact, but let floating panels grow freely."""
+        self._panel_width = width
+        self._update_width_constraint()
+
+    def _update_width_constraint(self) -> None:
+        if self._panel_width is None:
+            return
+        if self.isFloating():
+            self.setMaximumWidth(16777215)  # Qt's QWIDGETSIZE_MAX
+            self.setMinimumWidth(self._panel_width)
+        else:
+            self.setFixedWidth(self._panel_width)
+
     def _on_top_level_changed(self, floating: bool) -> None:
+        self._update_width_constraint()
         self._update_button_tooltips()
         if floating:
             self._redock_refresh.stop()
@@ -921,7 +937,7 @@ class MainWindow(QMainWindow):
             # clipped regardless of font metrics.
             margins = self._filter_host_layout.contentsMargins()
             width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
-            self._filter_dock.setFixedWidth(width + margins.left() + margins.right())
+            self._filter_dock.set_panel_width(width + margins.left() + margins.right())
             self._filter_dock.show()
 
             tex, chroma = self._document.noise_context()
@@ -1510,7 +1526,7 @@ class MainWindow(QMainWindow):
             self._filter_dock.setWindowTitle("Crop/Expand Image")
             margins = self._filter_host_layout.contentsMargins()
             width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
-            self._filter_dock.setFixedWidth(width + margins.left() + margins.right())
+            self._filter_dock.set_panel_width(width + margins.left() + margins.right())
             self._filter_dock.show()
 
             dlg.rect_changed.connect(self._canvas.set_crop_overlay)

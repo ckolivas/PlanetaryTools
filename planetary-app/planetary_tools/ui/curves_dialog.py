@@ -9,7 +9,7 @@ from PyQt6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QHBoxLayout,
-    QLabel, QPushButton, QVBoxLayout, QWidget,
+    QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from planetary_tools.core.colour import linear_to_srgb
@@ -61,6 +61,7 @@ class CurveEditor(QWidget):
         self._dragging = False
         self._last = None
         self.setMinimumSize(300, 245)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.setToolTip("Click to add a point; drag to adjust. Delete or right-click removes a point.")

@@ -101,10 +101,9 @@ class RgbHistogramWidget(QWidget):
         self._counts = np.zeros((3, HISTOGRAM_BINS), dtype=np.float32)
 
         self.setMinimumHeight(_HEADER_HEIGHT + _PLOT_HEIGHT + 8)
-        self.setFixedHeight(_HEADER_HEIGHT + _PLOT_HEIGHT + 8)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Expanding,
         )
 
         header = QHBoxLayout()
@@ -128,7 +127,6 @@ class RgbHistogramWidget(QWidget):
         layout.addLayout(header)
 
         self._plot = _HistogramPlot(self)
-        self._plot.setFixedHeight(_PLOT_HEIGHT)
         layout.addWidget(self._plot)
 
     def set_data(self, data: np.ndarray, is_grayscale: bool) -> None:
@@ -170,7 +168,7 @@ class _HistogramPlot(QWidget):
         self.setMinimumHeight(_PLOT_HEIGHT)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Expanding,
         )
         self.setAutoFillBackground(True)
         self.setMouseTracking(True)
