@@ -258,3 +258,64 @@ values to preserve unit row sums:
 
 Select **IMX224** again to load the revised built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX485 — recalculated 19 October 2026
+
+Source: the author-supplied `IMX485.png`, 608 × 433 pixels, labelled
+**FSM-IMX485C (Color)**, with relative response plotted on a 0–1 scale.
+No internet references were used. Source SHA-256:
+`6b97602b5ae2fbcf505143ade35ad6c10bf59628fa2e2b3f4bce1d56492fbdfd`.
+
+Median grayscale darkness was used to locate the grid-line centres. Coordinates
+were mapped by linear interpolation between neighbouring grid lines. Zero-based
+pixel coordinates, rounded here to 0.001 pixel:
+
+- Wavelengths 400, 500, …, 1000 nm: x = 103.173, 182.754, 262.362, 341.829,
+  421.580, 501.171, 580.746.
+- Responses 0, 0.1, …, 1.0: y = 365.398, 334.567, 304.333, 273.500, 242.848,
+  212.333, 181.667, 151.000, 120.500, 89.667, 59.191.
+
+Trace pixels have their matching RGB component above 100 and more than 60 above
+each other component. Disconnected fragments smaller than 30 pixels were removed
+with eight-neighbour connectivity. The median vertical position was measured in
+each column. Internal gaps were interpolated, with the largest being three blue
+columns at a curve crossing (about 3.8 nm). Red is first resolved at about
+403.6 nm; its first measured value was held constant back to 400 nm. Green and
+blue similarly extend about 1 nm to the bandpass boundary. These small extensions
+are estimates, not measured detail from the graph.
+
+The [digitised samples](data/imx485-sensitivity.csv) retain the native horizontal
+samples plus exact integration boundaries. Trapezoidal integration within the
+specified 400–680 nm bandpass gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 104.43568 | R_G = 3.80635 | R_B = 5.22101 |
+| Green | 131.48293 | G_R = 6.18565 | G_B = 2.84537 |
+| Blue | 84.31686 | B_R = 4.40749 | B_G = 3.47806 |
+
+Areas are in relative-response units × nm. Before rounding, the matrix is
+approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.086439 | -0.036447 | -0.049993 |
+| G | -0.047045 | 1.068686 | -0.021641 |
+| B | -0.052273 | -0.041250 | 1.093523 |
+
+Changing the colour-dominance threshold by ±15 RGB levels changed coefficients
+by at most 0.000346 without changing the rounded preset. The graph's small pixel
+dimensions, line thickness, axis placement and boundary extensions add uncertainty;
+these values are approximate graph readings rather than original sensor data.
+
+Round off-diagonals to three decimals, then calculate diagonals from those
+rounded values so every row sums to one:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.086** | **-0.036** | **-0.050** |
+| G | **-0.047** | **1.069** | **-0.022** |
+| B | **-0.052** | **-0.041** | **1.093** |
+
+Select **IMX485** again to load the updated built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
