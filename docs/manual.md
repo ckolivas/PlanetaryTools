@@ -29,6 +29,7 @@ Revised **13 October 2026**. Covers working build **81fd691**, labelled **1.1.0*
 - [Stretch Contrast OKLab](#stretch-contrast-oklab)
 - [RGB Compose from Files](#rgb-compose-from-files)
 - [RGB Decompose to Files](#rgb-decompose-to-files)
+- [Caption](#caption)
 - [Derotate/Align](#derotate-align)
 - [Animate and motion interpolation](#animate-and-motion-interpolation)
 - [Batch Processing](#batch-processing)
@@ -742,6 +743,24 @@ This is the shared save dialog used for image export. The decomposition command 
 ### Related operations
 
 Extract Component changes the current image appearance to one component. RGB Compose from Files combines channel files back into a colour document.
+
+[Back to contents](#contents)
+
+<a id="caption"></a>
+
+## Caption
+
+**Tools > Caption**
+
+Add freeform text to the current image. Enter multiple lines with Enter; long lines wrap within the border. Choose Top left, Top centre, Top right, Bottom left, Bottom centre or Bottom right.
+
+Select an installed system font and its size in image pixels, defaulting to 12 pixels. Bold, Underline and Italic can be combined. Text colour lists standard named web colours with colour swatches and hexadecimal values.
+
+After OK, PT remembers the caption text, position, font, size, styles, colour, border and preview setting for next time, including after restarting. Cancel keeps the previously saved settings.
+
+Border sets the distance in pixels between the visible text and the selected image edges. Centre positions keep the text horizontally centred while respecting the side borders. Font size and border are independent of canvas zoom. If the caption cannot fit, reduce its size, border or number of lines; OK remains unavailable until it fits.
+
+Preview on canvas compares the caption with the original. OK adds the caption to the image; Cancel leaves the image unchanged. Undo Caption removes it. A coloured caption converts a grayscale image to RGB; neutral text keeps it grayscale. Undo also restores the original colour mode. Add captions near the end of processing, before saving the final image.
 
 [Back to contents](#contents)
 

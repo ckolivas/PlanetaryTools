@@ -45,6 +45,7 @@ from planetary_tools.ui.file_drop import ImageDropTarget
 from planetary_tools.ui.floating_resize import FloatingResizeBorder
 from planetary_tools.ui.file_filters import image_file_filters, save_path_for_filter
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
+from planetary_tools.ui.caption_dialog import CaptionDialog
 from planetary_tools.ui.animate_dialog import AnimateDialog
 from planetary_tools.ui.align_rgb_dialog import AlignRgbDialog
 from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
@@ -505,6 +506,10 @@ class MainWindow(QMainWindow):
         colours_menu.setToolTipsVisible(True)
 
         tools_menu = self.menuBar().addMenu("&Tools")
+        self._caption_act = QAction("&Caption…", self)
+        self._caption_act.setToolTip("Add a caption with a system font, text colour and border inset.")
+        self._caption_act.triggered.connect(self._run_caption)
+        tools_menu.addAction(self._caption_act)
         self._field_derot_act = QAction("&Derotate/Align…", self)
         self._field_derot_act.setToolTip(
             "Align stacked stills to a chosen reference by best luminance "
@@ -607,7 +612,7 @@ class MainWindow(QMainWindow):
         has_doc = self._document is not None
         for act in (
             self._save_act, self._save_as_act, self._scale_act, self._rotate_act,
-            self._crop_act,
+            self._crop_act, self._caption_act,
             self._sharpen_act, self._denoise_act, self._fft_denoise_act, self._deconv_act,
             self._moon_enhance_act, self._deglow_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
@@ -646,7 +651,9 @@ class MainWindow(QMainWindow):
         if self._preview.is_active:
             data = self._preview.display_data()
             if data is not None:
-                rgb = array_to_display_rgb(data, self._document.is_grayscale)
+                # A coloured caption can turn a mono preview into RGB before
+                # the document's colour mode changes on Apply.
+                rgb = array_to_display_rgb(data, data.ndim == 2)
                 self._canvas.show_rgb_uint8(rgb)
                 return
         self._canvas.refresh()
@@ -1508,6 +1515,42 @@ class MainWindow(QMainWindow):
             f"{'Greyscale' if self._document.is_grayscale else 'RGB'}  "
             f"32-bit float linear"
         )
+
+    def _run_caption(self) -> None:
+        if self._document is None:
+            return
+        if self._guard_filter_dialog('Caption', self._run_caption):
+            return
+        dlg = CaptionDialog(self._document.width, self._document.height, self)
+
+        def update_caption():
+            self._preview.set_filter_func(dlg.build_filter_func())
+            self._preview.schedule_update()
+
+        self._filter_dialog_open = True
+        self._preview.start(self._document.data, self._document.is_grayscale)
+        dlg.params_changed.connect(update_caption)
+        dlg.preview_toggled.connect(self._preview.set_preview_enabled)
+        try:
+            update_caption()
+            self._preview.set_preview_enabled(dlg.preview.isChecked())
+            accepted = dlg.exec() == dlg.DialogCode.Accepted
+            result = self._preview.finish(apply=accepted and dlg.has_caption())
+            if result is not None:
+                dlg.save_settings()
+        except Exception as exc:
+            QMessageBox.critical(self, 'Caption', str(exc))
+            return
+        finally:
+            dlg.params_changed.disconnect(update_caption)
+            dlg.preview_toggled.disconnect(self._preview.set_preview_enabled)
+            if self._preview.is_active:
+                self._preview.finish(apply=False)
+            self._canvas.refresh()
+            self._filter_dialog_open = False
+            dlg.deleteLater()
+        if result is not None:
+            self._commit_filter('Caption', result, grayscale=result.ndim == 2)
 
     def _run_rotate_image(self) -> None:
         if self._document is None:
