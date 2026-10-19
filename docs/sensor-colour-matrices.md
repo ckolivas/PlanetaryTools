@@ -503,3 +503,67 @@ rounded values so every row sums to one:
 
 Select **IMX662** again to load the revised built-in preset. Saved Last settings,
 personal presets and existing batch workflows retain their own matrices.
+
+## IMX664 — recalculated 19 October 2026
+
+Source: the author-supplied `IMX664-Curve.png`, 1597 × 898 pixels, titled
+**IMX664 QE Curve**, with relative response plotted on a 0–1 scale.
+No internet references were used. Source SHA-256:
+`65d95327356aa949db4d09551a75e56219fc40c32e2068103c51a4de4960e7eb`.
+
+The light grid-line centres were located from median grayscale brightness above
+the dark background. Pixel coordinates were mapped by linear interpolation
+between neighbouring ticks. Zero-based pixel coordinates, rounded here to
+0.001 pixel:
+
+- Wavelengths 400, 450, …, 1000 nm: x = 104.500, 225.500, 346.500, 468.618,
+  589.618, 711.618, 832.618, 954.618, 1075.618, 1197.618, 1318.618, 1439.618, 1561.500.
+- Responses 0, 0.1, …, 1.0: y = 807.500, 743.618, 680.500, 616.500, 552.500,
+  488.500, 424.500, 361.500, 297.500, 233.500, 169.500.
+
+The bright coloured trace centres were selected using these 8-bit RGB conditions:
+
+- Red: R > 140, R > G + 90, R > B + 90.
+- Green: G > 100, G > R + 60, G > B + 35.
+- Blue/cyan: B > 130, B > R + 90, B > G + 25.
+
+These exclude the dark shaded outlines, grayscale watermark and grid. The title
+and legend are outside the sampled plot area. Median trace positions were measured
+per column. Short red gaps at its green crossing were interpolated, with the
+largest missing run being three columns (about 1.2 nm). Only the 400–680 nm
+bandpass was integrated.
+
+The [digitised samples](data/imx664-sensitivity.csv) retain native horizontal
+sampling plus exact integration boundaries. Trapezoidal integration gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 101.14211 | R_G = 2.21768 | R_B = 2.91933 |
+| Green | 125.32349 | G_R = 6.17068 | G_B = 2.07846 |
+| Blue | 75.64040 | B_R = 3.40888 | B_G = 1.96297 |
+
+Areas are in relative-response units × nm. Before rounding, the matrix is
+approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.050790 | -0.021926 | -0.028864 |
+| G | -0.049238 | 1.065823 | -0.016585 |
+| B | -0.045067 | -0.025951 | 1.071018 |
+
+Varying the colour-difference thresholds by ±15 RGB levels changes coefficients
+by at most 0.000028 without changing the rounded preset. The plotted curves, line
+thickness and axis placement also limit accuracy; these are approximate graph
+readings rather than original sensor measurements.
+
+Round the off-diagonals to three decimals, then derive the diagonals from those
+rounded terms so every row sums to one:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.051** | **-0.022** | **-0.029** |
+| G | **-0.049** | **1.066** | **-0.017** |
+| B | **-0.045** | **-0.026** | **1.071** |
+
+Select **IMX664** again to load the revised built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
