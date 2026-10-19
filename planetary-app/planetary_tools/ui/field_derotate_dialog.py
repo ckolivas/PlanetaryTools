@@ -40,6 +40,7 @@ from planetary_tools.core.field_derotate import (
 )
 from planetary_tools.io.loader import load_image, supported_extensions
 from planetary_tools.ui.file_dialog import QFileDialog
+from planetary_tools.ui.file_drop import ImageDropTarget, FileDropTable
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 from planetary_tools.ui.recent_files import last_output_option, remember_output_option
@@ -170,7 +171,7 @@ class FieldDerotateDialog(QDialog):
         root.addWidget(
             QLabel(
                 "Align stacked stills to a chosen reference image by best "
-                "luminance match. Add files from different folders to the same list. "
+                "luminance match. Add or drop files from different folders into the same list. "
                 "Frames may differ in size; smaller ones are "
                 "centred on a black canvas that fits the largest. Rotation "
                 "(derotation) is optional. This is not WinJUPOS CM / longitude "
@@ -192,7 +193,11 @@ class FieldDerotateDialog(QDialog):
         pick.addStretch()
         fl.addLayout(pick)
 
-        self._table = QTableWidget(0, 6)
+        self._table = FileDropTable(0, 6)
+        self._table.can_drop = lambda: not self._busy()
+        self._table.files_dropped.connect(self._receive_files)
+        self._table.order_changed.connect(self._reorder_files)
+        self._file_drop = ImageDropTarget(self, self._receive_files, enabled=lambda: not self._busy())
         self._table.setHorizontalHeaderLabels(
             ["File", "Δ°", "dx", "dy", "Score", "Status"]
         )
@@ -330,6 +335,12 @@ class FieldDerotateDialog(QDialog):
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
 
+    def _receive_files(self, paths: list[Path]) -> None:
+        if self._busy() or not paths:
+            return
+        remember_open_path(paths[0])
+        self._append_paths(paths)
+
     def _add_files(self) -> None:
         if self._busy():
             return
@@ -338,8 +349,7 @@ class FieldDerotateDialog(QDialog):
         )
         if not paths:
             return
-        remember_open_path(paths[0])
-        self._append_paths([Path(p) for p in paths])
+        self._receive_files([Path(p) for p in paths])
 
     def _append_paths(self, paths: list[Path]) -> None:
         existing = {r.path.resolve() for r in self._rows}
@@ -377,6 +387,13 @@ class FieldDerotateDialog(QDialog):
         folder = QFileDialog.getExistingDirectory(self, "Select output folder")
         if folder:
             self._output_dir.setText(folder)
+
+    def _reorder_files(self, order: list[int]) -> None:
+        if self._busy():
+            return
+        self._rows = [self._rows[i] for i in order]
+        self._ref_index = order.index(self._ref_index)
+        self._refresh_table()
 
     def _selected_rows(self) -> list[int]:
         return sorted({idx.row() for idx in self._table.selectedIndexes()})

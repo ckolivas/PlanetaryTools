@@ -67,6 +67,10 @@ Most figures use the supplied Saturn image PT_4moons.png. Screenshot settings il
 
 ## Opening and saving images
 
+You can drop one image from your file manager onto the main window to open it. PT uses the usual unsaved-change prompt. Drop multiple image files onto Batch, Derotate/Align, Animate or RGB Compose to add them; duplicate files are skipped. In RGB Compose, filenames determine channel assignment, or drop one file directly onto a Red, Green or Blue field to set that channel.
+
+Drag rows within the Batch, Derotate/Align and Animate file lists to change their order. The alignment reference stays attached to the same image. Animate uses capture-time ordering instead when motion interpolation is enabled. File drops and reordering are unavailable while a batch, alignment or animation job is running.
+
 **File > Open / Open Recent / Save / Save As**
 
 PT remembers file-dialog locations and the last selected output format. Save As starts with the current image name and adjusts its extension to the selected format.

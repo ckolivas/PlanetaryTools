@@ -42,6 +42,7 @@ from planetary_tools.core.presets import ensure_builtin_presets
 from planetary_tools.filters.registry import FILTERS, batch_filters
 from planetary_tools.ui.dialogs import edit_filter_params
 from planetary_tools.ui.file_dialog import QFileDialog
+from planetary_tools.ui.file_drop import ImageDropTarget, FileDropList
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 from planetary_tools.ui.recent_files import last_output_option, remember_output_option
@@ -126,7 +127,11 @@ class BatchDialog(QDialog):
         self._recursive.setToolTip("Include subfolders when adding a folder. Updates the list while a single folder is selected.")
         self._recursive.toggled.connect(self._refresh_folder_inputs)
         in_layout.addRow(self._recursive)
-        self._input_list = QListWidget()
+        self._input_list = FileDropList()
+        self._input_list.can_drop = lambda: not self._busy()
+        self._input_list.files_dropped.connect(self._receive_files)
+        self._input_list.order_changed.connect(self._reorder_inputs)
+        self._file_drop = ImageDropTarget(self, self._receive_files, enabled=lambda: not self._busy())
         self._input_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self._input_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self._input_list.setMinimumHeight(90)
@@ -293,16 +298,32 @@ class BatchDialog(QDialog):
         self._settings.remove("batch/inputFolder")
         self._refresh_input_list()
 
+    def _busy(self) -> bool:
+        return self._worker is not None and self._worker.isRunning()
+
+    def _reorder_inputs(self, order: list[int]) -> None:
+        if self._busy():
+            return
+        self._input_files = [self._input_files[i] for i in order]
+        self._input_folder = None
+        self._settings.remove("batch/inputFolder")
+        self._refresh_input_list()
+
+    def _receive_files(self, paths: list[Path]) -> None:
+        if self._busy() or not paths:
+            return
+        self._input_folder = None
+        self._append_input_files(paths)
+        remember_open_path(paths[0])
+        self._remember_input_directory(paths[0].parent, selected_folder=False)
+
     def _add_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Add input images", self._input_start_directory(), image_file_filters()
         )
         if not paths:
             return
-        self._input_folder = None
-        self._append_input_files([Path(p) for p in paths])
-        remember_open_path(paths[0])
-        self._remember_input_directory(Path(paths[0]).parent, selected_folder=False)
+        self._receive_files([Path(p) for p in paths])
 
     def _pick_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Add input folder", self._input_start_directory())

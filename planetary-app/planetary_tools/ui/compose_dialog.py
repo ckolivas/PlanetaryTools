@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from planetary_tools.ui.file_dialog import QFileDialog
+from planetary_tools.ui.file_drop import ImageDropTarget
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import last_open_directory, remember_open_path
 
@@ -58,11 +59,13 @@ class RGBComposeDialog(QDialog):
         self._paths: dict[str, Path | None] = {ch: None for ch in _CHANNELS}
         self._edits: dict[str, QLineEdit] = {}
         self._browse_buttons: dict[str, QPushButton] = {}
+        self._file_drop = ImageDropTarget(self, self._add_paths)
+        self._channel_drops = []
 
         layout = QVBoxLayout(self)
         layout.addWidget(
             QLabel(
-                "Choose two or three channel images. Files may be in different "
+                "Choose or drop two or three channel images. Files may be in different "
                 "folders. A missing third channel is calculated from the other two."
             )
         )
@@ -80,8 +83,11 @@ class RGBComposeDialog(QDialog):
             row = QHBoxLayout()
             edit = QLineEdit()
             edit.setReadOnly(True)
-            edit.setPlaceholderText("None")
+            edit.setPlaceholderText("Drop an image here")
             self._edits[channel] = edit
+            self._channel_drops.append(ImageDropTarget(
+                edit, lambda paths, ch=channel: self._drop_channel(ch, paths), single=True,
+            ))
             row.addWidget(edit, stretch=1)
 
             browse = QPushButton("Add…")
@@ -164,6 +170,10 @@ class RGBComposeDialog(QDialog):
         remember_open_path(path)
         self._set_channel(channel, Path(path))
 
+    def _drop_channel(self, channel: str, paths: list[Path]) -> None:
+        remember_open_path(paths[0])
+        self._set_channel(channel, paths[0])
+
     def _add_multiple_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self,
@@ -171,6 +181,11 @@ class RGBComposeDialog(QDialog):
             self._browse_start_dir(),
             image_file_filters(),
         )
+        if not paths:
+            return
+        self._add_paths([Path(p) for p in paths])
+
+    def _add_paths(self, paths: list[Path]) -> None:
         if not paths:
             return
         remember_open_path(paths[0])

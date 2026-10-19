@@ -41,6 +41,7 @@ from planetary_tools.io.loader import (
 )
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.file_dialog import QFileDialog
+from planetary_tools.ui.file_drop import ImageDropTarget
 from planetary_tools.ui.file_filters import image_file_filters, save_path_for_filter
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.animate_dialog import AnimateDialog
@@ -159,6 +160,11 @@ class MainWindow(QMainWindow):
         self._canvas = ImageCanvas()
         self._canvas.zoom_changed.connect(self._sync_zoom_combo)
         self.setCentralWidget(self._canvas)
+        self._image_drop = ImageDropTarget(self, lambda paths: self._open_path(paths[0]), single=True)
+        self._canvas_drop = ImageDropTarget(
+            self._canvas.viewport(), lambda paths: self._open_path(paths[0]), single=True,
+        )
+        self._canvas.setToolTip("Drop one image file here to open it.")
 
         self._filter_dock = _ToolDock(self)
         self._filter_dock.setObjectName("FilterDock")

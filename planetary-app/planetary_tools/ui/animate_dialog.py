@@ -41,6 +41,7 @@ from planetary_tools.core.animation_interpolation import (
 )
 from planetary_tools.io.loader import supported_extensions
 from planetary_tools.ui.file_dialog import QFileDialog
+from planetary_tools.ui.file_drop import ImageDropTarget, FileDropTable
 from planetary_tools.ui.file_filters import image_file_filters
 from planetary_tools.ui.recent_files import (
     last_output_option,
@@ -120,7 +121,7 @@ class AnimateDialog(QDialog):
 
         root = QVBoxLayout(self)
         description = QLabel(
-            "Build an animation or video from stills. Frames are sorted by "
+            "Add or drop stills to build an animation or video. Frames are sorted by "
             "filename, or by capture time when interpolating. Smaller frames "
             "are centred on a black canvas that fits the largest."
         )
@@ -139,7 +140,12 @@ class AnimateDialog(QDialog):
         pick.addStretch()
         fl.addLayout(pick)
 
-        self._table = QTableWidget(0, 3)
+        self._table = FileDropTable(0, 3)
+        self._table.can_drop = lambda: not self._busy()
+        self._table.can_reorder = lambda: not self._motion_interpolation.isChecked()
+        self._table.files_dropped.connect(self._receive_files)
+        self._table.order_changed.connect(self._reorder_files)
+        self._file_drop = ImageDropTarget(self, self._receive_files, enabled=lambda: not self._busy())
         self._table.setHorizontalHeaderLabels(["File", "Captured (UTC)", "Rounded (UTC)"])
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(_COL_FILE, QHeaderView.ResizeMode.Stretch)
@@ -303,6 +309,12 @@ class AnimateDialog(QDialog):
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
 
+    def _receive_files(self, paths: list[Path]) -> None:
+        if self._busy() or not paths:
+            return
+        remember_open_path(paths[0])
+        self._append_paths(paths)
+
     def _add_files(self) -> None:
         if self._busy():
             return
@@ -311,8 +323,7 @@ class AnimateDialog(QDialog):
         )
         if not paths:
             return
-        remember_open_path(paths[0])
-        self._append_paths([Path(raw) for raw in paths])
+        self._receive_files([Path(raw) for raw in paths])
 
     def _append_paths(self, paths: list[Path]) -> None:
         existing = {p.resolve() for p in self._paths}
@@ -343,6 +354,12 @@ class AnimateDialog(QDialog):
         ]
         paths.sort(key=natural_sort_key)
         self._append_paths(paths)
+
+    def _reorder_files(self, order: list[int]) -> None:
+        if self._busy() or self._motion_interpolation.isChecked():
+            return
+        self._paths = [self._paths[i] for i in order]
+        self._refresh_table()
 
     def _move(self, delta: int) -> None:
         if self._busy() or self._motion_interpolation.isChecked():
