@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from PyQt6.QtCore import QEventLoop, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEventLoop, QSettings, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -98,6 +98,9 @@ class _ToolDock(QDockWidget):
         super().__init__(parent)
         self.setAutoFillBackground(True)
         self._panel_width: int | None = None
+        self._panel_key: str | None = None
+        self._floating_size: QSize | None = None
+        self._restoring_size = False
         self._redock_refresh = QTimer(self)
         self._redock_refresh.setSingleShot(True)
         self._redock_refresh.timeout.connect(self._refresh_after_redock)
@@ -117,10 +120,66 @@ class _ToolDock(QDockWidget):
         if close_button is not None:
             close_button.setToolTip("Close panel and cancel unapplied changes.")
 
-    def set_panel_width(self, width: int) -> None:
+    def set_panel_width(self, width: int, panel_key: str | None = None) -> None:
         """Keep docked controls compact, but let floating panels grow freely."""
+        self.finish_panel()
+        self._panel_key = panel_key
+        if panel_key:
+            saved = QSettings().value(f"floatingPanels/{panel_key}/size")
+            if isinstance(saved, QSize) and saved.width() > 0 and saved.height() > 0:
+                self._floating_size = saved
         self._panel_width = width
-        self._update_width_constraint()
+        self._restoring_size = True
+        try:
+            self._update_width_constraint()
+        finally:
+            self._restoring_size = False
+        if self.isFloating() and self.isVisible():
+            self._restore_floating_size()
+
+    def _save_floating_size(self) -> None:
+        if self._panel_key and self._floating_size is not None:
+            settings = QSettings()
+            settings.setValue(f"floatingPanels/{self._panel_key}/size", self._floating_size)
+            settings.sync()
+
+    def finish_panel(self) -> None:
+        """Save before removing controls, whose layout changes can resize the dock."""
+        self._save_floating_size()
+        self._panel_key = None
+        self._floating_size = None
+
+    def _restore_floating_size(self) -> None:
+        if self._floating_size is None:
+            return
+        self._restoring_size = True
+        try:
+            self.layout().activate()
+            size = QSize(self._floating_size)
+            screen = self.screen()
+            if screen is not None:
+                # A different monitor or display scale may have less room.
+                frame = self.frameGeometry().size() - self.size()
+                size = size.boundedTo(screen.availableGeometry().size() - frame)
+            size = size.expandedTo(self.minimumSizeHint()).expandedTo(self.minimumSize())
+            self.resize(size)
+        finally:
+            self._restoring_size = False
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if (self._panel_key and not self._restoring_size and self.isFloating()
+                and self.isVisible() and not self.isMaximized() and not self.isFullScreen()):
+            self._floating_size = QSize(event.size())
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self.isFloating():
+            self._restore_floating_size()
+
+    def hideEvent(self, event) -> None:
+        self._save_floating_size()
+        super().hideEvent(event)
 
     def _update_width_constraint(self) -> None:
         if self._panel_width is None:
@@ -132,10 +191,17 @@ class _ToolDock(QDockWidget):
             self.setFixedWidth(self._panel_width)
 
     def _on_top_level_changed(self, floating: bool) -> None:
-        self._update_width_constraint()
+        if not floating:
+            self._save_floating_size()
+        self._restoring_size = True
+        try:
+            self._update_width_constraint()
+        finally:
+            self._restoring_size = False
         self._update_button_tooltips()
         if floating:
             self._redock_refresh.stop()
+            self._restore_floating_size()
         else:
             # Repaint after Qt has finished switching the floating window
             # back into the main window's backing store.
@@ -856,6 +922,7 @@ class MainWindow(QMainWindow):
             event.ignore()
 
     def _clear_filter_panel(self) -> None:
+        self._filter_dock.finish_panel()
         while self._filter_host_layout.count():
             item = self._filter_host_layout.takeAt(0)
             widget = item.widget()
@@ -939,7 +1006,8 @@ class MainWindow(QMainWindow):
             # clipped regardless of font metrics.
             margins = self._filter_host_layout.contentsMargins()
             width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
-            self._filter_dock.set_panel_width(width + margins.left() + margins.right())
+            self._filter_dock.set_panel_width(
+                width + margins.left() + margins.right(), type(dlg).__name__)
             self._filter_dock.show()
 
             tex, chroma = self._document.noise_context()
@@ -1528,7 +1596,8 @@ class MainWindow(QMainWindow):
             self._filter_dock.setWindowTitle("Crop/Expand Image")
             margins = self._filter_host_layout.contentsMargins()
             width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
-            self._filter_dock.set_panel_width(width + margins.left() + margins.right())
+            self._filter_dock.set_panel_width(
+                width + margins.left() + margins.right(), type(dlg).__name__)
             self._filter_dock.show()
 
             dlg.rect_changed.connect(self._canvas.set_crop_overlay)

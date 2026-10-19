@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
-from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QSettings, QSize, Qt, QTimer
 from PyQt6.QtGui import QMouseEvent, QWindow
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QAbstractButton, QApplication, QMainWindow
@@ -15,7 +15,8 @@ from PyQt6.QtWidgets import QAbstractButton, QApplication, QMainWindow
 from planetary_tools.ui.curves_dialog import CurvesDialog
 from planetary_tools.ui.dialogs import FILTER_PANEL_WIDTH, LevelsDialog
 from planetary_tools.ui.fft_denoise_dialog import FftDenoiseDialog
-from planetary_tools.ui.main_window import _ToolDock
+from planetary_tools.core.document import ImageDocument
+from planetary_tools.ui.main_window import MainWindow, _ToolDock
 
 
 class ResizableGraphTests(unittest.TestCase):
@@ -29,6 +30,13 @@ class ResizableGraphTests(unittest.TestCase):
         p = patch('planetary_tools.core.presets.PRESET_DIR', Path(folder.name))
         p.start()
         self.addCleanup(p.stop)
+        self.settings_path = str(Path(folder.name) / 'settings.ini')
+        p = patch('planetary_tools.ui.main_window.QSettings', self.settings)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def settings(self):
+        return QSettings(self.settings_path, QSettings.Format.IniFormat)
 
     def floating_panel(self, cls):
         window = QMainWindow()
@@ -150,6 +158,74 @@ class ResizableGraphTests(unittest.TestCase):
         dock.setFloating(False)
         self.app.processEvents()
         self.assertTrue(border.isHidden())
+
+    def test_saved_size_survives_redocking_and_new_dock(self):
+        _, dock, panel = self.floating_panel(CurvesDialog)
+        dock.set_panel_width(max(FILTER_PANEL_WIDTH, panel.sizeHint().width()), 'CurvesDialog')
+        size = QSize(640, 720)
+        dock.resize(size)
+        self.app.processEvents()
+        dock.setFloating(False)
+        self.app.processEvents()
+        self.assertEqual(self.settings().value('floatingPanels/CurvesDialog/size'), size)
+        dock.setFloating(True)
+        self.app.processEvents()
+        self.assertEqual(dock.size(), size)
+        dock.close()
+        _, new_dock, new_panel = self.floating_panel(CurvesDialog)
+        new_dock.set_panel_width(max(FILTER_PANEL_WIDTH, new_panel.sizeHint().width()), 'CurvesDialog')
+        self.app.processEvents()
+        self.assertEqual(new_dock.size(), size)
+
+    def test_each_tool_reopens_at_own_size_after_cleanup_and_restart(self):
+        wanted = {'CurvesDialog': QSize(650, 720), 'FftDenoiseDialog': QSize(570, 690),
+                  'CropImageDialog': QSize(590, 710)}
+        # Exercise the actual nested tool loop, cleanup, and a new main window.
+        for restart in (False, True):
+            window = MainWindow()
+            window._set_document(ImageDocument(np.full((32, 48, 3), .25, dtype=np.float32)))
+            window.show()
+            self.addCleanup(window.close)
+            for key in list(wanted) * 2:
+                errors = []
+                def interact():
+                    dock = window._filter_dock
+                    try:
+                        dock.setFloating(True)
+                        self.app.processEvents()
+                        if restart or self.settings().contains(f'floatingPanels/{key}/size'):
+                            self.assertEqual(dock.size(), wanted[key])
+                        dock.resize(wanted[key])
+                        self.app.processEvents()
+                    except BaseException as exc:
+                        errors.append(exc)
+                    finally:
+                        window._active_filter_dlg._reject()
+                QTimer.singleShot(20, interact)
+                if key == 'CropImageDialog':
+                    window._run_crop_image()
+                else:
+                    cls = CurvesDialog if key == 'CurvesDialog' else FftDenoiseDialog
+                    window._run_filter_dialog(cls(), key)
+                self.assertFalse(errors, errors)
+                self.assertEqual(self.settings().value(f'floatingPanels/{key}/size'), wanted[key])
+            window.close()
+
+    def test_invalid_or_oversized_saved_sizes(self):
+        _, dock, panel = self.floating_panel(CurvesDialog)
+        width = max(FILTER_PANEL_WIDTH, panel.sizeHint().width())
+        for saved in ('bad size', QSize(-1, 100), QSize(0, 0)):
+            self.settings().setValue('floatingPanels/Invalid/size', saved)
+            dock.set_panel_width(width, 'Invalid')
+            self.assertIsNone(dock._floating_size)
+            dock.finish_panel()
+        self.settings().setValue('floatingPanels/Large/size', QSize(10000, 10000))
+        dock.set_panel_width(width, 'Large')
+        self.app.processEvents()
+        available = dock.screen().availableGeometry().size()
+        self.assertLessEqual(dock.width(), available.width())
+        self.assertLessEqual(dock.height(), available.height())
+        self.assertGreaterEqual(dock.width(), dock.minimumWidth())
 
     def test_border_requests_native_resize_for_edges_and_corners(self):
         _, dock, _ = self.floating_panel(CurvesDialog)

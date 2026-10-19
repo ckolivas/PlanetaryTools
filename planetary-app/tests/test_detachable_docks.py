@@ -1,10 +1,13 @@
 """Floating/redocking must preserve edits; closing a dock must cancel them."""
 import os
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QSettings, Qt, QTimer
 from PyQt6.QtGui import QImage, QPainter
 from PyQt6.QtWidgets import QApplication, QDockWidget, QWidget
 
@@ -26,6 +29,14 @@ class DetachableDockTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        settings = QSettings(str(Path(folder.name) / 'settings.ini'), QSettings.Format.IniFormat)
+        p = patch('planetary_tools.ui.main_window.QSettings', return_value=settings)
+        p.start()
+        self.addCleanup(p.stop)
 
     def test_edit_survives_detach_redock_and_close_still_cancels(self):
         for tool in ('filter', 'crop'):
