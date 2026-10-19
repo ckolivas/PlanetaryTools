@@ -542,7 +542,7 @@ Map input brightness to output brightness with an editable curve. The horizontal
 1. Choose Value or an individual colour channel. Alpha is available when the image has an alpha channel. Value is applied after the individual RGB curves.
 2. Click to add points and drag them. Select a point to edit its Input and Output numerically as percentages from 0% to 100%; these coordinates do not reduce document bit depth.
 3. Use Smooth or Freehand mode. Smooth/Corner changes the selected point type. Delete point or right-click removes a point; arrow keys move it and Shift increases the step.
-4. Enable Pick a curve point from the image to sample a location on the canvas. Reset channel or Reset all restores straight curves.
+4. Enable Pick a curve point from the image to sample a location on the canvas. The cursor becomes a crosshair for precise selection, then returns to normal after picking or cancelling. Reset channel or Reset all restores straight curves.
 
 ### Working space
 

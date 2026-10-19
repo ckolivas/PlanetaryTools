@@ -424,13 +424,18 @@ class CurvesUiTests(unittest.TestCase):
             try:
                 dialog = window._active_filter_dlg
                 if pick:
+                    original_cursor = window._canvas.viewport().cursor().shape()
                     dialog.pick.setChecked(True)
+                    self.assertEqual(window._canvas.viewport().cursor().shape(), Qt.CursorShape.CrossCursor)
                     pos = window._canvas.mapFromScene(QPointF(20.5, 15.5))
+                    QTest.mouseMove(window._canvas.viewport(), pos)
+                    self.assertEqual(window._canvas.viewport().cursor().shape(), Qt.CursorShape.CrossCursor)
                     QTest.mouseClick(window._canvas.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+                    self.assertEqual(window._canvas.viewport().cursor().shape(), original_cursor)
                     self.assertEqual(len(dialog.editor.curve['points']), 3)
                     self.assertAlmostEqual(dialog.editor.curve['points'][1][0],
                                            float(linear_to_srgb(np.array(.25))), places=5)
-                    dialog.output.setValue(200)
+                    dialog.output.setValue(80)
                 else:
                     dialog.editor.add_point(.5, .8)
                 # Apply still evaluates the final settings with preview disabled.
@@ -453,6 +458,34 @@ class CurvesUiTests(unittest.TestCase):
         np.testing.assert_array_equal(window._document.data, source)
         window._redo_action()
         np.testing.assert_array_equal(window._document.data, applied)
+
+    def test_picker_cursor_restored_on_cancel_mode_change_and_detach(self):
+        from planetary_tools.ui.canvas import ImageCanvas
+        canvas = ImageCanvas()
+        self.addCleanup(canvas.close)
+        canvas.set_document(ImageDocument(np.full((20, 30, 3), .25, dtype=np.float32)))
+        canvas.show()
+        dialog = CurvesDialog()
+        self.addCleanup(dialog.close)
+        dialog.attach_canvas(canvas)
+        self.addCleanup(dialog.detach_canvas)
+        original_cursor, original_mode = canvas.viewport().cursor().shape(), canvas.dragMode()
+        for finish in ('uncheck', 'freehand', 'detach'):
+            with self.subTest(finish=finish):
+                dialog.pick.setChecked(True)
+                self.assertEqual(canvas.viewport().cursor().shape(), Qt.CursorShape.CrossCursor)
+                self.assertEqual(canvas.dragMode(), canvas.DragMode.NoDrag)
+                if finish == 'uncheck':
+                    dialog.pick.setChecked(False)
+                elif finish == 'freehand':
+                    dialog.mode.setCurrentText('Freehand')
+                else:
+                    dialog.detach_canvas()
+                self.assertEqual(canvas.viewport().cursor().shape(), original_cursor)
+                self.assertEqual(canvas.dragMode(), original_mode)
+                if finish == 'freehand':
+                    dialog.pick.setChecked(False)
+                    dialog.mode.setCurrentText('Smooth')
 
     def test_batch_editor_uses_curves_widget(self):
         from planetary_tools.ui.dialogs import edit_filter_params

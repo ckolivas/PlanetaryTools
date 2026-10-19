@@ -246,6 +246,7 @@ class CurvesDialog(_FilterDialog):
         self._settings = default_curves_params()
         self._source = None
         self._canvas = None
+        self._pick_canvas_state = None
         self._loading = False
         super().__init__('Curves', parent)
 
@@ -306,6 +307,7 @@ class CurvesDialog(_FilterDialog):
         self.pick = QCheckBox('Pick a curve point from the image')
         self.pick.setToolTip('Enable, then click the image to add its input level to this curve.')
         self.pick.setEnabled(False)
+        self.pick.toggled.connect(self._sync_pick_cursor)
         self._form.addRow(self.pick)
         reset = QPushButton('Reset channel')
         reset_all = QPushButton('Reset all')
@@ -331,6 +333,7 @@ class CurvesDialog(_FilterDialog):
         self.mode.blockSignals(False)
         self.editor.set_curve(curve, ch)
         self.pick.setEnabled(self._canvas is not None and curve['mode'] == 'smooth')
+        self._sync_pick_cursor()
         self._update_histogram()
         self._refresh_channel_readouts()
 
@@ -437,14 +440,35 @@ class CurvesDialog(_FilterDialog):
         self._load_channel()
 
     def attach_canvas(self, canvas):
+        self.detach_canvas()
         self._canvas = canvas
         canvas.viewport().installEventFilter(self)
         self.pick.setEnabled(self.editor.curve['mode'] == 'smooth')
+        self._sync_pick_cursor()
+
+    def _sync_pick_cursor(self, *_):
+        if self._canvas is None:
+            return
+        canvas = self._canvas
+        if self.pick.isChecked() and self.pick.isEnabled():
+            if self._pick_canvas_state is None:
+                self._pick_canvas_state = (canvas.dragMode(), canvas.viewport().cursor())
+            # ScrollHandDrag can replace a viewport cursor on mouse movement.
+            canvas.setDragMode(canvas.DragMode.NoDrag)
+            canvas.viewport().setCursor(Qt.CursorShape.CrossCursor)
+        elif self._pick_canvas_state is not None:
+            mode, cursor = self._pick_canvas_state
+            self._pick_canvas_state = None
+            canvas.setDragMode(mode)
+            canvas.viewport().setCursor(cursor)
 
     def detach_canvas(self):
         if self._canvas is not None:
+            self.pick.setChecked(False)
+            self._sync_pick_cursor()
             self._canvas.viewport().removeEventFilter(self)
             self._canvas = None
+        self.pick.setEnabled(False)
 
     def eventFilter(self, obj, event):
         if (self._canvas is not None and obj is self._canvas.viewport()
