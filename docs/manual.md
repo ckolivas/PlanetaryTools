@@ -874,7 +874,7 @@ The check opens release information; it does not silently replace the executable
 
 ### Dock layout
 
-The filter dock contains its controls and any histogram. Use its title-bar button to detach it, then resize the floating panel to enlarge Curves, FFT Denoise or the RGB histogram. Graph positions continue to represent the same values at any size. Drag the panel to the left or right edge to reattach it at its compact width. Closing the panel cancels unapplied changes.
+The filter dock contains its controls and any histogram. Use its title-bar button to detach it, then resize the floating panel to enlarge Curves, FFT Denoise or the RGB histogram. You can grab within 10 pixels of the inside edges or corners; the cursor changes to show the resize direction. Graph positions continue to represent the same values at any size. Drag the panel to the left or right edge to reattach it at its compact width. Closing the panel cancels unapplied changes.
 
 [Back to contents](#contents)
 

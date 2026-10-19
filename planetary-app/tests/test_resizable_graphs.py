@@ -7,9 +7,10 @@ from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent, QWindow
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QMainWindow
+from PyQt6.QtWidgets import QAbstractButton, QApplication, QMainWindow
 
 from planetary_tools.ui.curves_dialog import CurvesDialog
 from planetary_tools.ui.dialogs import FILTER_PANEL_WIDTH, LevelsDialog
@@ -128,6 +129,84 @@ class ResizableGraphTests(unittest.TestCase):
         for fraction, expected in ((0., 0), (.5, 128), (1., 255)):
             x = plot._MARGIN_LEFT + fraction*(plot.width()-plot._MARGIN_LEFT-plot._MARGIN_RIGHT)
             self.assertEqual(plot._bin_at_x(x), expected)
+
+    def test_ten_pixel_border_leaves_controls_and_docked_panel_accessible(self):
+        _, dock, panel = self.floating_panel(CurvesDialog)
+        border = dock._resize_border
+        w, h = dock.width(), dock.height()
+        for point in (QPoint(9, h//2), QPoint(w-10, h//2),
+                      QPoint(w//2, 9), QPoint(w//2, h-10), QPoint(9, h-10)):
+            self.assertIs(dock.childAt(point), border)
+        for point in (QPoint(10, h//2), QPoint(w-11, h//2),
+                      QPoint(w//2, 10), QPoint(w//2, h-11)):
+            self.assertIsNot(dock.childAt(point), border)
+        editor_center = panel.editor.mapTo(dock, panel.editor.rect().center())
+        self.assertIs(dock.childAt(editor_center), panel.editor)
+        for name in ('qt_dockwidget_floatbutton', 'qt_dockwidget_closebutton'):
+            button = dock.findChild(QAbstractButton, name)
+            if button.isVisible():
+                for point in (button.rect().topLeft(), button.rect().center()):
+                    self.assertIs(dock.childAt(button.mapTo(dock, point)), button)
+        dock.setFloating(False)
+        self.app.processEvents()
+        self.assertTrue(border.isHidden())
+
+    def test_border_requests_native_resize_for_edges_and_corners(self):
+        _, dock, _ = self.floating_panel(CurvesDialog)
+        border = dock._resize_border
+        w, h = border.width(), border.height()
+        left, right = Qt.Edge.LeftEdge, Qt.Edge.RightEdge
+        top, bottom = Qt.Edge.TopEdge, Qt.Edge.BottomEdge
+        points = ((9, h//2, left), (w-10, h//2, right),
+                  (w//2, 9, top), (w//2, h-10, bottom),
+                  (9, 9, left | top), (w-10, 9, right | top),
+                  (9, h-10, left | bottom), (w-10, h-10, right | bottom))
+        for x, y, edges in points:
+            with self.subTest(edges=edges), patch.object(QWindow, 'startSystemResize', return_value=True) as resize:
+                QTest.mouseClick(border, Qt.MouseButton.LeftButton, pos=QPoint(x, y))
+                resize.assert_called_once_with(edges)
+                self.assertIsNone(border._drag)
+
+    def test_border_fallback_drag_and_minimum_size_keep_opposite_edges_fixed(self):
+        _, dock, _ = self.floating_panel(CurvesDialog)
+        border = dock._resize_border
+        dock.resize(dock.width()+200, dock.height()+200)
+        self.app.processEvents()
+
+        def move_from(origin, delta):
+            global_pos = origin + delta
+            event = QMouseEvent(QEvent.Type.MouseMove,
+                               QPointF(border.mapFromGlobal(global_pos)), QPointF(global_pos),
+                               Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
+                               Qt.KeyboardModifier.NoModifier)
+            QApplication.sendEvent(border, event)
+            self.app.processEvents()
+
+        for left in (False, True):
+            for top in (False, True):
+                with self.subTest(left=left, top=top), patch.object(QWindow, 'startSystemResize', return_value=False):
+                    dock.move(300, 300)
+                    self.app.processEvents()
+                    initial = dock.geometry()
+                    point = QPoint(9 if left else border.width()-10,
+                                   9 if top else border.height()-10)
+                    origin = border.mapToGlobal(point)
+                    QTest.mousePress(border, Qt.MouseButton.LeftButton, pos=point)
+                    move_from(origin, QPoint(-50 if left else 50, -40 if top else 40))
+                    self.assertEqual(dock.width(), initial.width()+50)
+                    self.assertEqual(dock.height(), initial.height()+40)
+                    self.assertEqual(dock.geometry().right() if left else dock.geometry().x(),
+                                     initial.right() if left else initial.x())
+                    self.assertEqual(dock.geometry().bottom() if top else dock.geometry().y(),
+                                     initial.bottom() if top else initial.y())
+                    move_from(origin, QPoint(5000 if left else -5000, 5000 if top else -5000))
+                    self.assertEqual(dock.size(), dock.minimumSize().expandedTo(dock.minimumSizeHint()))
+                    self.assertEqual(dock.geometry().right() if left else dock.geometry().x(),
+                                     initial.right() if left else initial.x())
+                    self.assertEqual(dock.geometry().bottom() if top else dock.geometry().y(),
+                                     initial.bottom() if top else initial.y())
+                    QTest.mouseRelease(border, Qt.MouseButton.LeftButton)
+                    self.assertIsNone(border._drag)
 
 
 if __name__ == '__main__':

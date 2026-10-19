@@ -42,6 +42,7 @@ from planetary_tools.io.loader import (
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.file_dialog import QFileDialog
 from planetary_tools.ui.file_drop import ImageDropTarget
+from planetary_tools.ui.floating_resize import FloatingResizeBorder
 from planetary_tools.ui.file_filters import image_file_filters, save_path_for_filter
 from planetary_tools.ui.canvas import ZOOM_LEVELS, ImageCanvas
 from planetary_tools.ui.animate_dialog import AnimateDialog
@@ -102,6 +103,7 @@ class _ToolDock(QDockWidget):
         self._redock_refresh.timeout.connect(self._refresh_after_redock)
         self.topLevelChanged.connect(self._on_top_level_changed)
         self._update_button_tooltips()
+        self._resize_border = FloatingResizeBorder(self)
 
     def _update_button_tooltips(self) -> None:
         float_button = self.findChild(QAbstractButton, "qt_dockwidget_floatbutton")
