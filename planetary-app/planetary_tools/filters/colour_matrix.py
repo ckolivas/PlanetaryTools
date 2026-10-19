@@ -25,10 +25,11 @@ SENSOR_MATRICES: dict[str, list[list[float]]] = {
         [-0.032, 1.110, -0.078],
         [-0.060, -0.072, 1.132],
     ],
+    # Recalculated from the supplied 400–680 nm graph; see docs/sensor-colour-matrices.md.
     "IMX290": [
-        [1.073, -0.029, -0.044],
-        [-0.074, 1.098, -0.024],
-        [-0.148, -0.024, 1.172],
+        [1.072, -0.033, -0.039],
+        [-0.044, 1.064, -0.020],
+        [-0.052, -0.034, 1.086],
     ],
     # Recalculated from the supplied 400–680 nm graph; see docs/sensor-colour-matrices.md.
     "IMX462": [

@@ -81,3 +81,65 @@ Select **IMX462** again in Colour Correction Matrix to use the updated built-in
 preset. PT refreshes the reserved sensor preset when loading presets. Saved
 **Last**, personal named presets and existing batch workflows retain their stored
 settings; selecting the sensor preset does not rewrite earlier edits.
+
+## IMX290 — recalculated 19 October 2026
+
+Source: the author-supplied `ASI290MC-QE.jpg`, 1024 × 699 pixels, with relative
+response plotted on a 0–1 scale. No internet references were used. Source SHA-256:
+`8fe867cb103b1a1ed7f386f04ce973b049a5af79a73c929503939d71acd10b9e`.
+
+Axis positions were fitted to the grid lines: the seven wavelength ticks from
+400 to 1000 nm and eleven response ticks from 0 to 1. Grid-line centres were
+estimated from their grayscale darkness across the plot. The resulting mapping
+uses zero-based pixel coordinates:
+
+- `x = 1.3325869215 × wavelength_nm - 358.3242356300`
+- `y = 586.4629826915 - 545.7773615858 × relative_response`
+
+For each column within the bandpass, the trace position is the median row whose
+matching RGB component exceeds 160 and exceeds each other component by more than
+90 (8-bit colour values). The legend lies outside the selected wavelength range.
+Short covered sections were interpolated. The longest gap is 17 columns, about
+13 nm, where the green trace is obscured by red near 415–427 nm. This contributes
+uncertainty to the green 400–450 nm subtraction area. The first available trace
+column is about 400.22 nm; its value is extended to the 400 nm boundary.
+
+The retained [digitised samples](data/imx290-sensitivity.csv) include native pixel
+columns and exact integration boundaries. Integrating them by the trapezoidal
+rule gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 104.12158 | R_G = 3.48795 | R_B = 4.10471 |
+| Green | 130.70548 | G_R = 5.69204 | G_B = 2.60917 |
+| Blue | 77.43081 | B_R = 3.99822 | B_G = 2.62385 |
+
+Areas are in graph relative-response units × nm; this graph uses 0–1 rather than
+the IMX462 graph's 0–100 scale. Per-channel area ratios are independent of that
+scale. These are approximate digitised readings, not original sensor measurements.
+
+Before rounding, the matrix is approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.072921 | -0.033499 | -0.039422 |
+| G | -0.043549 | 1.063511 | -0.019962 |
+| B | -0.051636 | -0.033886 | 1.085522 |
+
+Changing the colour-dominance threshold by ±15 RGB levels changes calculated
+coefficients by at most 0.00021. Axis placement, JPEG compression, line thickness
+and the obscured trace add uncertainty. In particular, R_G/R_total is close to a
+three-decimal rounding boundary, so the last stored decimal is not uniquely
+established by the graph.
+
+As for IMX462, round the off-diagonals first and derive the diagonals from those
+rounded values. The preset is:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.072** | **-0.033** | **-0.039** |
+| G | **-0.044** | **1.064** | **-0.020** |
+| B | **-0.052** | **-0.034** | **1.086** |
+
+Select **IMX290** again to load the updated built-in preset. Previously saved
+Last settings, personal presets and batch workflows retain their own matrices.
