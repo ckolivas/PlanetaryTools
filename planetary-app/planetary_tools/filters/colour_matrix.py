@@ -15,10 +15,11 @@ IDENTITY_MATRIX: list[list[float]] = [
 
 # Shipped sensor colour-correction matrices (linear RGB).
 SENSOR_MATRICES: dict[str, list[list[float]]] = {
+    # Recalculated from the supplied 400–680 nm graph; see docs/sensor-colour-matrices.md.
     "IMX183": [
-        [1.150, -0.102, -0.048],
-        [-0.029, 1.080, -0.051],
-        [-0.025, -0.021, 1.046],
+        [1.080, -0.037, -0.043],
+        [-0.037, 1.059, -0.022],
+        [-0.042, -0.029, 1.071],
     ],
     "IMX224": [
         [1.192, -0.151, -0.042],

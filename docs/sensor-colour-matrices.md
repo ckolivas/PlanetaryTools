@@ -143,3 +143,58 @@ rounded values. The preset is:
 
 Select **IMX290** again to load the updated built-in preset. Previously saved
 Last settings, personal presets and batch workflows retain their own matrices.
+
+## IMX183 — recalculated 19 October 2026
+
+Source: the author-supplied `imx183.png`, 1200 × 700 pixels, with relative response
+plotted on a 0–100% scale. No internet references were used. Source SHA-256:
+`c4fd1cd7c2e28a437206e773ab4814748694a6849deea63450aa480e221be2ec`.
+
+The seven wavelength grid lines from 400 to 700 nm and eleven response grid lines
+from 0 to 100 were fitted using their grayscale darkness to estimate their centres.
+The mapping uses zero-based image pixel coordinates:
+
+- `x = 2.6536789335 × wavelength_nm - 836.8448362005`
+- `y = 583.5821651249 - 5.2111164272 × relative_response_percent`
+
+Each trace was extracted using its median vertical position in each image column.
+Matching pixels have their channel's RGB component above 100 and more than 60
+above each other component. Short gaps at curve crossings were interpolated;
+the largest internal gap is four columns, about 1.5 nm. The first available
+trace values extend to the exact 400 nm boundary (less than 0.6 nm of extension).
+Only 400–680 nm is integrated, despite the graph extending to 700 nm.
+
+The [digitised samples](data/imx183-sensitivity.csv) retain native horizontal
+sampling plus the exact integration boundaries. Trapezoidal integration gives:
+
+| Channel | Total area | First subtraction area | Second subtraction area |
+| --- | ---: | ---: | ---: |
+| Red | 9393.78 | R_G = 344.45 | R_B = 404.33 |
+| Green | 13086.67 | G_R = 486.28 | G_B = 293.27 |
+| Blue | 8476.18 | B_R = 353.59 | B_G = 249.18 |
+
+Areas are in relative-response percentage units × nm. Before rounding, the
+matrix is approximately:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | 1.079709 | -0.036667 | -0.043042 |
+| G | -0.037158 | 1.059568 | -0.022410 |
+| B | -0.041716 | -0.029398 | 1.071114 |
+
+Changing the colour-dominance threshold by ±15 RGB levels changed calculated
+coefficients by at most 0.000021 and did not change the rounded preset. This is
+a trace-selection check, not a complete uncertainty estimate: axis calibration,
+line thickness and the original plotted curves also limit accuracy.
+
+Rounding off-diagonals to three decimals and recalculating the diagonals to
+preserve unit row sums gives:
+
+| Output / input | R | G | B |
+| --- | ---: | ---: | ---: |
+| R | **1.080** | **-0.037** | **-0.043** |
+| G | **-0.037** | **1.059** | **-0.022** |
+| B | **-0.042** | **-0.029** | **1.071** |
+
+Select **IMX183** again to load the updated built-in preset. Saved Last settings,
+personal presets and existing batch workflows retain their own matrices.
