@@ -18,7 +18,9 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
 3. Detection: local SNR against a local median/MAD noise map (sky noise is
    strongly non-uniform; a global MAD floods the detector with false peaks),
    non-maximum suppression, and an FWHM band that rejects hot pixels and
-   extended glow. Capped at ``max_moons`` by descending SNR.
+   extended glow. Elongated sources are rejected unless strong enough to be a
+   trailed moon; peaks on the image border are ignored. Capped at
+   ``max_moons`` by descending SNR.
 4. Gain: per moon ``g = clip(target_L / peak_L, 1, max_gain)`` blended through
    a Gaussian sized from the moon's measured FWHM. Equal gain on all channels
    preserves hue. Planet pixels inside the exclusion zone are bit-identical.
@@ -70,9 +72,16 @@ _SIGMA_FLOOR_FRAC = 1e-6
 _FWHM_MIN = 2.0
 _FWHM_MAX = 30.0
 _FWHM_MEASURE_HALF = 16
-# Moons are round; overexposed ring ansae and glow knots are stretched along
-# the ring plane. Reject sources whose x/y half-max widths differ this much.
+# Moons are round; overexposed ring ansae, glow knots and sky noise blobs are
+# stretched. Reject sources whose x/y half-max widths differ this much...
 _MAX_ELONGATION = 2.0
+# ...unless they are far stronger than any elongated noise (SNR ≤ ~11 on the
+# sample images): a moon that moved during a derotated stack is trailed, e.g.
+# the right moon on 2moons.png at SNR 43 with 14×6 px half-max widths.
+_TRAILED_MIN_SNR = 20.0
+# Smoothing and NMS reflect at the image edge, so stacking-edge artefacts form
+# peaks there; a moon this close to the frame is cut off anyway.
+_BORDER_PX = int(np.ceil(3.5 * _RESIDUAL_SMOOTH_SIGMA))
 # Extended residual on the exclusion rim is leftover planet glow, not a moon.
 # Compact moons (FWHM ~4–7 px on 3moons.png / 4moons.png) still pass.
 _GLOW_HUG_PX = 8.0
@@ -256,6 +265,8 @@ def detect_moons(
     peaks = (snr == ndimage.maximum_filter(snr, size=_NMS_WINDOW)) & (
         (snr > sensitivity) & ~exclusion
     )
+    peaks[:_BORDER_PX] = peaks[-_BORDER_PX:] = False
+    peaks[:, :_BORDER_PX] = peaks[:, -_BORDER_PX:] = False
     ys, xs = np.nonzero(peaks)
     detections: list[MoonDetection] = []
     for y, x in zip(ys.tolist(), xs.tolist()):
@@ -263,7 +274,8 @@ def detect_moons(
         fwhm = 0.5 * (fx + fy)
         if not (_FWHM_MIN <= fwhm <= _FWHM_MAX):
             continue
-        if max(fx, fy) > _MAX_ELONGATION * max(min(fx, fy), 1.0):
+        if (max(fx, fy) > _MAX_ELONGATION * max(min(fx, fy), 1.0)
+                and float(snr[y, x]) < _TRAILED_MIN_SNR):
             continue
         if fwhm >= _GLOW_HUG_MIN_FWHM and float(outside[y, x]) <= _GLOW_HUG_PX:
             continue

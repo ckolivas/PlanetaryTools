@@ -85,6 +85,18 @@ class MoonAutoMarginTests(unittest.TestCase):
         self.assertEqual(moon.auto_planet_margin(tight, True), moon._auto_margin_px(radius))
         self.assertEqual(moon.auto_planet_margin(np.zeros((32, 32)), True), 20)
 
+    def test_strong_trailed_moon_kept_and_border_peaks_ignored(self):
+        y, x = np.indices((384, 384))
+        image = planet()
+        image += np.random.default_rng(1).normal(1e-3, 1e-4, image.shape).astype(np.float32)
+        # A moon smeared along its orbit during a derotated stack.
+        image += .003*np.exp(-((x-60)/5)**2/2 - ((y-60)/1.5)**2/2)
+        image[300, 383] += .003
+        detections, _ = moon.detect_moons(
+            image, sensitivity=8, planet_margin=0, max_moons=12,
+        )
+        self.assertEqual([(d.y, d.x) for d in detections], [(60, 60)])
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -121,6 +133,9 @@ class MoonImageMarginTests(unittest.TestCase):
 
     def test_earlier_three_moon_image(self):
         self.check_detections('3moons.png', ((128, 459), (280, 100), (235, 647)))
+
+    def test_trailed_moon_image(self):
+        self.check_detections('2moons.png', ((236, 657), (261, 75)))
 
     def test_earlier_four_moon_image(self):
         self.check_detections('4moons.png', ((210, 357), (195, 621), (139, 1054), (103, 1744)))
