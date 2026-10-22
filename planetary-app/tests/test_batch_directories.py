@@ -66,7 +66,7 @@ class BatchDirectoryTests(unittest.TestCase):
             reopened._pick_folder()
             self.assertEqual(picker.call_args.args[2], str(self.input_dir))
             reopened._pick_output()
-            self.assertEqual(picker.call_args.args[2], str(self.output_dir))
+            self.assertEqual(picker.call_args.args[2], str(self.input_dir))
         with patch('planetary_tools.ui.batch_dialog.QFileDialog.getOpenFileNames',
                    return_value=([], '')) as picker:
             reopened._add_files()
@@ -78,6 +78,7 @@ class BatchDirectoryTests(unittest.TestCase):
 
     def test_typed_and_workflow_output_paths_persist_before_they_exist(self):
         dialog = self.dialog()
+        self.select_input(dialog)
         future = self.output_dir/'new'/'processed'
         dialog._output_dir.setText(str(future))
         dialog.reject()
@@ -86,7 +87,7 @@ class BatchDirectoryTests(unittest.TestCase):
         with patch('planetary_tools.ui.batch_dialog.QFileDialog.getExistingDirectory',
                    return_value='') as picker:
             reopened._pick_output()
-            self.assertEqual(picker.call_args.args[2], str(self.output_dir))
+            self.assertEqual(picker.call_args.args[2], str(self.input_dir))
         workflow_output = self.root/'workflow-output'
         reopened._apply_workflow(BatchWorkflow(output_dir=str(workflow_output)))
         reopened.reject()
@@ -99,6 +100,7 @@ class BatchDirectoryTests(unittest.TestCase):
     def test_file_picker_history_does_not_select_the_whole_folder(self):
         dialog = self.dialog()
         self.select_input(dialog)
+        dialog._output_dir.setText(str(self.output_dir))
         other_dir = self.root/'other'
         other_dir.mkdir()
         path = other_dir/'saturn.png'
@@ -114,6 +116,11 @@ class BatchDirectoryTests(unittest.TestCase):
         self.assertIsNone(reopened._input_folder)
         self.assertEqual(reopened._input_files, [])
         self.assertEqual(reopened._input_start_directory(), str(other_dir))
+        with patch('planetary_tools.ui.batch_dialog.QFileDialog.getExistingDirectory',
+                   return_value='') as picker:
+            reopened._pick_output()
+            self.assertEqual(picker.call_args.args[2], str(other_dir))
+        self.assertEqual(reopened._output_dir.text(), str(self.output_dir))
 
     def test_missing_input_folder_falls_back_without_selecting_it(self):
         dialog = self.dialog()

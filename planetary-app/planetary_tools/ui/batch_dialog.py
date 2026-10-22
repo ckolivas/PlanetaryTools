@@ -334,8 +334,7 @@ class BatchDialog(QDialog):
             self._remember_input_directory(path, selected_folder=self._input_folder is not None)
 
     def _pick_output(self) -> None:
-        start = self._output_dir.text().strip()
-        directory = Path(start).expanduser() if start else Path(self._input_start_directory())
+        directory = Path(self._input_start_directory()).expanduser()
         while not directory.is_dir() and directory.parent != directory:
             directory = directory.parent
         folder = QFileDialog.getExistingDirectory(self, "Select output folder", str(directory))
