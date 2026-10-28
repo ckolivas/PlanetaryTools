@@ -8,6 +8,7 @@ import tempfile
 
 import av
 import numpy as np
+from PIL import Image, ImageSequence
 from PyQt6.QtWidgets import QApplication
 
 from planetary_tools.core.animate import encode_frames
@@ -38,7 +39,17 @@ def run(report_path: str) -> int:
             with av.open(str(output)) as container:
                 decoded = [frame.to_ndarray(format='rgb24') for frame in container.decode(video=0)]
             np.testing.assert_array_equal(decoded, frames)
-        app = QApplication.instance() or QApplication([])
+            for quality in (99, 100):
+                output = Path(folder)/f'test-{quality}.webp'
+                encode_frames(frames, output, fps=10, fmt='webp', webp_quality=quality, back_and_forth=False)
+                with Image.open(output) as im:
+                    decoded = np.stack([np.asarray(f.convert('RGB')) for f in ImageSequence.Iterator(im)])
+                assert decoded.shape == (len(frames), *first.shape)
+                if quality == 100:
+                    np.testing.assert_array_equal(decoded, frames)
+                else:
+                    assert np.abs(decoded.astype(int)-frames).mean() < 4
+        app =QApplication.instance() or QApplication([])
         report['qt_platform'] = app.platformName()
         window = MainWindow()
         try:
