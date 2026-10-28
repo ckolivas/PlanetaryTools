@@ -64,12 +64,12 @@ ENHANCE_FILTER_IDS = frozenset({
 
 # Moon enhance is deliberately not an "enhance" filter for stats: those noise
 # readouts crop to the bright subject (the planet), which this filter does not
-# change, so the score would be meaningless.
+# change, so the score would be meaningless. It is not clampable either: its
+# gains never dim, never lift a channel past 100%, and keep 0% at 0%.
 CLAMP_FILTER_IDS = ENHANCE_FILTER_IDS | frozenset({
     "colour_matrix",
     "saturation_vibrance",
     "merge_wavelet_detail",
-    "moon_enhance",
 })
 
 
@@ -418,7 +418,7 @@ FILTERS: dict[str, FilterDef] = {
     "moon_enhance": MoonEnhanceDef(
         id="moon_enhance",
         label="Moon Enhance",
-        default_params=_with_defaults({
+        default_params={
             "brightness": 25.0,
             "retain_relative_brightness": False,
             "pseudo_relative_brightness": False,
@@ -427,7 +427,7 @@ FILTERS: dict[str, FilterDef] = {
             # 0 = auto: follow the local disk/ring glow within a size-based limit.
             "planet_margin": 0.0,
             "max_moons": 12,
-        }),
+        },
     ),
     "stretch_contrast": StretchContrastDef(
         id="stretch_contrast",

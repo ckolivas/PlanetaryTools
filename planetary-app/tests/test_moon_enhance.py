@@ -134,6 +134,33 @@ class MoonEnhanceTests(unittest.TestCase):
         np.testing.assert_array_equal(result, expected)
 
 
+class MoonEnhanceRangeTests(unittest.TestCase):
+    def setUp(self):
+        _DETECT_CACHE.clear()
+
+    def test_never_lifts_a_channel_past_100_or_below_0_and_ignores_old_clamp_params(self):
+        mono, planet = scene()
+        # An orange moon: at a 100% luminance target, red would reach ~2.5.
+        image = np.stack([mono, mono, mono], axis=-1)
+        image[40, 40] = (.05, .015, .005)
+        image[40, 210] = (.01, .01, .01)
+        out = moon_enhance(image, False, 100, 8, .5, 10, 12)
+        self.assertLessEqual(float(out.max()), 1.0)
+        self.assertGreaterEqual(float(out.min()), 0.0)
+        np.testing.assert_allclose(out[40, 40].max(), 1.0, rtol=1e-6)
+        np.testing.assert_allclose(out[40, 40] / out[40, 40].max(),
+                                   image[40, 40] / image[40, 40].max(), rtol=1e-5)
+        np.testing.assert_array_equal(out[planet], image[planet])
+        # A clipped pixel is never dimmed, and stale clamp flags change nothing.
+        image[150, 40] = (1.2, .9, .9)
+        raw = moon_enhance(image, False, 100, 8, .5, 10, 12)
+        self.assertGreaterEqual(float(raw[150, 40, 0]), 1.2)
+        for stale in ({}, {'clamp': True, 'clamp_low': True}, {'clamp': False}, {'rescale': True}):
+            with self.subTest(stale=stale):
+                params = {'brightness': 100, 'planet_margin': 10, **stale}
+                np.testing.assert_array_equal(apply_filter('moon_enhance', image, False, params), raw)
+
+
 class MoonEnhanceUITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -178,6 +205,16 @@ class MoonEnhanceUITests(unittest.TestCase):
         result = edit_filter_params('moon_enhance', {}, True)
         self.assertTrue(result[0]['retain_relative_brightness'])
         self.assertEqual(result[0]['brightness'], 40)
+        self.assertNotIn('clamp', result[0])
+        self.assertNotIn('clamp_low', result[0])
+
+    def test_dialog_has_no_clamp_options(self):
+        panel = MoonEnhanceDialog()
+        self.addCleanup(panel.close)
+        self.assertIsNone(panel.clamp_channels)
+        self.assertIsNone(panel.clamp_low)
+        self.assertFalse(any('Clamp' in box.text() for box in panel.findChildren(QCheckBox)))
+        self.assertNotIn('clamp', panel.get_params())
 
     def test_pseudo_control_dependency_preview_and_preset_restore(self):
         panel = MoonEnhanceDialog()

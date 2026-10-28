@@ -463,6 +463,12 @@ def moon_enhance(
     # Hard guarantee: gain tails from moons near the margin must not lift the
     # planet or its glow.
     gain[exclusion] = 1.0
+    # The target is luminance, so a coloured moon's strongest channel could
+    # pass 100%. Cap the common gain there instead of clipping, keeping hue;
+    # pixels already at or above 100% are left as they are.
+    channel_max = arr if arr.ndim == 2 else arr.max(axis=-1)
+    with np.errstate(divide="ignore"):
+        np.minimum(gain, np.maximum(1.0 / channel_max, 1.0), out=gain)
     if arr.ndim == 2:
         return arr * gain
     return arr * gain[..., None]

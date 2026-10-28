@@ -842,7 +842,6 @@ class WaveletDenoiseDialog(_FilterDialog):
 class MoonEnhanceDialog(_FilterDialog):
     filter_id = "moon_enhance"
     supports_presets = True
-    supports_clamp = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Moon Enhance", parent)
