@@ -13,6 +13,8 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
    distance transform). Auto follows the connected disk/ring glow locally,
    with a small safety pad and a size-based limit (half the equivalent radius,
    min 20 px), rather than spreading the widest halo around the whole planet.
+   Beyond the 20 px core, a compact round moon in Auto's outer glow fringe is
+   still detected and only its own disk is opened from the exclusion.
 2. Background: median filter at ×4 downsample, upsampled — removes sky
    gradients and planet glow so moons appear as compact positive residual.
 3. Detection: local SNR against a local median/MAD noise map (sky noise is
@@ -208,6 +210,42 @@ def _planet_exclusion(
     return distance <= margin, r_eq
 
 
+def _exclusion_zones(
+    lum: np.ndarray, planet_floor: float, margin: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Exclusion zone, and the Auto fringe of it where compact moons may still be found.
+
+    Auto's glow-following mask ends at a brightness threshold, so a moon embedded
+    in the faint outer glow can sit right on its edge (Enceladus below Saturn's
+    rings on EnceladusTest.png). Beyond the fixed minimum core, such a moon is
+    kept if it is compact against the local glow. Manual margins are exact.
+    """
+    planet, r_eq = _planet_seed(lum, planet_floor)
+    none = np.zeros(lum.shape, dtype=bool)
+    if r_eq <= 0.0:
+        return none, none
+    distance = ndimage.distance_transform_edt(~planet)
+    if margin > 0.0:
+        return distance <= margin, none
+    exclusion = _auto_exclusion(lum, planet, distance, r_eq)
+    return exclusion, exclusion & (distance > _AUTO_MARGIN_MIN_PX)
+
+
+def _measure_compact_fwhm(lum: np.ndarray, y: int, x: int) -> tuple[float, float]:
+    """Half-max widths of the compact part of a source, above the local glow.
+
+    A white top-hat removes structure broader than the Auto glow opening, so a
+    glow gradient does not inflate a fringe moon's width as it does the residual.
+    """
+    h, w = lum.shape
+    reach = _FWHM_MEASURE_HALF + _AUTO_MARGIN_OPEN_SIZE
+    y0, x0 = max(0, y - reach), max(0, x - reach)
+    window = lum[y0 : min(h, y + reach + 1), x0 : min(w, x + reach + 1)]
+    compact = window - ndimage.grey_opening(window, size=_AUTO_MARGIN_OPEN_SIZE)
+    compact = ndimage.gaussian_filter(compact, _RESIDUAL_SMOOTH_SIGMA)
+    return _measure_fwhm(compact, y - y0, x - x0)
+
+
 def _measure_fwhm(residual: np.ndarray, y: int, x: int) -> tuple[float, float]:
     """Half-max widths through the peak along x and y, in pixels."""
     h, w = residual.shape
@@ -236,8 +274,8 @@ def detect_moons(
     filter must leave pixels bit-identical.
     """
     h, w = lum.shape
-    exclusion, _r_eq = _planet_exclusion(lum, planet_floor, planet_margin)
-    if bool(exclusion.all()):
+    exclusion, fringe = _exclusion_zones(lum, planet_floor, planet_margin)
+    if bool((exclusion & ~fringe).all()):
         return [], exclusion
     # Distance outside the exclusion: glow knots peak on this rim.
     outside = ndimage.distance_transform_edt(~exclusion)
@@ -263,22 +301,32 @@ def detect_moons(
     snr = (smooth - med) / np.maximum(sigma, sigma_floor)
 
     peaks = (snr == ndimage.maximum_filter(snr, size=_NMS_WINDOW)) & (
-        (snr > sensitivity) & ~exclusion
+        (snr > sensitivity) & (~exclusion | fringe)
     )
     peaks[:_BORDER_PX] = peaks[-_BORDER_PX:] = False
     peaks[:, :_BORDER_PX] = peaks[:, -_BORDER_PX:] = False
     ys, xs = np.nonzero(peaks)
     detections: list[MoonDetection] = []
     for y, x in zip(ys.tolist(), xs.tolist()):
-        fx, fy = _measure_fwhm(smooth, y, x)
-        fwhm = 0.5 * (fx + fy)
-        if not (_FWHM_MIN <= fwhm <= _FWHM_MAX):
-            continue
-        if (max(fx, fy) > _MAX_ELONGATION * max(min(fx, fy), 1.0)
-                and float(snr[y, x]) < _TRAILED_MIN_SNR):
-            continue
-        if fwhm >= _GLOW_HUG_MIN_FWHM and float(outside[y, x]) <= _GLOW_HUG_PX:
-            continue
+        if fringe[y, x]:
+            # Inside the glow only compact, round sources qualify: no trailed
+            # exemption, and nothing as broad as the glow-hug rejection width.
+            fx, fy = _measure_compact_fwhm(lum, y, x)
+            fwhm = 0.5 * (fx + fy)
+            if not (_FWHM_MIN <= fwhm < _GLOW_HUG_MIN_FWHM):
+                continue
+            if max(fx, fy) > _MAX_ELONGATION * max(min(fx, fy), 1.0):
+                continue
+        else:
+            fx, fy = _measure_fwhm(smooth, y, x)
+            fwhm = 0.5 * (fx + fy)
+            if not (_FWHM_MIN <= fwhm <= _FWHM_MAX):
+                continue
+            if (max(fx, fy) > _MAX_ELONGATION * max(min(fx, fy), 1.0)
+                    and float(snr[y, x]) < _TRAILED_MIN_SNR):
+                continue
+            if fwhm >= _GLOW_HUG_MIN_FWHM and float(outside[y, x]) <= _GLOW_HUG_PX:
+                continue
         y0, y1 = max(0, y - 2), min(h, y + 3)
         x0, x1 = max(0, x - 2), min(w, x + 3)
         peak_l = float(lum[y0:y1, x0:x1].max())
@@ -286,7 +334,19 @@ def detect_moons(
             MoonDetection(y=y, x=x, snr=float(snr[y, x]), peak_l=peak_l, fwhm=fwhm)
         )
     detections.sort(key=lambda d: d.snr, reverse=True)
-    return detections[: max(0, int(max_moons))], exclusion
+    detections = detections[: max(0, int(max_moons))]
+    # Open the exclusion only over each kept fringe moon's own disk, so the
+    # surrounding glow stays bit-identical.
+    carved = [d for d in detections if fringe[d.y, d.x]]
+    if carved:
+        exclusion = exclusion.copy()
+        for d in carved:
+            r = int(np.ceil(d.fwhm))
+            y0, y1 = max(0, d.y - r), min(h, d.y + r + 1)
+            x0, x1 = max(0, d.x - r), min(w, d.x + r + 1)
+            yy, xx = np.ogrid[y0:y1, x0:x1]
+            exclusion[y0:y1, x0:x1] &= (yy - d.y) ** 2 + (xx - d.x) ** 2 > d.fwhm ** 2
+    return detections, exclusion
 
 
 # Detection dominates runtime (~2.5 s at 1600×3088); brightness-only changes

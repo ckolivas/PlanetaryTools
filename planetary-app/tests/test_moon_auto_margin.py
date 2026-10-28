@@ -97,6 +97,38 @@ class MoonAutoMarginTests(unittest.TestCase):
         )
         self.assertEqual([(d.y, d.x) for d in detections], [(60, 60)])
 
+    def test_compact_moon_in_glow_fringe_kept_but_broad_knot_rejected(self):
+        y, x = np.indices((384, 512))
+        disk = ((x-256)**2 + (y-192)**2 < 70**2).astype(np.float32)
+        image = ndimage.gaussian_filter(disk*.6, 2) + ndimage.gaussian_filter(disk*.04, 25)
+        image += np.random.default_rng(5).normal(2e-4, 2e-5, image.shape).astype(np.float32)
+        exclusion, fringe = moon._exclusion_zones(image, moon.DEFAULT_PLANET_FLOOR, 0)
+        self.assertTrue(fringe.any())
+        # Pick fringe points on opposite limbs, beyond the 20 px core.
+        fys, fxs = np.nonzero(fringe & (np.abs(y-192) < 3))
+        compact, broad = (192, int(fxs.min())+3), (192, int(fxs.max())-3)
+        self.assertTrue(fringe[compact] and fringe[broad])
+        image += .004*np.exp(-((x-compact[1])**2 + (y-compact[0])**2)/(2*1.8**2))
+        image += .004*np.exp(-((x-broad[1])**2 + (y-broad[0])**2)/(2*7**2))
+        detections, carved = moon.detect_moons(image, sensitivity=8, planet_margin=0, max_moons=12)
+        # The glow gradient may shift the smoothed peak by a pixel toward the planet.
+        self.assertEqual(len(detections), 1)
+        found = (detections[0].y, detections[0].x)
+        self.assertLessEqual(np.hypot(found[0]-compact[0], found[1]-compact[1]), 1.5)
+        self.assertLess(detections[0].fwhm, 10)
+        auto, _ = moon._exclusion_zones(image, moon.DEFAULT_PLANET_FLOOR, 0)
+        opened = auto & ~carved
+        self.assertTrue(opened[found])
+        self.assertLessEqual(np.hypot(*(np.argwhere(opened) - found).T).max(), detections[0].fwhm)
+        self.assertTrue(carved[broad])
+        output = moon.moon_enhance(image, True, 25, 8, .5, 0, 12)
+        np.testing.assert_array_equal(output[carved], image[carved])
+        self.assertGreater(float(output[found]), float(image[found])*5)
+        # A manual margin is exact and never opens a fringe.
+        manual, manual_mask = moon.detect_moons(image, sensitivity=8, planet_margin=40, max_moons=12)
+        self.assertEqual(manual, [])
+        self.assertTrue(manual_mask[found])
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -139,6 +171,11 @@ class MoonImageMarginTests(unittest.TestCase):
 
     def test_earlier_four_moon_image(self):
         self.check_detections('4moons.png', ((210, 357), (195, 621), (139, 1054), (103, 1744)))
+
+    def test_enceladus_in_ring_glow(self):
+        # Enceladus sits in the glow below the left ring, at the edge of Auto's
+        # glow-following mask; only manual margins of 16 px or less used to keep it.
+        self.check_detections('EnceladusTest.png', ((233, 143), (318, 560), (290, 290)))
 
     def test_saturn_close_and_faint_moons(self):
         margin = self.check_detections('moontest.png', ((160, 620), (214, 528), (264, 694)))
