@@ -48,6 +48,7 @@ class CropImageDialog(QWidget):
         self._data = data
         self._is_grayscale = is_grayscale
         self._syncing = False
+        self._autocrop_result: CropRect | None = None
         max_dim = max(65535, self._img_w * 10, self._img_h * 10)
 
         layout = QVBoxLayout(self)
@@ -173,6 +174,22 @@ class CropImageDialog(QWidget):
             self._offset_y.value(),
         )
 
+    def batch_params(self) -> dict[str, float | bool]:
+        """Settings for a Crop/Expand Image batch step.
+
+        An unchanged Autocrop result is kept as autocrop, so each batch image
+        is cropped around its own object; otherwise the size and offset are.
+        """
+        return {
+            "autocrop": self._autocrop_result == self.crop_rect(),
+            "border_px": float(self._border.value()),
+            "min_brightness_pct": float(self._min_bright.value()),
+            "width": float(self._width.value()),
+            "height": float(self._height.value()),
+            "offset_x": float(self._offset_x.value()),
+            "offset_y": float(self._offset_y.value()),
+        }
+
     def emit_current_rect(self) -> None:
         rect = self.crop_rect()
         self.rect_changed.emit(rect.x, rect.y, rect.width, rect.height)
@@ -226,6 +243,7 @@ class CropImageDialog(QWidget):
             min_brightness_pct=float(self._min_bright.value()),
         )
         self._apply_rect(rect, emit=True)
+        self._autocrop_result = self.crop_rect() if found else None
         if not found:
             QMessageBox.warning(
                 self,

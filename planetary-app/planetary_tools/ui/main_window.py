@@ -30,6 +30,7 @@ from planetary_tools import __version__
 from planetary_tools.core.align import align_channel
 from planetary_tools.core.crop import crop_image
 from planetary_tools.core.document import ImageDocument
+from planetary_tools.core.presets import save_last_params
 from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import UndoManager
@@ -39,6 +40,7 @@ from planetary_tools.io.loader import (
     save_channel,
     save_image,
 )
+from planetary_tools.filters.registry import FILTERS
 from planetary_tools.ui.batch_dialog import BatchDialog
 from planetary_tools.ui.file_dialog import QFileDialog
 from planetary_tools.ui.file_drop import ImageDropTarget
@@ -1098,8 +1100,7 @@ class MainWindow(QMainWindow):
             self._active_filter_dlg = None
 
             if self._filter_accepted:
-                if getattr(dlg, "supports_presets", True):
-                    dlg.save_last_preset()
+                dlg.save_last_preset()
                 result = self._preview.finish(apply=True)
                 if result is not None:
                     as_gray = bool(getattr(dlg, "result_is_grayscale", False))
@@ -1513,6 +1514,11 @@ class MainWindow(QMainWindow):
         self._update_undo_actions()
         self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
 
+    @staticmethod
+    def _remember_batch_params(filter_id: str, params: dict) -> None:
+        """Applied geometry tools have no preset menu; batch steps still start from them."""
+        save_last_params(filter_id, FILTERS[filter_id].default_params, params)
+
     def _run_scale_image(self) -> None:
         if self._document is None:
             return
@@ -1538,6 +1544,7 @@ class MainWindow(QMainWindow):
             self._document.is_grayscale,
             "Scale Image",
         )
+        self._remember_batch_params("scale_image", dlg.batch_params())
         self._document.set_data(result)
         self._canvas.refresh()
         self._update_undo_actions()
@@ -1640,6 +1647,7 @@ class MainWindow(QMainWindow):
             self._document.is_grayscale,
             "Rotate Image",
         )
+        self._remember_batch_params("rotate_image", dlg.batch_params())
         self._document.set_data(result)
         self._canvas.refresh()
         self._update_undo_actions()
@@ -1730,6 +1738,7 @@ class MainWindow(QMainWindow):
                         self._document.is_grayscale,
                         "Crop/Expand Image",
                     )
+                    self._remember_batch_params("crop_image", dlg.batch_params())
                     self._document.set_data(result)
                     self._canvas.refresh()
                     self._update_undo_actions()

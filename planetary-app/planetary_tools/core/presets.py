@@ -86,6 +86,18 @@ def ensure_builtin_presets(
     return presets
 
 
+
+def save_last_params(
+    filter_id: str,
+    default_params: dict[str, Any],
+    params: dict[str, Any],
+) -> None:
+    """Record ``params`` as the "Last" preset, which batch steps start from."""
+    presets = ensure_builtin_presets(filter_id, default_params)
+    presets["Last"] = {**default_params, **deepcopy(params)}
+    save_presets(filter_id, presets)
+
+
 def _register_filter_builtin_presets() -> None:
     from planetary_tools.filters.colour_matrix import (
         COLOUR_MATRIX_SENSOR_NAMES,

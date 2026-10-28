@@ -117,3 +117,7 @@ class RotateImageDialog(QDialog):
 
     def flip_vertical(self) -> bool:
         return self._flip_vertical.isChecked()
+
+    def batch_params(self) -> dict[str, float | bool]:
+        """Settings for a Rotate Image batch step, which has no flips."""
+        return {"angle": self.angle_deg(), "crop_to_original": self.crop_to_original()}

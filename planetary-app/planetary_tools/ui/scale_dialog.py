@@ -75,6 +75,16 @@ class ScaleImageDialog(QDialog):
     def output_size(self) -> tuple[int, int]:
         return self._width.value(), self._height.value()
 
+    def batch_params(self) -> dict[str, float | bool]:
+        """The chosen size as percentages, for a Scale Image batch step."""
+        width, height = self.output_size()
+        return {
+            "percent": float(self._percent.value()),
+            "width_percent": width / self._orig_w * 100.0,
+            "height_percent": height / self._orig_h * 100.0,
+            "maintain_aspect": self._aspect.isChecked(),
+        }
+
     def _on_aspect_toggled(self, _enabled: bool) -> None:
         if self._aspect.isChecked():
             self._sync_from_width()

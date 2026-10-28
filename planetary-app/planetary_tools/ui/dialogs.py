@@ -31,6 +31,7 @@ from planetary_tools.core.brightness import BrightnessInfo, measure_brightness, 
 from planetary_tools.core.presets import (
     ensure_builtin_presets,
     reserved_preset_names,
+    save_last_params,
     save_presets,
 )
 from planetary_tools.filters.colour_matrix import IDENTITY_MATRIX
@@ -420,10 +421,15 @@ class _FilterDialog(QWidget):
         self._set_combo_to("Last")
 
     def save_last_preset(self) -> None:
-        if not self.filter_id or not self.supports_presets:
+        if not self.filter_id:
             return
-        self._presets["Last"] = self.get_params()
-        save_presets(self.filter_id, self._presets)
+        if self.supports_presets:
+            self._presets["Last"] = self.get_params()
+            save_presets(self.filter_id, self._presets)
+        elif FILTERS[self.filter_id].batch_enabled:
+            # No preset menu, but batch steps still start from the last values.
+            fdef = FILTERS[self.filter_id]
+            save_last_params(self.filter_id, fdef.default_params, self.get_params())
 
     def set_input_brightness(
         self,
