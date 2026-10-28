@@ -333,6 +333,11 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._batch_act)
 
         file_menu.addSeparator()
+        self._close_act = QAction("&Close", self)
+        self._close_act.setShortcut(QKeySequence.StandardKey.Close)
+        self._close_act.setToolTip("Close the current image, keeping Planetary Tools open.")
+        self._close_act.triggered.connect(self._close_document)
+        file_menu.addAction(self._close_act)
         quit_act = QAction("&Quit", self)
         quit_act.setShortcut(QKeySequence.StandardKey.Quit)
         quit_act.setToolTip("Close Planetary Tools.")
@@ -626,7 +631,7 @@ class MainWindow(QMainWindow):
     def _update_actions(self) -> None:
         has_doc = self._document is not None
         for act in (
-            self._save_act, self._save_as_act, self._scale_act, self._rotate_act,
+            self._save_act, self._save_as_act, self._close_act, self._scale_act, self._rotate_act,
             self._crop_act, self._caption_act,
             self._sharpen_act, self._denoise_act, self._fft_denoise_act, self._deconv_act,
             self._moon_enhance_act, self._deglow_act, self._merge_detail_act,
@@ -935,6 +940,18 @@ class MainWindow(QMainWindow):
         if clicked == save_as_btn:
             return self._try_save_document_as()
         return False
+
+    def _close_document(self) -> None:
+        if self._guard_filter_dialog("Close", self._close_document):
+            return
+        if self._document is None or not self._confirm_unsaved_changes("before closing"):
+            return
+        self._document = None
+        self._undo.clear()
+        self._canvas.set_document(None)
+        self.setWindowTitle("Planetary Tools")
+        self._status.clearMessage()
+        self._update_actions()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._confirm_unsaved_changes("before closing"):
