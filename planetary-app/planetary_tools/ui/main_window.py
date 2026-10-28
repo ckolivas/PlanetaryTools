@@ -73,7 +73,7 @@ from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
 from planetary_tools.ui.crop_dialog import CropImageDialog
 from planetary_tools.ui.rotate_dialog import RotateImageDialog
 from planetary_tools.ui.scale_dialog import ScaleImageDialog
-from planetary_tools.ui.update_dialog import UpdateCheckDialog
+from planetary_tools.ui.update_dialog import UpdateCheckDialog, check_at_startup, set_check_at_startup
 from planetary_tools.ui.recent_files import (
     add_recent,
     last_open_directory,
@@ -568,6 +568,13 @@ class MainWindow(QMainWindow):
         updates_act.setToolTip("Check GitHub releases for a newer version of Planetary Tools.")
         updates_act.triggered.connect(self._check_for_updates)
         help_menu.addAction(updates_act)
+        startup_updates_act = QAction("Check for Updates at &Startup", self)
+        startup_updates_act.setCheckable(True)
+        startup_updates_act.setChecked(check_at_startup())
+        startup_updates_act.setToolTip("Quietly check GitHub releases when Planetary Tools starts, "
+                                       "showing a notice only when a newer version is available.")
+        startup_updates_act.toggled.connect(set_check_at_startup)
+        help_menu.addAction(startup_updates_act)
         help_menu.setToolTipsVisible(True)
 
         # Keep the existing command groups, sorting by visible labels rather
@@ -595,11 +602,19 @@ class MainWindow(QMainWindow):
 
     def _check_for_updates(self) -> None:
         dialog = self.findChild(UpdateCheckDialog)
-        if dialog is None or not dialog.isVisible():
+        if dialog is not None and not dialog.isVisible():
+            # Replace a pending quiet startup check with the interactive one.
+            dialog.reject()
+            dialog = None
+        if dialog is None:
             dialog = UpdateCheckDialog(self)
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
+
+    def check_for_updates_at_startup(self) -> None:
+        if check_at_startup() and self.findChild(UpdateCheckDialog) is None:
+            UpdateCheckDialog(self, quiet=True)
 
     def _show_about(self) -> None:
         QMessageBox.about(
@@ -1740,6 +1755,7 @@ def run_app(argv: list[str] | None = None) -> int:
     window = MainWindow()
     window.show()
     QTimer.singleShot(0, _close_splash)
+    QTimer.singleShot(0, window.check_for_updates_at_startup)
     if len(argv) > 1 and not argv[1].startswith("-"):
         window._open_path(argv[1])
     return app.exec()

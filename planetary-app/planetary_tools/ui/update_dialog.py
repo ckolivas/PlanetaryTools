@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from PyQt6.QtCore import Qt, QTimer, QUrl, QVersionNumber
+from PyQt6.QtCore import QSettings, Qt, QTimer, QUrl, QVersionNumber
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPushButton, QVBoxLayout
@@ -15,6 +15,19 @@ from planetary_tools import __version__
 RELEASES_URL = "https://github.com/ckolivas/PlanetaryTools/releases"
 LATEST_RELEASE_API = "https://api.github.com/repos/ckolivas/PlanetaryTools/releases/latest"
 CHECK_TIMEOUT_MS = 15_000
+STARTUP_CHECK_KEY = "updates/checkAtStartup"
+
+
+def _settings() -> QSettings:
+    return QSettings()
+
+
+def check_at_startup() -> bool:
+    return bool(_settings().value(STARTUP_CHECK_KEY, True, type=bool))
+
+
+def set_check_at_startup(enabled: bool) -> None:
+    _settings().setValue(STARTUP_CHECK_KEY, bool(enabled))
 
 
 def release_version(payload: bytes, current: str) -> tuple[str, bool]:
@@ -33,8 +46,11 @@ def release_version(payload: bytes, current: str) -> tuple[str, bool]:
 
 
 class UpdateCheckDialog(QDialog):
-    def __init__(self, parent=None) -> None:
+    """Interactive check, or with ``quiet`` a hidden one shown only for a newer release."""
+
+    def __init__(self, parent=None, *, quiet: bool = False) -> None:
         super().__init__(parent)
+        self._quiet = quiet
         self.setWindowTitle("Check for Updates")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.resize(380, 150)
@@ -77,12 +93,15 @@ class UpdateCheckDialog(QDialog):
     def _timeout(self) -> None:
         self._cancel_request()
         self._status.setText("The update check timed out. Please try again later.")
+        if self._quiet:
+            self.reject()
 
     def _complete(self) -> None:
         if self._reply is None:
             return
         self._timer.stop()
         reply, self._reply = self._reply, None
+        newer = False
         try:
             status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
             if status == 404:
@@ -110,6 +129,11 @@ class UpdateCheckDialog(QDialog):
                                          f"Latest GitHub release: {tag}.")
         finally:
             reply.deleteLater()
+            if self._quiet:
+                if newer:
+                    self.show()
+                else:
+                    self.reject()
 
     def _open_release(self) -> None:
         if not QDesktopServices.openUrl(QUrl(self._release_url)):

@@ -1,11 +1,13 @@
 """Update checks compare versions and handle network results without blocking."""
 import json
 import os
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PyQt6.QtCore import QByteArray, QObject, pyqtSignal
+from PyQt6.QtCore import QByteArray, QObject, QSettings, pyqtSignal
 from PyQt6.QtNetwork import QNetworkReply
 from PyQt6.QtWidgets import QApplication
 
@@ -49,6 +51,12 @@ class UpdateCheckTests(unittest.TestCase):
         version = patch.object(updates, '__version__', '0.5.1')
         version.start()
         self.addCleanup(version.stop)
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        settings = patch.object(updates, '_settings',
+                                lambda: QSettings(str(Path(folder.name)/'prefs.ini'), QSettings.Format.IniFormat))
+        settings.start()
+        self.addCleanup(settings.stop)
 
     def test_numeric_versions_and_invalid_releases(self):
         for tag, current, newer in (('v0.5.2', '0.5.1', True), ('v0.10.0', '0.9.9', True),
@@ -64,12 +72,12 @@ class UpdateCheckTests(unittest.TestCase):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 updates.release_version(payload, '0.5.1')
 
-    def dialog(self, reply):
+    def dialog(self, reply, **kwargs):
         manager = patch.object(updates, 'QNetworkAccessManager')
         mocked = manager.start()
         self.addCleanup(manager.stop)
         mocked.return_value.get.return_value = reply
-        dialog = updates.UpdateCheckDialog()
+        dialog = updates.UpdateCheckDialog(**kwargs)
         self.addCleanup(dialog.close)
         self.assertEqual(mocked.return_value.get.call_args.args[0].url().toString(), updates.LATEST_RELEASE_API)
         return dialog
@@ -128,7 +136,7 @@ class UpdateCheckTests(unittest.TestCase):
                 menu = next(a.menu() for a in window.menuBar().actions() if a.text() == '&Help')
                 actions = menu.actions()
                 self.assertEqual([a.text().replace('&', '') for a in actions],
-                                 ['About Planetary Tools', 'Check for Updates…'])
+                                 ['About Planetary Tools', 'Check for Updates…', 'Check for Updates at Startup'])
                 actions[1].trigger()
                 first = window.findChild(updates.UpdateCheckDialog)
                 self.assertTrue(first.isVisible())
@@ -137,6 +145,71 @@ class UpdateCheckTests(unittest.TestCase):
                 self.assertIs(window.findChild(updates.UpdateCheckDialog), first)
                 first.reject()
                 self.assertTrue(reply.aborted)
+            finally:
+                window.close()
+
+    def test_quiet_check_shows_only_for_newer_release(self):
+        cases = [
+            (Reply(), True),
+            (Reply(body=b'{"tag_name": "v0.5.1"}'), False),
+            (Reply(status=404), False),
+            (Reply(status=None, error=QNetworkReply.NetworkError.HostNotFoundError), False),
+            (Reply(body=b'bad json'), False),
+        ]
+        for reply, shown in cases:
+            with self.subTest(shown=shown, status=reply.status):
+                dialog = self.dialog(reply, quiet=True)
+                self.assertFalse(dialog.isVisible())
+                with patch.object(dialog, 'reject', wraps=dialog.reject) as reject:
+                    reply.finished.emit()
+                self.assertEqual(dialog.isVisible(), shown)
+                self.assertEqual(reject.called, not shown)
+                if shown:
+                    self.assertIn('0.5.2 is available', dialog._status.text())
+                    self.assertTrue(dialog._view_release.isEnabled())
+
+    def test_quiet_timeout_closes_silently(self):
+        reply = Reply()
+        dialog = self.dialog(reply, quiet=True)
+        with patch.object(dialog, 'reject', wraps=dialog.reject) as reject:
+            dialog._timer.timeout.emit()
+        self.assertTrue(reply.aborted)
+        self.assertFalse(dialog.isVisible())
+        reject.assert_called()
+
+    def test_startup_setting_menu_toggle_and_manual_check_replaces_quiet_one(self):
+        self.assertTrue(updates.check_at_startup())
+        with patch.object(updates, 'QNetworkAccessManager') as manager:
+            quiet_reply, manual_reply = Reply(), Reply()
+            manager.return_value.get.side_effect = [quiet_reply, manual_reply]
+            window = MainWindow()
+            try:
+                menu = next(a.menu() for a in window.menuBar().actions() if a.text() == '&Help')
+                toggle = next(a for a in menu.actions() if 'Startup' in a.text())
+                self.assertTrue(toggle.isCheckable())
+                self.assertTrue(toggle.isChecked())
+                window.check_for_updates_at_startup()
+                quiet = window.findChild(updates.UpdateCheckDialog)
+                self.assertFalse(quiet.isVisible())
+                window._check_for_updates()
+                self.assertTrue(quiet_reply.aborted)
+                manual = next(d for d in window.findChildren(updates.UpdateCheckDialog) if d.isVisible())
+                self.assertIsNot(manual, quiet)
+                self.assertEqual(manager.return_value.get.call_count, 2)
+                manual.reject()
+                toggle.toggle()
+                self.assertFalse(updates.check_at_startup())
+                manager.return_value.get.reset_mock()
+                fresh = MainWindow()
+                try:
+                    fresh_toggle = next(a for a in next(a.menu() for a in fresh.menuBar().actions()
+                                                        if a.text() == '&Help').actions() if 'Startup' in a.text())
+                    self.assertFalse(fresh_toggle.isChecked())
+                    fresh.check_for_updates_at_startup()
+                    manager.return_value.get.assert_not_called()
+                    self.assertIsNone(fresh.findChild(updates.UpdateCheckDialog))
+                finally:
+                    fresh.close()
             finally:
                 window.close()
 
