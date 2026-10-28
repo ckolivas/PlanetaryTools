@@ -76,6 +76,7 @@ class _RunWorker(QThread):
         back_and_forth: bool,
         mp4_crf: int = 0,
         *,
+        webp_quality: int = 99,
         motion_interpolation: bool = False,
         frame_interval_minutes: float = 1.0,
     ) -> None:
@@ -87,6 +88,7 @@ class _RunWorker(QThread):
         self._gif_quality = gif_quality
         self._back_and_forth = back_and_forth
         self._mp4_crf = mp4_crf
+        self._webp_quality = webp_quality
         self._motion_interpolation = motion_interpolation
         self._frame_interval_minutes = frame_interval_minutes
 
@@ -100,6 +102,7 @@ class _RunWorker(QThread):
                 gif_quality=self._gif_quality,
                 back_and_forth=self._back_and_forth,
                 mp4_crf=self._mp4_crf,
+                webp_quality=self._webp_quality,
                 motion_interpolation=self._motion_interpolation,
                 frame_interval_minutes=self._frame_interval_minutes,
                 on_progress=lambda c, t, m: self.progress.emit(c, t, m),
@@ -268,6 +271,16 @@ class AnimateDialog(QDialog):
             "RGB animation frames, without colour subsampling."
         )
         of.addRow("MP4 constant quality", self._mp4_crf)
+
+        self._webp_quality = QSpinBox()
+        self._webp_quality.setRange(1, 100)
+        self._webp_quality.setValue(99)
+        self._webp_quality.setKeyboardTracking(False)
+        self._webp_quality.setToolTip(
+            "WebP quality: 100 is lossless; lower values are lossy and give "
+            "smaller files. Lossless WebP of noisy sky backgrounds is very large."
+        )
+        of.addRow("WebP quality", self._webp_quality)
 
         self._delay_hint = QLabel("")
         self._delay_hint.setWordWrap(True)
@@ -454,6 +467,7 @@ class AnimateDialog(QDialog):
         gif = self._fmt() == "gif"
         self._gif_quality.setEnabled(gif)
         self._mp4_crf.setEnabled(self._fmt() == "mp4")
+        self._webp_quality.setEnabled(self._fmt() == "webp")
         self._update_delay_hint()
 
     def _update_delay_hint(self) -> None:
@@ -546,6 +560,7 @@ class AnimateDialog(QDialog):
             str(self._gif_quality.currentData()),
             self._back_and_forth.isChecked(),
             self._mp4_crf.value(),
+            webp_quality=self._webp_quality.value(),
             motion_interpolation=self._motion_interpolation.isChecked(),
             frame_interval_minutes=self._frame_interval.value(),
         )

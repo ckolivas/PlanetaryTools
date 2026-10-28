@@ -198,6 +198,7 @@ def encode_frames(
     fmt: str,
     gif_quality: str = "best",
     mp4_crf: int = 0,
+    webp_quality: int = 99,
     back_and_forth: bool = True,
 ) -> AnimationResult:
     """Write already-padded uint8 RGB frames to ``output``."""
@@ -206,6 +207,12 @@ def encode_frames(
     fmt = fmt.lower()
     if fmt not in FORMATS:
         raise ValueError(f"Unknown animation format: {fmt}")
+    if fmt == "webp" and (
+        isinstance(webp_quality, bool)
+        or not isinstance(webp_quality, (int, np.integer))
+        or not 1 <= webp_quality <= 100
+    ):
+        raise ValueError("WebP quality must be an integer from 1 to 100 (lossless).")
     delay = duration_ms(fmt, fps)
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -269,8 +276,9 @@ def encode_frames(
             append_images=pil_rgb[1:],
             duration=delays,
             loop=0,
-            lossless=True,
-            quality=100,
+            # 100 is lossless; lossy 100 is larger and still not exact.
+            lossless=webp_quality == 100,
+            quality=webp_quality,
             method=6,
         )
 
@@ -293,6 +301,7 @@ def write_animation(
     fmt: str,
     gif_quality: str = "best",
     mp4_crf: int = 0,
+    webp_quality: int = 99,
     back_and_forth: bool = True,
     on_progress: ProgressFn | None = None,
     motion_interpolation: bool = False,
@@ -334,6 +343,7 @@ def write_animation(
         fmt=fmt,
         gif_quality=gif_quality,
         mp4_crf=mp4_crf,
+        webp_quality=webp_quality,
         back_and_forth=back_and_forth,
     )
     if on_progress is not None:

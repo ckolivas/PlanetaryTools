@@ -186,7 +186,7 @@ class InterpolationDialogTests(unittest.TestCase):
                     with patch('planetary_tools.ui.animate_dialog._RunWorker') as worker:
                         dialog._run()
                         self.assertEqual(worker.call_args.kwargs,
-                                         {'motion_interpolation': True, 'frame_interval_minutes': 2.0})
+                                         {'webp_quality': 99, 'motion_interpolation': True, 'frame_interval_minutes': 2.0})
                         self.assertFalse(dialog._frame_interval.isEnabled())
                     dialog._worker = None
                     dialog._set_running(False)
