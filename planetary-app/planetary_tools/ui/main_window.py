@@ -300,6 +300,11 @@ class MainWindow(QMainWindow):
         fit_act.triggered.connect(self._canvas.zoom_to_fit)
         bar.addAction(fit_act)
 
+        actual_act = QAction("100%", self)
+        actual_act.setToolTip("Reset the zoom level to 100%.")
+        actual_act.triggered.connect(lambda: self._canvas.set_zoom(1.0))
+        bar.addAction(actual_act)
+
     def _build_menus(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         self._open_act = QAction("&Open…", self)
