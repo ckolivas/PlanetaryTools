@@ -39,6 +39,7 @@ from planetary_tools.batch.pipeline import (
     save_workflow,
 )
 from planetary_tools.core.presets import ensure_builtin_presets
+from planetary_tools.core.undo import AppliedOperation
 from planetary_tools.filters.registry import FILTERS, batch_filters
 from planetary_tools.ui.dialogs import edit_filter_params
 from planetary_tools.ui.file_dialog import QFileDialog
@@ -90,8 +91,14 @@ class _BatchWorker(QThread):
 
 
 class BatchDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        current_operations: list[AppliedOperation] | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._current_operations = list(current_operations or [])
         self.setWindowTitle("Batch Processing")
         self.setMinimumWidth(520)
         self._settings = QSettings()
@@ -203,8 +210,17 @@ class BatchDialog(QDialog):
             "Load a previously saved batch workflow (pipeline and output options)."
         )
         load_wf_btn.clicked.connect(self._load_workflow)
+        self._current_wf_btn = QPushButton("Current workflow")
+        self._current_wf_btn.setToolTip(
+            "Replace the pipeline with the edits applied to the open image, "
+            "in order. Undone edits are left out, and edits with no batch "
+            "equivalent are skipped."
+        )
+        self._current_wf_btn.setEnabled(bool(self._current_operations))
+        self._current_wf_btn.clicked.connect(self._import_current_workflow)
         wf_row.addWidget(save_wf_btn)
         wf_row.addWidget(load_wf_btn)
+        wf_row.addWidget(self._current_wf_btn)
         wf_row.addStretch(1)
         pipe_layout.addLayout(wf_row)
         root.addWidget(pipe_group)
@@ -489,6 +505,42 @@ class BatchDialog(QDialog):
         if workflow.output_dir:
             self._output_dir.setText(workflow.output_dir)
         self._refresh_step_list()
+
+    def _import_current_workflow(self) -> None:
+        steps = [
+            PipelineStep(
+                filter_id=op.filter_id,
+                params={**deepcopy(FILTERS[op.filter_id].default_params), **deepcopy(op.params)},
+            )
+            for op in self._current_operations
+            if op.filter_id is not None
+        ]
+        skipped = [op.label for op in self._current_operations if op.filter_id is None]
+        if not steps:
+            QMessageBox.information(
+                self, "Current workflow",
+                "None of the edits applied to the open image have a batch step:\n"
+                + "\n".join(skipped),
+            )
+            return
+        if self._steps:
+            reply = QMessageBox.question(
+                self, "Current workflow",
+                f"Replace the {len(self._steps)}-step pipeline with the "
+                f"{len(steps)} edits applied to the open image?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self._steps = steps
+        self._refresh_step_list()
+        self._step_list.setCurrentRow(len(self._steps) - 1)
+        if skipped:
+            QMessageBox.information(
+                self, "Current workflow",
+                "These edits have no batch step and were skipped:\n" + "\n".join(skipped),
+            )
 
     def _workflow_file_filter(self) -> str:
         ext = WORKFLOW_EXTENSION.lstrip(".")

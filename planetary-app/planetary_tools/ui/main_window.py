@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Callable
 
@@ -33,7 +34,7 @@ from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.presets import save_last_params
 from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
-from planetary_tools.core.undo import UndoManager
+from planetary_tools.core.undo import AppliedOperation, UndoManager
 # from planetary_tools.filters import oklab_compose, oklab_decompose
 from planetary_tools.io.loader import (
     load_image,
@@ -1101,12 +1102,14 @@ class MainWindow(QMainWindow):
 
             if self._filter_accepted:
                 dlg.save_last_preset()
+                operation = self._applied_operation(label, dlg.filter_id, dlg.get_params())
                 result = self._preview.finish(apply=True)
                 if result is not None:
                     as_gray = bool(getattr(dlg, "result_is_grayscale", False))
                     if as_gray and result.ndim == 3:
                         result = result[..., 0]
-                    self._commit_filter(label, result, grayscale=as_gray or None)
+                    self._commit_filter(label, result, grayscale=as_gray or None,
+                                        operation=operation)
                 else:
                     self._preview.finish(apply=False)
                     self._canvas.refresh()
@@ -1155,6 +1158,7 @@ class MainWindow(QMainWindow):
         result: np.ndarray,
         *,
         grayscale: bool | None = None,
+        operation: AppliedOperation | None = None,
     ) -> None:
         if self._document is None:
             return
@@ -1162,6 +1166,7 @@ class MainWindow(QMainWindow):
             self._document.data,
             self._document.is_grayscale,
             label,
+            operation,
         )
         try:
             self._document.set_data(result, grayscale=grayscale)
@@ -1428,7 +1433,8 @@ class MainWindow(QMainWindow):
     def _run_batch(self) -> None:
         if self._guard_filter_dialog("Batch Processing", self._run_batch):
             return
-        dlg = BatchDialog(self)
+        operations = self._undo.stack.applied_operations() if self._document is not None else []
+        dlg = BatchDialog(self, current_operations=operations)
         dlg.exec()
 
     def _run_field_derotate(self) -> None:
@@ -1515,6 +1521,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
 
     @staticmethod
+    def _applied_operation(label: str, filter_id: str | None, params: dict) -> AppliedOperation:
+        """An undo-history entry, carrying batch settings when the edit has a batch step."""
+        fdef = FILTERS.get(filter_id or "")
+        if fdef is None or not fdef.batch_enabled:
+            return AppliedOperation(label)
+        return AppliedOperation(label, fdef.id, deepcopy(params))
+
+    @staticmethod
     def _remember_batch_params(filter_id: str, params: dict) -> None:
         """Applied geometry tools have no preset menu; batch steps still start from them."""
         save_last_params(filter_id, FILTERS[filter_id].default_params, params)
@@ -1543,6 +1557,7 @@ class MainWindow(QMainWindow):
             self._document.data,
             self._document.is_grayscale,
             "Scale Image",
+            self._applied_operation("Scale Image", "scale_image", dlg.batch_params()),
         )
         self._remember_batch_params("scale_image", dlg.batch_params())
         self._document.set_data(result)
@@ -1642,10 +1657,15 @@ class MainWindow(QMainWindow):
             dlg.deleteLater()
         if result is None:
             return
+        flipped = dlg.flip_horizontal() or dlg.flip_vertical()
         self._undo.record(
             self._document.data,
             self._document.is_grayscale,
             "Rotate Image",
+            # Batch rotation has no flips, so a flipped result cannot be rebuilt.
+            self._applied_operation(
+                "Rotate Image", None if flipped else "rotate_image", dlg.batch_params(),
+            ),
         )
         self._remember_batch_params("rotate_image", dlg.batch_params())
         self._document.set_data(result)
@@ -1737,6 +1757,9 @@ class MainWindow(QMainWindow):
                         self._document.data,
                         self._document.is_grayscale,
                         "Crop/Expand Image",
+                        self._applied_operation(
+                            "Crop/Expand Image", "crop_image", dlg.batch_params(),
+                        ),
                     )
                     self._remember_batch_params("crop_image", dlg.batch_params())
                     self._document.set_data(result)
