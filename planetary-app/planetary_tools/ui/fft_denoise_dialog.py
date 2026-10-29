@@ -1,8 +1,8 @@
 """Spectrum-guided FFT denoise controls and automatic initial settings."""
 import numpy as np
-from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt6.QtWidgets import QCheckBox, QLabel, QPushButton, QSizePolicy, QWidget
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
+from PyQt6.QtWidgets import QLabel, QPushButton, QSizePolicy, QWidget
 
 from planetary_tools.filters.fft_denoise import (
     MAX_FREQUENCY, MIN_START, analyse_spectrum, auto_parameters, transfer,
@@ -106,53 +106,21 @@ class SpectrumGraph(QWidget):
         self.update()
 
 
-class _DifferencePreview(QLabel):
-    """Scale the cached display image on resize without recomputing the filter."""
-    def __init__(self):
-        super().__init__()
-        self._image = QPixmap()
-        self.setMinimumSize(320, 96)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-    def sizeHint(self):
-        return QSize(320, 96)
-
-    def set_image(self, image):
-        self._image = QPixmap.fromImage(image)
-        self._rescale()
-
-    def setText(self, text):
-        self._image = QPixmap()
-        super().setText(text)
-
-    def _rescale(self):
-        if not self._image.isNull():
-            self.setPixmap(self._image.scaled(
-                self.contentsRect().size(), Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            ))
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._rescale()
-
-
 class FftDenoiseDialog(_FilterDialog):
     filter_id = 'fft_denoise'
     supports_presets = True
     supports_clamp = True
+    supports_difference = True
 
     def __init__(self, parent=None):
         self._spectrum = None
         self._auto_selected = False
-        self._last_output = None
         super().__init__('FFT Denoise', parent)
         self.set_help_text('Use after sharpening to reduce amplified noise with a smooth FFT cutoff. '
                            'Start keeps lower frequencies unchanged; Feather is the transition width. '
                            'Negative Curve retains more detail, positive Curve removes more noise. '
                            'Auto estimates a curve from the current image and recalculates for each image in a batch. '
-                           'Inspect fine detail and removed signal before applying, especially tiny moons or stars.')
+                           'Inspect fine detail with Show difference before applying, especially tiny moons or stars.')
 
     def _build_filter_params(self):
         self.graph = SpectrumGraph()
@@ -180,14 +148,6 @@ class FftDenoiseDialog(_FilterDialog):
         self.note = QLabel('Auto estimates a starting point; inspect fine detail.')
         self.note.setWordWrap(True)
         self._form.addRow(self.note)
-        self.show_difference = QCheckBox('Show removed signal')
-        self.show_difference.toggled.connect(self._update_difference)
-        self._form.addRow(self.show_difference)
-        self.difference = _DifferencePreview()
-        self.difference.setToolTip('Amplified signed input minus output: red = removed, cyan = added. '
-                                   'Visible edges indicate detail loss or ringing. Display only; never saved to the image.')
-        self.difference.hide()
-        self._form.addRow(self.difference)
 
     def _refresh_graph(self):
         self.graph.settings = {key: getattr(self, key).value() for key in ('start', 'feather', 'curve')}
@@ -230,31 +190,6 @@ class FftDenoiseDialog(_FilterDialog):
         if self._auto_selected:
             self._auto()
         self._refresh_graph()
-
-    def update_histogram_display(self, data):
-        self._last_output = data
-        self._update_difference()
-
-    def _update_difference(self):
-        self.difference.setVisible(self.show_difference.isChecked())
-        if not self.show_difference.isChecked():
-            return
-        source = getattr(self, '_input_data', None)
-        if source is None or self._last_output is None:
-            self.difference.setText('Enable preview to see removed signal')
-            return
-        # Bound display-only allocations; the canvas retains full resolution.
-        stride = max(1, int(np.ceil(max(source.shape[:2])/640)))
-        delta = source[::stride, ::stride] - self._last_output[::stride, ::stride]
-        if delta.ndim == 3:
-            delta = np.mean(delta[..., :3], axis=2)
-        scale = max(float(np.percentile(np.abs(delta), 99.5)), 1e-8)
-        level = np.clip(delta/scale, -1, 1)
-        rgb = np.stack((np.maximum(level, 0), np.maximum(-level, 0), np.maximum(-level, 0)), axis=-1)
-        rgb = np.ascontiguousarray(rgb*255, dtype=np.uint8)
-        h, w = rgb.shape[:2]
-        img = QImage(rgb.data, w, h, rgb.strides[0], QImage.Format.Format_RGB888).copy()
-        self.difference.set_image(img)
 
     def get_params(self):
         params = super().get_params()

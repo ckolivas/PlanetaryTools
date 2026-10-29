@@ -213,3 +213,27 @@ def array_to_display_rgb(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
     else:
         rgb = linear_to_srgb(data)
     return (np.clip(rgb, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+
+
+def display_srgb(data: np.ndarray) -> np.ndarray:
+    """Linear float array as (H, W, C) sRGB floats in [0, 1], C = 1 for mono planes."""
+    srgb = linear_to_srgb(np.clip(data, 0.0, 1.0))
+    return srgb[..., None] if srgb.ndim == 2 else srgb
+
+
+def difference_display_rgb(original_srgb: np.ndarray, modified: np.ndarray) -> np.ndarray:
+    """8-bit signed difference (modified − original) on mid-grey, as displayed.
+
+    Measured in sRGB so changes in the shadows show as they look on screen.
+    Scaled so the 99.5th percentile of the changed pixels reaches full range;
+    unchanged sky is excluded so localised edits (moons) are not swamped.
+    """
+    delta = display_srgb(modified) - original_srgb
+    stride = max(1, int(np.ceil(max(delta.shape[:2]) / 1024)))
+    sample = np.abs(delta[::stride, ::stride])
+    changed = sample[sample > 1e-5]
+    scale = max(float(np.percentile(changed, 99.5)), 1e-5) if changed.size else 1.0
+    rgb = (np.clip(delta / scale, -1.0, 1.0) * 127.5 + 128.0).astype(np.uint8)
+    if rgb.shape[2] == 1:
+        rgb = np.repeat(rgb, 3, axis=2)
+    return np.ascontiguousarray(rgb[..., :3])

@@ -97,22 +97,15 @@ class ResizableGraphTests(unittest.TestCase):
         self.assertAlmostEqual(x, .55, delta=1/editor.plot_rect().width())
         self.assertAlmostEqual(y, .6, delta=1/editor.plot_rect().height())
 
-    def test_fft_marker_and_removed_signal_follow_resize_without_reanalysis(self):
+    def test_fft_marker_follows_resize_without_reanalysis(self):
         _, dock, panel = self.floating_panel(FftDenoiseDialog)
         source = np.linspace(0, .5, 64*96, dtype=np.float32).reshape(64, 96)
         panel.set_input_brightness(source, True)
-        panel.update_histogram_display(source*.9)
-        panel.show_difference.setChecked(True)
         self.app.processEvents()
-        before = panel.difference.pixmap().size()
         with patch('planetary_tools.ui.fft_denoise_dialog.analyse_spectrum',
                    side_effect=AssertionError('Resize must not reanalyse pixels')):
             dock.resize(dock.width() + 400, dock.height() + 300)
             self.app.processEvents()
-        after = panel.difference.pixmap().size()
-        self.assertGreater(after.width(), before.width())
-        self.assertGreater(after.height(), before.height())
-        self.assertAlmostEqual(after.width()/after.height(), 96/64, delta=.02)
         graph = panel.graph
         for frequency in (-10., 0., 60., 100.):
             self.assertAlmostEqual(graph.position_frequency(graph.frequency_x(frequency)), frequency)
@@ -123,10 +116,6 @@ class ResizableGraphTests(unittest.TestCase):
         QTest.mouseMove(graph, target)
         QTest.mouseRelease(graph, Qt.MouseButton.LeftButton, pos=target)
         self.assertAlmostEqual(panel.start.value(), 67., delta=.2)
-        panel.update_histogram_display(None)
-        dock.resize(dock.width()-100, dock.height()-100)
-        self.app.processEvents()
-        self.assertIn('Enable preview', panel.difference.text())
 
     def test_histogram_hover_bins_use_new_width(self):
         _, dock, panel = self.floating_panel(LevelsDialog)

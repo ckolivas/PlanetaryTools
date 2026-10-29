@@ -156,7 +156,7 @@ class FftDenoiseUiTests(unittest.TestCase):
         self.presets.start()
         self.addCleanup(self.presets.stop)
 
-    def test_auto_preview_params_presets_markers_and_difference(self):
+    def test_auto_preview_params_presets_and_markers(self):
         panel = FftDenoiseDialog()
         self.addCleanup(panel.close)
         panel.show()
@@ -168,13 +168,6 @@ class FftDenoiseUiTests(unittest.TestCase):
         self.assertLess(before['start'], 60)
         self.assertTrue(before['auto'])
         self.assertFalse(any(c.text() == 'Auto for each image' for c in panel.findChildren(QCheckBox)))
-        result = panel.build_preview_func()(image, True)
-        panel.update_histogram_display(result.data)
-        panel.show_difference.setChecked(True)
-        self.assertFalse(panel.difference.pixmap().isNull())
-        panel.update_histogram_display(None)
-        self.assertIn('Enable preview', panel.difference.text())
-        panel.show_difference.setChecked(False)
         self.app.processEvents()
         rect = panel.graph.plot_rect()
         x = int(rect.left()+before['start']/MAX_FREQUENCY*rect.width())

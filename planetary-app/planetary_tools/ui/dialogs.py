@@ -191,6 +191,7 @@ class _FilterDialog(QWidget):
     params_changed = pyqtSignal()
     preview_now = pyqtSignal()
     preview_toggled = pyqtSignal(bool)
+    difference_toggled = pyqtSignal(bool)
     accepted = pyqtSignal()
     rejected = pyqtSignal()
 
@@ -198,6 +199,7 @@ class _FilterDialog(QWidget):
     supports_presets: bool = False
     supports_clamp: bool = False
     supports_channel_readouts: bool = False
+    supports_difference: bool = False
 
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -311,6 +313,19 @@ class _FilterDialog(QWidget):
         # Visibility does not change filter parameters or invalidate its result.
         self._form.addRow(self.preview)
 
+        self.show_difference: QCheckBox | None = None
+        if self.supports_difference:
+            self.show_difference = QCheckBox("Show difference")
+            self.show_difference.setToolTip(
+                "Show the preview minus the original on the canvas: mid-grey is "
+                "unchanged, lighter is brighter, darker is dimmer. Auto-scaled so "
+                "small changes are visible. Display only; never saved to the image."
+            )
+            self.show_difference.setEnabled(self.preview.isChecked())
+            self.preview.toggled.connect(self.show_difference.setEnabled)
+            self.show_difference.toggled.connect(self.difference_toggled.emit)
+            self._form.addRow(self.show_difference)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -329,6 +344,11 @@ class _FilterDialog(QWidget):
         # Minimum, not fixed: with large fonts the content can need more
         # room, and the dock is sized to the dialog's hint when shown.
         self.setMinimumWidth(FILTER_PANEL_WIDTH)
+
+    def difference_shown(self) -> bool:
+        """True when the canvas should show the preview difference."""
+        return (self.show_difference is not None and self.preview.isChecked()
+                and self.show_difference.isChecked())
 
     def set_help_text(self, text: str) -> None:
         """Show a question-mark icon whose hover tooltip holds the help text."""
@@ -627,6 +647,7 @@ class _FilterDialog(QWidget):
 class WaveletSharpenDialog(_FilterDialog):
     filter_id = "wavelet_sharpen"
     supports_presets = True
+    supports_difference = True
     supports_clamp = True
 
     def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
@@ -812,6 +833,7 @@ class WaveletSharpenDialog(_FilterDialog):
 class WaveletDenoiseDialog(_FilterDialog):
     filter_id = "wavelet_denoise"
     supports_presets = True
+    supports_difference = True
     supports_clamp = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -848,6 +870,7 @@ class WaveletDenoiseDialog(_FilterDialog):
 class MoonEnhanceDialog(_FilterDialog):
     filter_id = "moon_enhance"
     supports_presets = True
+    supports_difference = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Moon Enhance", parent)
@@ -1049,6 +1072,7 @@ class MoonEnhanceDialog(_FilterDialog):
 class AdaptiveDeconvDialog(_FilterDialog):
     filter_id = "adaptive_deconv"
     supports_presets = True
+    supports_difference = True
     supports_clamp = True
 
     def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
@@ -1213,6 +1237,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
 class WienerDeconvDialog(_FilterDialog):
     filter_id = "wiener_deconv"
     supports_presets = True
+    supports_difference = True
     supports_clamp = True
 
     def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
@@ -1269,6 +1294,7 @@ class WienerDeconvDialog(_FilterDialog):
 class DeglowDialog(_FilterDialog):
     filter_id = "deglow"
     supports_presets = True
+    supports_difference = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Deglow", parent)

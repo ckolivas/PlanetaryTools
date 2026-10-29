@@ -72,7 +72,9 @@ from planetary_tools.ui.dialogs import (
     WienerDeconvDialog,
     _FilterDialog,
 )
-from planetary_tools.ui.preview import PreviewController, array_to_display_rgb
+from planetary_tools.ui.preview import (
+    PreviewController, array_to_display_rgb, difference_display_rgb, display_srgb,
+)
 from planetary_tools.ui.crop_dialog import CropImageDialog
 from planetary_tools.ui.rotate_dialog import RotateImageDialog
 from planetary_tools.ui.scale_dialog import ScaleImageDialog
@@ -237,6 +239,8 @@ class MainWindow(QMainWindow):
 
         self._document: ImageDocument | None = None
         self._active_filter_dlg: _FilterDialog | None = None
+        # (original array, its sRGB) for Show difference, reused across previews.
+        self._difference_base: tuple[np.ndarray, np.ndarray] | None = None
         self._filter_dialog_open = False
         self._undo = UndoManager(on_change=self._update_undo_actions)
         self._preview = PreviewController(parent=self)
@@ -678,6 +682,10 @@ class MainWindow(QMainWindow):
             return
         if self._preview.is_active:
             data = self._preview.display_data()
+            rgb = self._difference_rgb(data)
+            if rgb is not None:
+                self._canvas.show_rgb_uint8(rgb)
+                return
             if data is not None:
                 # A coloured caption can turn a mono preview into RGB before
                 # the document's colour mode changes on Apply.
@@ -685,6 +693,17 @@ class MainWindow(QMainWindow):
                 self._canvas.show_rgb_uint8(rgb)
                 return
         self._canvas.refresh()
+
+    def _difference_rgb(self, data: np.ndarray | None) -> np.ndarray | None:
+        """Show-difference display of a filter preview, or None to show it as is."""
+        dlg = self._active_filter_dlg
+        original = self._preview.original_data()
+        if (dlg is None or not dlg.difference_shown() or data is None
+                or original is None or data is original or data.shape != original.shape):
+            return None
+        if self._difference_base is None or self._difference_base[0] is not original:
+            self._difference_base = (original, display_srgb(original))
+        return difference_display_rgb(self._difference_base[1], data)
 
     def _sync_zoom_combo(self, zoom: float) -> None:
         pct = f"{int(round(zoom * 100))}%"
@@ -1072,6 +1091,7 @@ class MainWindow(QMainWindow):
             dlg.params_changed.connect(self._on_dialog_params_changed)
             dlg.preview_now.connect(self._preview.update_now)
             dlg.preview_toggled.connect(self._preview.set_preview_enabled)
+            dlg.difference_toggled.connect(self._refresh_canvas_display)
             self._preview.preview_updated.connect(self._update_dialog_brightness)
             self._filter_dock.closed.connect(self._on_filter_dock_closed)
 
@@ -1099,6 +1119,7 @@ class MainWindow(QMainWindow):
             dlg.params_changed.disconnect(self._on_dialog_params_changed)
             dlg.preview_now.disconnect(self._preview.update_now)
             dlg.preview_toggled.disconnect(self._preview.set_preview_enabled)
+            dlg.difference_toggled.disconnect(self._refresh_canvas_display)
             self._preview.preview_updated.disconnect(self._update_dialog_brightness)
             self._filter_dock.closed.disconnect(self._on_filter_dock_closed)
             dlg.accepted.disconnect(on_accept)
@@ -1125,6 +1146,7 @@ class MainWindow(QMainWindow):
             self._clear_filter_panel()
             self._filter_dock.hide()
             self._filter_dialog_open = False
+            self._difference_base = None
 
     def _update_dialog_brightness(self) -> None:
         dlg = getattr(self, "_active_filter_dlg", None)
