@@ -40,7 +40,8 @@ The standalone binaries include the Python runtime and application dependencies.
 MP4 export and motion interpolation use bundled FFmpeg libraries through PyAV;
 a separate FFmpeg executable is not required.
 
-The manual covers every tool with screenshots, including the
+The manual covers every tool with screenshots, including a
+[suggested processing order](docs/manual.md#a-practical-processing-sequence) and the
 [author's suggested sharpening workflow](docs/manual.md#authors-sharpening-workflow)
 for one-shot colour images.
 

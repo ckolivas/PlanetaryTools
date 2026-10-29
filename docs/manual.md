@@ -2,7 +2,7 @@
 
 [Project overview and downloads](../README.md) · [PDF edition](../Planetary-Tools-Manual.pdf) · [Development guide](development.md)
 
-Revised **19 October 2026**. Covers application build **8f6796b**, labelled **1.2.1**, including development features added after the published 1.2.1 release. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
+Revised **29 October 2026**. Covers application build **0d03d55**, labelled **1.4.0**. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
 
 ## Contents
 
@@ -50,7 +50,7 @@ Planetary Tools (PT) processes already-stacked planetary images. Open a still im
 ### How to use
 
 1. Open an image with File > Open. A colour image enables the RGB tools; some controls are unavailable for grayscale images.
-2. Inspect the planet at View > Actual Size (100%). Use Zoom In/Out or Ctrl + mouse wheel to change magnification. Ordinary scrolling moves around a larger image.
+2. Inspect the planet at 100% with the toolbar's 100% button or View > Actual Size (100%); Fit shows the whole image. Use the Zoom selector, Zoom In/Out or Ctrl + mouse wheel to change magnification. Ordinary scrolling moves around a larger image.
 3. Choose a processing tool from Enhance or Colours. Its controls appear in the filter dock while the canvas remains visible.
 4. Apply changes with OK, or Cancel to return to the image as it was when the tool opened.
 
@@ -84,7 +84,7 @@ You can drop one image from your file manager onto the main window to open it. P
 
 Drag rows within the Batch, Derotate/Align and Animate file lists to change their order. The alignment reference stays attached to the same image. Animate uses capture-time ordering instead when motion interpolation is enabled. File drops and reordering are unavailable while a batch, alignment or animation job is running.
 
-**File > Open / Open Recent / Save / Save As**
+**File > Open / Open Recent / Save / Save As / Close**
 
 PT remembers file-dialog locations and the last selected output format. Save As starts in the last directory used to open an image, with the current image name, and adjusts its extension to the selected format. RGB Decompose also starts in the last open directory; Animate uses it when no output path is already entered. Batch keeps its own input/output directory choices.
 
@@ -95,6 +95,7 @@ PT remembers file-dialog locations and the last selected output format. Save As 
 1. Open a file, or choose it from Open Recent. In the file picker, use Favourites on the left and Recent directories below the separator.
 2. Filter by an image type or All Images. All Files reveals every file; it does not make an unsupported format readable.
 3. Choose Save As for a new output copy. Select the format/bit depth, check the destination and name, then save. Save writes to the current image path.
+4. Choose File > Close to unload the image and clear its history without quitting. PT asks first if there are unsaved changes, and asks you to finish or cancel an open tool.
 
 ### Output choices
 
@@ -123,16 +124,21 @@ Most filter docks share preview, input/output readouts and preset controls. Trea
 ### How to use
 
 1. Leave Preview on canvas enabled while adjusting the tool. Turn it off and on to compare against the image as it was when the tool opened.
-2. Choose Default to start from the built-in settings, Last to recall the last accepted settings, or a named preset. Save creates or updates a reusable preset; reserved presets cannot be deleted.
-3. Click OK to apply the current settings. Cancel discards the tool session. Turning preview off does not disable the operation when you click OK.
+2. In the Enhance tools (except Merge Wavelet Detail), enable Show difference to replace the canvas view with the preview minus the original. It is available only while Preview on canvas is enabled.
+3. Choose Default to start from the built-in settings, Last to recall the last accepted settings, or a named preset. Save creates or updates a reusable preset; reserved presets cannot be deleted.
+4. Click OK to apply the current settings. Cancel discards the tool session. Turning preview off does not disable the operation when you click OK.
 
 ### Input and output
 
 Minimum and maximum levels are shown as percentages. Enhance tools also show brightness increase and a noise score. Output statistics are measured before clipping; they can show values below 0% or above 100%.
 
+### Show difference
+
+Mid-grey is unchanged; lighter areas were brightened and darker areas dimmed. Each colour channel is compared separately, in the brightness values shown on screen. The difference is auto-scaled so that small changes are visible, so its strength is not comparable between settings. Use it to see where a tool acts: recognisable planetary edges in a denoise difference can indicate lost detail, and halos in a sharpening difference indicate ringing. The view is display only and is never saved; OK applies the normal result.
+
 ### Clamping
 
-Clamp to 100% proportionally scales RGB when highlights exceed 100%. Its companion Clamp to 0% also adjusts the black point during that scaling. These controls appear only where applicable.
+Clamp to 100% proportionally scales RGB when highlights exceed 100%. Its companion Clamp to 0% also adjusts the black point during that scaling. These controls appear only where applicable; Moon Enhance has none because it never pushes a channel above 100%.
 
 ### Noise score
 
@@ -361,7 +367,7 @@ Use this mainly after sharpening. A smooth radial frequency filter suppresses hi
 
 1. Press Auto to estimate Start, Feather width and Curve from the current image. Auto considers negative Start values as well as nonnegative ones.
 2. Fine-tune the numbers or drag the green Start and red feather-end markers. Any manual adjustment switches the saved settings to manual mode.
-3. Enable Show removed signal to inspect the amplified difference. Strong recognizable edges in that view can indicate lost detail or ringing.
+3. Enable Show difference to inspect what the filter changes. Strong recognisable edges in that view can indicate lost detail or ringing.
 4. Toggle Preview on canvas, inspect the planet and small moons, then accept or revise the settings.
 
 ### Frequency units
@@ -391,9 +397,13 @@ Find and brighten compact moons outside the planet and ring protection area whil
 ### How to use
 
 1. Start with Planet margin Auto enabled. Auto follows the local glow around the disk and rings; the displayed number is its largest padding, rather than a uniform margin. If an inner moon is excluded, disable Auto and reduce the margin cautiously; manual values start at 1 pixel.
-2. Adjust Sensitivity to detect the desired moons. Lower values admit fainter candidates but also more noise. Limit Max moons if false detections appear.
+2. Set Max moons to the number of moons expected in the frame; see Max moons below. Adjust Sensitivity to detect the desired moons. Lower values admit fainter candidates but also more noise.
 3. Set Max moon brightness. Enable Retain relative brightness to apply a common boost based on the brightest detected moon. With that enabled, Pseudo-relative brightness gives faint moons a stronger lift while keeping their brightness order: a moon at 1% of the brightest moon targets 10% instead. The maximum gain still limits very faint sources. Leave this off for strict brightness ratios.
-4. Adjust Radius scale if the brightening footprint is too tight or too broad, then compare the result at 100% zoom.
+4. Adjust Radius scale if the brightening footprint is too tight or too broad, then compare the result at 100% zoom. Show difference highlights exactly which spots were brightened.
+
+### Max moons
+
+Max moons keeps at most this many detections, strongest first. Limit it to the number of moons you expect in the frame rather than leaving it high: any extra detections are noise, hot pixels or glow and will be brightened as if they were moons. Confirm which moons are present before choosing the number, using a tool such as WinJUPOS for the capture time and/or a temporary Levels adjustment. In Levels, disable Clamp to 100%, lower Input maximum or raise Gamma until faint moons become visible, note their positions, then Cancel. If a real moon is missing while Max moons matches the expected count, a stronger false detection may have displaced it; raise Sensitivity or adjust the planet margin.
 
 ### Relative brightness
 
@@ -401,11 +411,11 @@ With Retain relative brightness off, each moon is boosted independently toward M
 
 ### Limits
 
-Moons already brighter than the target are not dimmed. Very faint detections can hit the gain limit. A real moon may be only one pixel across; inspect individual detections rather than expecting a large disk.
+Moons already brighter than the target are not dimmed. Very faint detections can hit the gain limit. The boost is also capped so that no colour channel exceeds 100%, which keeps each moon's hue; Moon Enhance therefore has no clamp options. A real moon may be only one pixel across; inspect individual detections rather than expecting a large disk. Strong moons trailed during a derotated stack are kept despite their elongated shape, and peaks at the image border are ignored.
 
 ### Protection margin
 
-Auto follows the non-circular disk and ring outline, including Saturn's rings, and estimates the local glow outside it. Its reported margin is the largest local padding, not a circle or a uniform gap around the planet. In manual mode, a larger margin protects more halo and ring surroundings but may exclude a nearby moon. A smaller one can expose planetary glow to detection.
+Auto follows the non-circular disk and ring outline, including Saturn's rings, and estimates the local glow outside it. Its reported margin is the largest local padding, not a circle or a uniform gap around the planet. Compact moons in the outer part of that glow, such as Enceladus close to Saturn's rings, are still detected. In manual mode, a larger margin protects more halo and ring surroundings but may exclude a nearby moon. A smaller one can expose planetary glow to detection.
 
 [Back to contents](#contents)
 
@@ -842,6 +852,8 @@ Frame interval is observation time between generated frames. Frame rate is playb
 
 ### Output quality
 
+WebP quality defaults to 99, which looks close to lossless while keeping files small; 100 is lossless and much larger. Lower values reduce quality and size further. Some websites re-encode uploaded animations, which can change how they appear.
+
 MP4 CRF 0 is lossless for the converted 8-bit RGB animation frames; higher values reduce quality and size. It does not retain the original 16/32-bit precision. Playback needs H.264 RGB support. GIF has its own quality presets; bundled FFmpeg handles MP4 and interpolation.
 
 [Back to contents](#contents)
@@ -859,9 +871,13 @@ Apply an ordered pipeline to many images and write processed copies. Batch runs 
 ### How to use
 
 1. Add files from any folders or Add folder. Set Include subfolders as needed and review the displayed input list. Remove unwanted files.
-2. Choose a Filter and Preset, then Add it to the pipeline. Edit changes its parameters; Up/Down changes processing order; Remove deletes a step.
+2. Choose a Filter and Preset, then Add it to the pipeline. Edit changes its parameters; Up/Down changes processing order; Remove deletes a step. Alternatively, Current workflow fills the pipeline with the edits applied to the open image, in order.
 3. Place FFT Denoise after sharpening. Choose Auto in its batch editor, or use an Auto preset, to recalculate the denoise curve for every image after earlier steps.
 4. Set output folder, filename suffix, depth and optional Preserve subfolder structure. Save workflow to reuse the pipeline and output options, then Run batch.
+
+### Current workflow
+
+Process one image interactively, then click Current workflow to repeat the same steps on the batch with the same settings. It follows Undo and Redo, so undone edits are left out. Edits without a batch filter, such as Caption, Merge Wavelet Detail or flipped rotations, are skipped and listed. PT asks before replacing existing pipeline steps. FFT Denoise applied with Auto stays in Auto mode, recalculating for each image.
 
 ### Workflows and presets
 
@@ -877,7 +893,7 @@ First run a small representative subset and inspect sharp, soft and noisy frames
 
 ### Remembered choices
 
-Input/output directories and output-depth preferences persist. The available pipeline filters are listed in the Filter selector; not every interactive menu command is a batch filter.
+Input/output directories and output-depth preferences persist; the output folder picker starts in the last input directory. The Last preset of every batch filter holds the settings most recently applied interactively, including Scale, Rotate and Crop, so new steps start from them. A crop made with Autocrop is repeated as an Autocrop for each image. The available pipeline filters are listed in the Filter selector; not every interactive menu command is a batch filter.
 
 [Back to contents](#contents)
 
@@ -889,7 +905,7 @@ Input/output directories and output-depth preferences persist. The available pip
 
 Use view controls to inspect pixels and Help to identify the running version or check for a newer published release.
 
-<img src="images/about.png" alt="About Planetary Tools showing version 1.2.1" width="400">
+<img src="images/about.png" alt="About Planetary Tools showing version 1.4.0" width="400">
 
 <img src="images/updates.png" alt="Update check displaying a network connection error" width="550">
 
@@ -897,20 +913,23 @@ Use view controls to inspect pixels and Help to identify the running version or 
 
 <img src="images/menu_view.png" alt="View menu with actual size and zoom commands" width="320">
 
+<img src="images/menu_help.png" alt="Help menu with the startup update check enabled" width="320">
+
 ### How to use
 
-1. Use View > Actual Size (100%) for one image pixel per canvas pixel. Zoom In and Zoom Out are display changes and do not resize the image.
+1. Use the toolbar's 100% button or View > Actual Size (100%) for one image pixel per canvas pixel, and Fit to see the whole image. Zoom In and Zoom Out are display changes and do not resize the image.
 2. Open Help > About Planetary Tools to see the version and author information.
 3. Choose Help > Check for Updates to query GitHub releases. If a newer version is found, View Release opens its download page.
-4. If checking fails, check network access and try again later. A failed request does not establish that the installed version is current.
+4. Check for Updates at Startup, enabled by default, checks quietly each time PT starts and shows the update window only when a newer release is available. Untick it to stop the automatic check.
+5. If checking fails, check network access and try again later. A failed request does not establish that the installed version is current.
 
 ### Manual build identification
 
-This manual covers application build 8f6796b, labelled 1.2.1. It includes subsequent development changes such as drag-and-drop, resizable floating panels with remembered sizes, Deglow blackpoint compensation, percentage-based Curves and Caption. The version label alone does not identify all development changes; a published 1.2.1 binary may not include these additions.
+This manual covers application build 0d03d55, labelled 1.4.0. Changes since the 1.2.1 manual include Show difference in the Enhance tools, the Moon Enhance gain cap and improved detection, WebP quality, batch Current workflow and remembered Last settings, File > Close, the 100% zoom button and the startup update check. Development builds can include changes not yet in a published release.
 
 ### Updating
 
-The check opens release information; it does not silently replace the executable. Download the appropriate binary for your operating system and keep your images and presets.
+Neither check silently replaces the executable. Download the appropriate binary for your operating system and keep your images and presets.
 
 ### Dock layout
 
@@ -924,20 +943,34 @@ See [The PT workspace](#the-pt-workspace) for undocking, resizing, remembered pa
 
 **Workflow and troubleshooting**
 
-Use this sequence as a starting structure, and compare each change at useful image scale. The final section below gives the author's usual sharpening workflow for one-shot colour images.
+Use this sequence as a starting structure, and compare each change at useful image scale. The final section below gives the author's usual sharpening settings for one-shot colour images.
 
 <img src="images/crop_canvas.png" alt="A practical processing sequence interface" width="760">
 
 ### How to use
 
 1. Open a stacked image and save a working copy. Crop or orient it as required, preserving faint objects you want to keep.
-2. Correct channel misregistration with Align RGB if needed. Apply restrained Wavelet Sharpen or Adaptive Deconvolution.
-3. Use FFT Denoise after sharpening, or try Wavelet Denoise. Inspect the limb, ring edges, belts and tiny moons before accepting.
-4. Refine Levels/Curves, colour and saturation. Use Deglow and Moon Enhance when appropriate, then add a Caption if desired and export at the needed precision.
+2. Correct channel misregistration with Align RGB if needed.
+3. Process the image in the suggested workflow order below, skipping steps the capture does not need. Inspect the limb, ring edges, belts and tiny moons before accepting each step.
+4. Add a Caption if desired and export at the needed precision. To apply the same steps to other images, use Current workflow in Batch Processing.
+
+### Suggested workflow order
+
+1. Wavelet Sharpen.
+2. Adaptive Deconvolution.
+3. Moon Enhance.
+4. FFT Denoise or Wavelet Denoise.
+5. Deglow.
+6. Colour Correction Matrix, using the preset for your sensor.
+7. Levels or Curves.
+8. Saturation & Vibrance.
+9. Stretch Contrast OKLab.
+
+Sharpening comes first, so that denoising can remove the noise it amplifies. Colour and tonal adjustments follow once the detail is final, and Stretch Contrast sets the final brightness.
 
 ### Ringing or soft detail
 
-Reduce sharpening, revise the denoise Start/Feather/Curve, and compare the removed-signal view. Do not chase the lowest noise score.
+Reduce sharpening, revise the denoise Start/Feather/Curve, and compare the Show difference view. Do not chase the lowest noise score.
 
 ### Misalignment
 
@@ -945,11 +978,11 @@ Try a sharper reference, the default 25% min/max brightness mask, and shift-only
 
 ### Missing moon or clipped highlight
 
-Check crop bounds, Moon Enhance margin and sensitivity, and tone/clamp settings. Use Undo to locate the operation that caused the change.
+Check crop bounds, Moon Enhance margin, sensitivity and Max moons, and tone/clamp settings. Use Undo to locate the operation that caused the change.
 
 ### Source and revision
 
-Revised 19 October 2026 for application build 8f6796b. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
+Revised 29 October 2026 for application build 0d03d55. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
 
 [Back to contents](#contents)
 
