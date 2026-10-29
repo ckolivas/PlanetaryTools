@@ -97,6 +97,27 @@ class MoonAutoMarginTests(unittest.TestCase):
         )
         self.assertEqual([(d.y, d.x) for d in detections], [(60, 60)])
 
+    def test_globe_split_off_by_ring_shadow_is_still_planet(self):
+        y, x = np.indices((384, 512))
+        disk = (x-256)**2 + (y-192)**2 < 70**2
+        rings = ((x-256)/160)**2 + ((y-192)/15)**2 < 1
+        image = np.where(disk, .6, 0.).astype(np.float32)
+        image[rings] = .35
+        # The ring shadow cuts the globe below the rings off from the rest.
+        shadow = ((x-256)/160)**2 + ((y-192)/28)**2 < 1
+        image[disk & shadow & ~rings & (y > 192)] = .005
+        image = ndimage.gaussian_filter(image, 2)
+        image += np.random.default_rng(3).normal(2e-4, 2e-5, image.shape).astype(np.float32)
+        image[300, 425] += .004
+        seed, _ = moon._planet_seed(image, moon.DEFAULT_PLANET_FLOOR)
+        self.assertTrue(seed[255, 256])
+        for margin in (0, 20):
+            detections, exclusion = moon.detect_moons(
+                image, sensitivity=8, planet_margin=margin, max_moons=1,
+            )
+            self.assertEqual([(d.y, d.x) for d in detections], [(300, 425)])
+            self.assertTrue(exclusion[263, 256])
+
     def test_compact_moon_in_glow_fringe_kept_but_broad_knot_rejected(self):
         y, x = np.indices((384, 512))
         disk = ((x-256)**2 + (y-192)**2 < 70**2).astype(np.float32)
@@ -176,6 +197,18 @@ class MoonImageMarginTests(unittest.TestCase):
         # Enceladus sits in the glow below the left ring, at the edge of Auto's
         # glow-following mask; only manual margins of 16 px or less used to keep it.
         self.check_detections('EnceladusTest.png', ((233, 143), (318, 560), (290, 290)))
+
+    def test_globe_below_ring_shadow_is_not_a_moon(self):
+        # The ring shadow splits the lower globe from the rings; its limb was
+        # detected ahead of the real moon, which needed Max moons of 2.
+        self.check_detections('1moon.png', ((172, 627),))
+        path = ROOT / '1moon.png'
+        from planetary_tools.io.loader import load_image
+        doc = load_image(path, pin_noise=False)
+        lum = moon._luminance(doc.data, doc.is_grayscale)
+        for margin in (0, 40, 60):
+            detections, _ = moon.detect_moons(lum, sensitivity=8, planet_margin=margin, max_moons=12)
+            self.assertEqual([(d.y, d.x) for d in detections], [(172, 627)])
 
     def test_saturn_close_and_faint_moons(self):
         margin = self.check_detections('moontest.png', ((160, 620), (214, 528), (264, 694)))

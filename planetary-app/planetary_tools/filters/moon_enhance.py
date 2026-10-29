@@ -9,7 +9,8 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
 
 1. Planet mask: seed at ``planet_floor × L.max()`` (the max, not a percentile —
    on a wide field p99 of luminance is sky), keep the largest connected
-   component, and exclude everything within ``margin`` px of it (Euclidean
+   component plus any large piece split from it by a dark band (the ring
+   shadow), and exclude everything within ``margin`` px of it (Euclidean
    distance transform). Auto follows the connected disk/ring glow locally,
    with a small safety pad and a size-based limit (half the equivalent radius,
    min 20 px), rather than spreading the widest halo around the whole planet.
@@ -94,6 +95,11 @@ _MIN_MASK_SIGMA = 1.0
 DEFAULT_MAX_GAIN = 300.0
 
 _MIN_PLANET_AREA = 16
+# A dark band can split the seed: Saturn's ring shadow cuts the globe below the
+# rings off from the rings (1moon.png, 32% of the largest piece), and its limb
+# was then detected as moons. Keep every piece this large relative to the
+# largest; even Ganymede is ~0.15% of Jupiter's disk area.
+_PLANET_PIECE_FRAC = 0.05
 
 
 @dataclass(frozen=True)
@@ -121,7 +127,7 @@ def _resample(arr: np.ndarray, width: int, height: int) -> np.ndarray:
 def _planet_seed(
     lum: np.ndarray, planet_floor: float
 ) -> tuple[np.ndarray, float]:
-    """Largest bright connected component and its equivalent-area radius."""
+    """Bright planet components and their combined equivalent-area radius."""
     empty = np.zeros(lum.shape, dtype=bool)
     peak = float(lum.max())
     if peak <= 0.0:
@@ -130,8 +136,9 @@ def _planet_seed(
     labels, count = ndimage.label(seed)
     if count == 0:
         return empty, 0.0
-    sizes = ndimage.sum(seed, labels, range(1, count + 1))
-    planet = labels == (int(np.argmax(sizes)) + 1)
+    sizes = np.asarray(ndimage.sum(seed, labels, range(1, count + 1)))
+    keep = np.flatnonzero(sizes >= _PLANET_PIECE_FRAC * sizes.max()) + 1
+    planet = np.isin(labels, keep)
     area = float(planet.sum())
     if area < _MIN_PLANET_AREA:
         return empty, 0.0
