@@ -644,7 +644,43 @@ class _FilterDialog(QWidget):
         self.rejected.emit()
 
 
-class WaveletSharpenDialog(_FilterDialog):
+class _AutoSearchMixin:
+    """An Auto button that stays pressed while its search result is unaltered.
+
+    While pressed, ``auto`` is saved with the params, so Last values, presets
+    and the Current workflow give batch steps that search each image. Editing
+    any amount, option or target releases it. Loading params with ``auto``
+    searches the current image again, like FFT Denoise's Auto.
+    """
+
+    _auto_selected = False
+
+    def _init_auto_button(self, controls) -> None:
+        self.auto_apply.setCheckable(True)
+        # The clicked signal's checked argument would be taken as ``loaded``.
+        self.auto_apply.clicked.connect(lambda: self._run_auto_search())
+        for control in controls:
+            signal = control.toggled if isinstance(control, QCheckBox) else control.valueChanged
+            signal.connect(lambda *_: self._set_auto_selected(False))
+
+    def _set_auto_selected(self, selected: bool) -> None:
+        self._auto_selected = selected
+        self.auto_apply.blockSignals(True)
+        self.auto_apply.setChecked(selected)
+        self.auto_apply.blockSignals(False)
+
+    def _restore_auto(self, params: dict[str, Any]) -> None:
+        self._set_auto_selected(bool(params.get("auto", False)))
+        if self._auto_selected and getattr(self, "_input_data", None) is not None:
+            self._run_auto_search(loaded=True)
+
+    def set_input_brightness(self, data, is_grayscale, **kwargs) -> None:
+        super().set_input_brightness(data, is_grayscale, **kwargs)
+        if self._auto_selected:
+            self._run_auto_search(loaded=True)
+
+
+class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
     filter_id = "wavelet_sharpen"
     supports_presets = True
     supports_difference = True
@@ -684,9 +720,9 @@ class WaveletSharpenDialog(_FilterDialog):
         self.auto_apply = QPushButton("Auto")
         self.auto_apply.setToolTip(
             "Search fine/medium/coarse to meet the target noise and contrast "
-            "without exceeding either."
+            "without exceeding either. Stays pressed until a setting is changed; "
+            "while pressed, batch steps search each image."
         )
-        self.auto_apply.clicked.connect(self._run_auto_search)
         auto_layout.addWidget(self.auto_apply)
         auto_layout.addStretch(1)
         self._form.addRow(auto_row)
@@ -710,6 +746,10 @@ class WaveletSharpenDialog(_FilterDialog):
             "Target brightness increase (percent), matched without going over."
         )
         self._form.addRow("Target contrast", self.target_contrast)
+        self._init_auto_button((
+            self.fine, self.medium, self.coarse, self.chunky, self.luminance,
+            self.target_noise, self.target_contrast,
+        ))
 
     def _set_amount_spins(
         self, fine: float, medium: float, coarse: float, chunky: float
@@ -725,7 +765,11 @@ class WaveletSharpenDialog(_FilterDialog):
             spin.setValue(value)
             spin.blockSignals(False)
 
-    def _run_auto_search(self) -> None:
+    def _run_auto_search(self, loaded: bool = False) -> None:
+        # Clicking toggled the button; it is pressed only by a completed search.
+        # Loaded amounts came from another image, so a cancel releases Auto.
+        prior_auto = self._auto_selected and not loaded
+        self._set_auto_selected(prior_auto)
         if self._auto_running:
             return
         data = getattr(self, "_input_data", None)
@@ -780,13 +824,16 @@ class WaveletSharpenDialog(_FilterDialog):
             self._set_amount_spins(
                 result.fine, result.medium, result.coarse, result.chunky
             )
+            self._set_auto_selected(True)
         except _Cancelled:
             self._set_amount_spins(*prior)
         finally:
             self._auto_running = False
             self.auto_apply.setEnabled(True)
             progress_dlg.close()
-        self.params_changed.emit()
+        # A load's caller updates the preview itself.
+        if not loaded:
+            self.params_changed.emit()
 
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
@@ -798,6 +845,7 @@ class WaveletSharpenDialog(_FilterDialog):
             "luminance": self.luminance.isChecked(),
             "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
+            "auto": self._auto_selected,
         })
         return p
 
@@ -828,6 +876,7 @@ class WaveletSharpenDialog(_FilterDialog):
         for spin in spins:
             spin.blockSignals(False)
         self.luminance.blockSignals(False)
+        self._restore_auto(params)
 
 
 class WaveletDenoiseDialog(_FilterDialog):
@@ -1069,7 +1118,7 @@ class MoonEnhanceDialog(_FilterDialog):
             self.planet_margin.blockSignals(False)
 
 
-class AdaptiveDeconvDialog(_FilterDialog):
+class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
     filter_id = "adaptive_deconv"
     supports_presets = True
     supports_difference = True
@@ -1116,9 +1165,9 @@ class AdaptiveDeconvDialog(_FilterDialog):
         self.auto_apply = QPushButton("Auto")
         self.auto_apply.setToolTip(
             "Binary-search amount to meet the target noise and contrast "
-            "without exceeding either."
+            "without exceeding either. Stays pressed until a setting is changed; "
+            "while pressed, batch steps search each image."
         )
-        self.auto_apply.clicked.connect(self._run_auto_search)
         auto_layout.addWidget(self.auto_apply)
         auto_layout.addStretch(1)
         self._form.addRow(auto_row)
@@ -1142,13 +1191,21 @@ class AdaptiveDeconvDialog(_FilterDialog):
             "Target brightness increase (percent), matched without going over."
         )
         self._form.addRow("Target contrast", self.target_contrast)
+        self._init_auto_button((
+            self.amount, self.adaptive, self.luminance,
+            self.target_noise, self.target_contrast,
+        ))
 
     def _set_amount_spin(self, amount: float) -> None:
         self.amount.blockSignals(True)
         self.amount.setValue(amount)
         self.amount.blockSignals(False)
 
-    def _run_auto_search(self) -> None:
+    def _run_auto_search(self, loaded: bool = False) -> None:
+        # Clicking toggled the button; it is pressed only by a completed search.
+        # Loaded amounts came from another image, so a cancel releases Auto.
+        prior_auto = self._auto_selected and not loaded
+        self._set_auto_selected(prior_auto)
         if self._auto_running:
             return
         data = getattr(self, "_input_data", None)
@@ -1189,13 +1246,16 @@ class AdaptiveDeconvDialog(_FilterDialog):
                 chromatic=getattr(self, "_noise_chromatic", None),
             )
             self._set_amount_spin(result.amount)
+            self._set_auto_selected(True)
         except _Cancelled:
             self._set_amount_spin(prior)
         finally:
             self._auto_running = False
             self.auto_apply.setEnabled(True)
             progress_dlg.close()
-        self.params_changed.emit()
+        # A load's caller updates the preview itself.
+        if not loaded:
+            self.params_changed.emit()
 
     def get_params(self) -> dict[str, Any]:
         p = super().get_params()
@@ -1205,6 +1265,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
             "luminance": self.luminance.isChecked(),
             "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
+            "auto": self._auto_selected,
         })
         return p
 
@@ -1232,6 +1293,7 @@ class AdaptiveDeconvDialog(_FilterDialog):
         self.luminance.blockSignals(False)
         self.target_noise.blockSignals(False)
         self.target_contrast.blockSignals(False)
+        self._restore_auto(params)
 
 
 class WienerDeconvDialog(_FilterDialog):

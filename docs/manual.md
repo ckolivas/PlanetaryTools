@@ -270,7 +270,7 @@ Increase contrast in detail at several spatial scales. Fine affects the smallest
 
 1. Inspect the planet at 100% zoom. Increase Fine gradually, then add Medium only as needed. Use Coarse and Chunky sparingly for broader structure.
 2. Optionally enable Luminance (BT.709) to sharpen brightness detail and add that change back to RGB.
-3. For a calculated starting point, set Target noise and Target contrast, then press Auto. Compare the result with preview off.
+3. For a calculated starting point, set Target noise and Target contrast, then press Auto. Compare the result with preview off. Auto stays pressed until you change a slider, option or target; accepted while pressed, it is remembered as Auto, so batch steps from Last values or Current workflow search each image.
 4. Check the limb, rings and small bright features before accepting. Follow with denoising if sharpening has amplified noise.
 
 ### Auto: Target noise
@@ -305,7 +305,7 @@ Apply a sharpening/deconvolution step with an adjustable Amount. This can be use
 
 1. Begin with a small Amount and inspect a region containing genuine detail and a bright edge.
 2. Contrast Adaptive favours stronger local contrast and is often best reserved for a finalising sharpening step. Leave it off when preparing images for WinJUPOS derotation.
-3. Optionally enable Luminance (BT.709). Use Auto with Target noise and Target contrast for an estimated amount.
+3. Optionally enable Luminance (BT.709). Use Auto with Target noise and Target contrast for an estimated amount. As in Wavelet Sharpen, Auto stays pressed until a setting is changed and, accepted while pressed, carries into batch steps.
 4. Toggle preview and accept only if the added detail is useful rather than merely grainier.
 
 ### Amount and targets
@@ -885,7 +885,7 @@ A .ptbatch workflow describes a pipeline and output options. It is different fro
 
 ### Auto versus manual
 
-FFT Denoise Auto recalculates per image. Manually adjusted curves are fixed values. Wavelet Sharpen and Adaptive Deconvolution also offer batch Auto parameters; inspect their target constraints.
+FFT Denoise Auto recalculates per image. Manually adjusted curves are fixed values. Wavelet Sharpen and Adaptive Deconvolution also offer batch Auto parameters; inspect their target constraints. An edit accepted with Auto still pressed imports as Auto through Last values or Current workflow; one adjusted after Auto imports its fixed values.
 
 ### Safe validation
 
