@@ -5,7 +5,7 @@ from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
 from PyQt6.QtWidgets import QLabel, QPushButton, QSizePolicy, QWidget
 
 from planetary_tools.filters.fft_denoise import (
-    MAX_FREQUENCY, MIN_START, analyse_spectrum, auto_parameters, transfer,
+    MAX_FEATHER, MAX_FREQUENCY, MIN_START, analyse_spectrum, auto_parameters, transfer,
 )
 from planetary_tools.ui.dialogs import _FilterDialog
 
@@ -126,7 +126,7 @@ class FftDenoiseDialog(_FilterDialog):
         self.graph = SpectrumGraph()
         self._form.addRow(self.graph)
         self.start = self._add_double('Start (% Nyquist)', 60, MIN_START, 141.4, 1)
-        self.feather = self._add_double('Feather width (%)', 40, .5, 141.4, 1)
+        self.feather = self._add_double('Feather width (%)', 40, .5, MAX_FEATHER, 1)
         self.curve = self._add_double('Curve', -2, -5, 5, .1)
         for spin in (self.start, self.feather, self.curve):
             spin.setKeyboardTracking(False)

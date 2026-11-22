@@ -2100,9 +2100,9 @@ def edit_filter_params(
         _sync_wavelet_auto(auto_box.isChecked())
         widgets["_sync_auto"] = _sync_wavelet_auto
     elif filter_id == "fft_denoise":
-        from planetary_tools.filters.fft_denoise import MIN_START
+        from planetary_tools.filters.fft_denoise import MAX_FEATHER, MIN_START
         for key, label, lo, hi in (("start", "Start (% Nyquist)", MIN_START, 141.4),
-                                   ("feather", "Feather width (%)", .5, 141.4),
+                                   ("feather", "Feather width (%)", .5, MAX_FEATHER),
                                    ("curve", "Curve", -5., 5.)):
             spin = QDoubleSpinBox()
             spin.setRange(lo, hi)

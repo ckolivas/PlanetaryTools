@@ -286,6 +286,25 @@ class FftDenoiseUiTests(unittest.TestCase):
         self.assertTrue(result[0]['auto'])
         self.assertEqual(result[0]['start'], -25)
 
+    def test_feather_width_reaches_200_in_panel_and_batch_editor(self):
+        from planetary_tools.ui.dialogs import edit_filter_params
+        panel = FftDenoiseDialog()
+        self.addCleanup(panel.close)
+        panel.feather.setValue(200)
+        self.assertEqual(panel.get_params()['feather'], 200)
+
+        def accept():
+            dlg = QApplication.activeModalWidget()
+            dlg.findChildren(QDoubleSpinBox)[1].setValue(200)
+            dlg.accept()
+        QTimer.singleShot(20, accept)
+        result = edit_filter_params('fft_denoise', {'auto': False}, True)
+        self.assertEqual(result[0]['feather'], 200)
+        image = planet()
+        out = apply_filter('fft_denoise', image, True, dict(start=-50., feather=200., curve=0.))
+        self.assertTrue(np.isfinite(out).all())
+        self.assertLess(float(np.abs(out-image).max()), .5)
+
 
 if __name__ == '__main__':
     unittest.main()

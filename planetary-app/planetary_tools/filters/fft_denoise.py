@@ -10,6 +10,9 @@ from scipy import fft, ndimage
 
 MAX_FREQUENCY = 100 * np.sqrt(2)
 MIN_START = -141.4
+# Wider than the frequency axis, so a transition can begin well below zero
+# and still end past Nyquist.
+MAX_FEATHER = 200.0
 DEFAULT_FFT_DENOISE_PARAMS = dict(start=60.0, feather=40.0, curve=-2.0, auto=False)
 
 
