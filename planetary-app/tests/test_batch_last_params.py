@@ -19,6 +19,7 @@ from planetary_tools.ui.crop_dialog import CropImageDialog
 from planetary_tools.ui.curves_dialog import CurvesDialog
 from planetary_tools.ui.fft_denoise_dialog import FftDenoiseDialog
 from planetary_tools.ui.main_window import MainWindow
+from planetary_tools.ui.optical_correction_dialog import OpticalCorrectionDialog
 from planetary_tools.ui.rotate_dialog import RotateImageDialog
 from planetary_tools.ui.scale_dialog import ScaleImageDialog
 
@@ -29,6 +30,7 @@ FILTER_DIALOGS = {
     'adaptive_deconv': dialogs.AdaptiveDeconvDialog,
     'deglow': dialogs.DeglowDialog,
     'moon_enhance': dialogs.MoonEnhanceDialog,
+    'optical_correction': OpticalCorrectionDialog,
     'stretch_contrast': dialogs.StretchContrastDialog,
     'colour_matrix': dialogs.ColourMatrixDialog,
     'saturation_vibrance': dialogs.SaturationVibranceDialog,
@@ -98,7 +100,7 @@ class BatchLastParamsTests(unittest.TestCase):
     def test_filter_dialogs_save_last_for_batch(self):
         for fid, cls in FILTER_DIALOGS.items():
             with self.subTest(fid=fid):
-                needs_mode = fid in ('wavelet_sharpen', 'adaptive_deconv')
+                needs_mode = fid in ('wavelet_sharpen', 'adaptive_deconv', 'optical_correction')
                 panel = cls(False) if needs_mode else cls()
                 self.addCleanup(panel.close)
                 params = panel.get_params()

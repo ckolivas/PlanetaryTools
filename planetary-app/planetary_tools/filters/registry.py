@@ -38,6 +38,10 @@ from planetary_tools.core.crop import (
 from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
 from planetary_tools.filters.moon_enhance import moon_enhance
+from planetary_tools.filters.optical_correction import (
+    DEFAULT_OPTICAL_CORRECTION_PARAMS,
+    correct_optical_aberrations,
+)
 from planetary_tools.filters.fft_denoise import DEFAULT_FFT_DENOISE_PARAMS, fft_denoise
 from planetary_tools.filters.deglow import DEFAULT_DEGLOW_PARAMS, deglow
 from planetary_tools.filters.saturation import apply_saturation_vibrance
@@ -60,6 +64,7 @@ ENHANCE_FILTER_IDS = frozenset({
     "fft_denoise",
     "adaptive_deconv",
     "wiener_deconv",
+    "optical_correction",
 })
 
 # Moon enhance is deliberately not an "enhance" filter for stats: those noise
@@ -178,6 +183,15 @@ class MoonEnhanceDef(FilterDef):
             retain_relative_brightness=params.get("retain_relative_brightness", False),
             pseudo_relative_brightness=params.get("pseudo_relative_brightness", False),
         )
+
+
+@dataclass
+class OpticalCorrectionDef(FilterDef):
+    def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        return correct_optical_aberrations(data, is_grayscale, **{
+            key: type(default)(params.get(key, default))
+            for key, default in DEFAULT_OPTICAL_CORRECTION_PARAMS.items()
+        })
 
 
 @dataclass
@@ -428,6 +442,11 @@ FILTERS: dict[str, FilterDef] = {
             "planet_margin": 0.0,
             "max_moons": 12,
         },
+    ),
+    "optical_correction": OpticalCorrectionDef(
+        id="optical_correction",
+        label="Correct Optical Aberrations",
+        default_params=_with_defaults(DEFAULT_OPTICAL_CORRECTION_PARAMS),
     ),
     "stretch_contrast": StretchContrastDef(
         id="stretch_contrast",

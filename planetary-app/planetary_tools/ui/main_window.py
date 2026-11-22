@@ -55,6 +55,7 @@ from planetary_tools.ui.field_derotate_dialog import FieldDerotateDialog
 from planetary_tools.ui.compose_dialog import RGBComposeDialog
 from planetary_tools.ui.curves_dialog import CurvesDialog
 from planetary_tools.ui.fft_denoise_dialog import FftDenoiseDialog
+from planetary_tools.ui.optical_correction_dialog import OpticalCorrectionDialog
 from planetary_tools.ui.dialogs import (
     FILTER_PANEL_WIDTH,
     AdaptiveDeconvDialog,
@@ -535,6 +536,14 @@ class MainWindow(QMainWindow):
         )
         self._field_derot_act.triggered.connect(self._run_field_derotate)
         tools_menu.addAction(self._field_derot_act)
+        self._optical_act = QAction("Correct &Optical Aberrations…", self)
+        self._optical_act.setToolTip(
+            "Use a small moon as the image's point spread function to correct "
+            "blur such as astigmatism. Auto-selects the most suitable moon, or "
+            "click one on the image."
+        )
+        self._optical_act.triggered.connect(self._run_optical_correction)
+        tools_menu.addAction(self._optical_act)
         self._animate_act = QAction("&Animate…", self)
         self._animate_act.setToolTip(
             "Write a looping GIF, animated PNG, or WebP from a sequence of stills."
@@ -644,7 +653,7 @@ class MainWindow(QMainWindow):
         has_doc = self._document is not None
         for act in (
             self._save_act, self._save_as_act, self._close_act, self._scale_act, self._rotate_act,
-            self._crop_act, self._caption_act,
+            self._crop_act, self._caption_act, self._optical_act,
             self._sharpen_act, self._denoise_act, self._fft_denoise_act, self._deconv_act,
             self._moon_enhance_act, self._deglow_act, self._merge_detail_act,
             self._stretch_act, self._colour_matrix_act, self._saturation_act,
@@ -1094,6 +1103,12 @@ class MainWindow(QMainWindow):
             dlg.difference_toggled.connect(self._refresh_canvas_display)
             self._preview.preview_updated.connect(self._update_dialog_brightness)
             self._filter_dock.closed.connect(self._on_filter_dock_closed)
+            picks_region = bool(getattr(dlg, "picks_canvas_region", False))
+            if picks_region:
+                self._canvas.region_picked.connect(dlg.set_picked_region)
+                dlg.markers_changed.connect(self._canvas.set_markers)
+                self._canvas.set_region_pick_enabled(True)
+                dlg.refresh_markers()
 
             def on_accept() -> None:
                 self._filter_accepted = True
@@ -1122,6 +1137,9 @@ class MainWindow(QMainWindow):
             dlg.difference_toggled.disconnect(self._refresh_canvas_display)
             self._preview.preview_updated.disconnect(self._update_dialog_brightness)
             self._filter_dock.closed.disconnect(self._on_filter_dock_closed)
+            if picks_region:
+                self._canvas.region_picked.disconnect(dlg.set_picked_region)
+                dlg.markers_changed.disconnect(self._canvas.set_markers)
             dlg.accepted.disconnect(on_accept)
             dlg.rejected.disconnect(on_reject)
             self._active_filter_dlg = None
@@ -1143,6 +1161,9 @@ class MainWindow(QMainWindow):
                 self._preview.finish(apply=False)
                 self._canvas.refresh()
         finally:
+            if getattr(dlg, "picks_canvas_region", False):
+                self._canvas.set_region_pick_enabled(False)
+                self._canvas.clear_marker()
             self._clear_filter_panel()
             self._filter_dock.hide()
             self._filter_dialog_open = False
@@ -1248,6 +1269,14 @@ class MainWindow(QMainWindow):
 
     def _run_moon_enhance(self) -> None:
         self._run_filter_dialog(MoonEnhanceDialog(self), "Moon Enhance")
+
+    def _run_optical_correction(self) -> None:
+        if self._document is None:
+            return
+        self._run_filter_dialog(
+            OpticalCorrectionDialog(self._document.is_grayscale, self),
+            "Correct Optical Aberrations",
+        )
 
     def _run_deglow(self) -> None:
         self._run_filter_dialog(DeglowDialog(self), "Deglow")

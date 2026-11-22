@@ -2649,6 +2649,58 @@ def edit_filter_params(
         relative.toggled.connect(_sync_relative)
         widgets["_sync_relative"] = _sync_relative
         _sync_relative(relative.isChecked())
+    elif filter_id == "optical_correction":
+        auto_box = QCheckBox("Auto-select moons")
+        auto_box.setChecked(bool(params.get("auto", fdef.default_params["auto"])))
+        auto_box.setToolTip("Measure and combine the suitable moons again in every image.")
+        form.addRow(auto_box)
+        widgets["auto"] = auto_box
+        for key, label in (("moon_x", "Moon x"), ("moon_y", "Moon y")):
+            spin = QDoubleSpinBox()
+            spin.setRange(-1.0, 100000.0)
+            spin.setDecimals(1)
+            spin.setSpecialValueText("None")
+            spin.setToolTip(
+                "Chosen moon position in pixels; each image uses the moon "
+                "nearest it, within 30 px. Pick it in the Correct Optical "
+                "Aberrations panel.")
+            spin.setValue(float(params.get(key, fdef.default_params[key])))
+            form.addRow(label, spin)
+            widgets[key] = spin
+        specs = (("target_size", "Target size", 25.0, 100.0, 0, " %"),
+                 ("max_boost", "Max boost", 1.0, 20.0, 1, " ×"))
+        for key, label, lo, hi, decimals, suffix in specs:
+            spin = QDoubleSpinBox()
+            spin.setRange(lo, hi)
+            spin.setDecimals(decimals)
+            spin.setSuffix(suffix)
+            spin.setValue(float(params.get(key, fdef.default_params[key])))
+            form.addRow(label, spin)
+            widgets[key] = spin
+        per_channel = QCheckBox("Measure each colour channel")
+        per_channel.setChecked(bool(params.get("per_channel", fdef.default_params["per_channel"])))
+        form.addRow(per_channel)
+        widgets["per_channel"] = per_channel
+        for key, label in (("astigmatism", "Astigmatism"), ("coma", "Coma/collimation"),
+                           ("trefoil", "Trefoil")):
+            box = QCheckBox(label)
+            box.setChecked(bool(params.get(key, fdef.default_params[key])))
+            form.addRow(box)
+            widgets[key] = box
+        protect = QCheckBox("Protect background")
+        protect.setChecked(bool(params.get(
+            "protect_background", fdef.default_params["protect_background"])))
+        protect.setToolTip("Leave sky that holds only noise unchanged.")
+        form.addRow(protect)
+        widgets["protect_background"] = protect
+
+        def _sync_optical_auto(checked: bool) -> None:
+            widgets["moon_x"].setEnabled(not checked)
+            widgets["moon_y"].setEnabled(not checked)
+
+        auto_box.toggled.connect(_sync_optical_auto)
+        widgets["_sync_auto"] = _sync_optical_auto
+        _sync_optical_auto(auto_box.isChecked())
     else:
         layout.addWidget(QLabel("No numeric parameters for this filter."))
 

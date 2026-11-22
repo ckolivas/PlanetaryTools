@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
+    QGraphicsEllipseItem,
     QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
@@ -32,6 +33,9 @@ class ImageCanvas(QGraphicsView):
 
     zoom_changed = pyqtSignal(float)
     crop_selected = pyqtSignal(int, int, int, int)
+    # A click (zero-size box) or dragged box in image pixels, for filters
+    # that pick something on the image, such as a moon.
+    region_picked = pyqtSignal(int, int, int, int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -80,6 +84,21 @@ class ImageCanvas(QGraphicsView):
             self._scene.addItem(handle)
             self._crop_handles.append(handle)
 
+        pick_pen = QPen(QColor(80, 220, 255))
+        pick_pen.setWidth(1)
+        pick_pen.setCosmetic(True)
+        pick_pen.setStyle(Qt.PenStyle.DashLine)
+        self._pick_box = QGraphicsRectItem()
+        self._pick_box.setPen(pick_pen)
+        self._pick_box.setZValue(4)
+        self._pick_box.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self._pick_box.hide()
+        self._scene.addItem(self._pick_box)
+        self._marker_pen = QPen(QColor(80, 220, 255))
+        self._marker_pen.setWidth(2)
+        self._marker_pen.setCosmetic(True)
+        self._markers: list[QGraphicsEllipseItem] = []
+
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
@@ -95,6 +114,43 @@ class ImageCanvas(QGraphicsView):
         self._crop_drag_rect: tuple[int, int, int, int] | None = None
         self._crop_drag_mode = "draw"
         self._crop_handle = 0
+        self._pick_enabled = False
+        self._pick_start: tuple[float, float] | None = None
+
+    def set_region_pick_enabled(self, enabled: bool) -> None:
+        """Click or drag on the image to emit ``region_picked``; Shift-drag pans."""
+        self._pick_enabled = enabled
+        self._pick_start = None
+        self._pick_box.hide()
+        self.viewport().setCursor(
+            Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.OpenHandCursor
+        )
+
+    def set_markers(self, markers) -> None:
+        """Circle points given as (x, y, radius) in image pixels; empty hides them."""
+        markers = list(markers or [])
+        while len(self._markers) < len(markers):
+            item = QGraphicsEllipseItem()
+            item.setPen(self._marker_pen)
+            item.setZValue(4)
+            item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self._scene.addItem(item)
+            self._markers.append(item)
+        for item, (x, y, radius) in zip(self._markers, markers):
+            item.setRect(QRectF(x + 0.5 - radius, y + 0.5 - radius, 2*radius, 2*radius))
+            item.show()
+        for item in self._markers[len(markers):]:
+            item.hide()
+
+    def clear_marker(self) -> None:
+        self.set_markers([])
+
+    def _pick_rect(self, event: QMouseEvent) -> tuple[int, int, int, int]:
+        point = self.mapToScene(event.position().toPoint())
+        x0, y0 = self._pick_start
+        x1, y1 = point.x(), point.y()
+        left, top = int(min(x0, x1)), int(min(y0, y1))
+        return left, top, int(round(abs(x1 - x0))), int(round(abs(y1 - y0)))
 
     def set_crop_selection_enabled(self, enabled: bool) -> None:
         self._crop_selection_enabled = enabled
@@ -169,6 +225,15 @@ class ImageCanvas(QGraphicsView):
         self.viewport().setCursor(cursor)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if (self._pick_enabled and self._document is not None
+                and event.button() == Qt.MouseButton.LeftButton
+                and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            point = self.mapToScene(event.position().toPoint())
+            self._pick_start = (point.x(), point.y())
+            self._pick_box.setRect(QRectF(point.x(), point.y(), 0, 0))
+            self._pick_box.show()
+            event.accept()
+            return
         if (self._crop_selection_enabled and self._document is not None
                 and event.button() == Qt.MouseButton.LeftButton
                 and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
@@ -238,6 +303,10 @@ class ImageCanvas(QGraphicsView):
         self.crop_selected.emit(*result)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._pick_start is not None:
+            self._pick_box.setRect(QRectF(*self._pick_rect(event)))
+            event.accept()
+            return
         if self._crop_drag_start is not None:
             self._emit_drag_crop(event)
             event.accept()
@@ -247,6 +316,17 @@ class ImageCanvas(QGraphicsView):
             self._update_crop_cursor(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._pick_start is not None and event.button() == Qt.MouseButton.LeftButton:
+            rect = self._pick_rect(event)
+            self._pick_start = None
+            self._pick_box.hide()
+            # A short drag is a click: report the press point.
+            if rect[2] < 4 and rect[3] < 4:
+                point = self.mapToScene(event.position().toPoint())
+                rect = (int(point.x()), int(point.y()), 0, 0)
+            self.region_picked.emit(*rect)
+            event.accept()
+            return
         if self._crop_drag_start is not None and event.button() == Qt.MouseButton.LeftButton:
             self._emit_drag_crop(event, finish=True)
             self._crop_drag_start = None
@@ -263,6 +343,8 @@ class ImageCanvas(QGraphicsView):
 
     def set_document(self, doc: ImageDocument | None) -> None:
         self.set_crop_selection_enabled(False)
+        self.set_region_pick_enabled(False)
+        self.clear_marker()
         self._document = doc
         self.clear_crop_overlay()
         if doc is None:

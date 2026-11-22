@@ -31,6 +31,7 @@ Revised **29 October 2026**. Covers application build **0d03d55**, labelled **1.
 - [RGB Decompose to Files](#rgb-decompose-to-files)
 - [Caption](#caption)
 - [Derotate/Align](#derotate-align)
+- [Correct Optical Aberrations](#correct-optical-aberrations)
 - [Animate and motion interpolation](#animate-and-motion-interpolation)
 - [Batch Processing](#batch-processing)
 - [View, help and updates](#view-help-and-updates)
@@ -821,6 +822,50 @@ Different-sized inputs are centred on a canvas that fits the largest. This tool 
 
 [Back to contents](#contents)
 
+<a id="correct-optical-aberrations"></a>
+
+## Correct Optical Aberrations
+
+**Tools > Correct Optical Aberrations**
+
+Use the moons in the image as its own point spread function and correct the aberrations they show. A moon such as Tethys, Dione or Rhea is only 1-2.5 pixels across at typical image scales, so the shape of its blurred image is the telescope and seeing blur of the whole frame. Three aberrations are measured and corrected:
+
+- **Astigmatism**: an elongated moon. Detail along the long axis is boosted until the moon is round at its narrowest width.
+- **Coma/collimation**: a one-sided, comet-like tail, for example from miscollimation.
+- **Trefoil**: a three-lobed, triangular moon, for example from pinched optics.
+
+Coma and trefoil displace light rather than spread it, so their correction moves the light back and amplifies no noise.
+
+### How to use
+
+1. Open the unsharpened stack. The tool is designed for it: the moons are measured cleanly there and the correction barely rings. On an already sharpened image it deepens the wavelet ringing and amplifies noise. Always run it before Moon Enhance, denoising or clamping, which change the moons' shape.
+2. Leave Auto-select moons on, or click a moon on the image or drag a box around it. Shift-drag pans the image. The moons used are circled; the panel shows their measured size, elongation and angle, the strength of each aberration, and the moon before and after correction.
+3. Leave Astigmatism, Coma/collimation and Trefoil ticked to correct everything measured, or untick any you do not want corrected.
+4. For astigmatism, leave Target size at 100% to remove only the elongation; lower values also sharpen. Max boost limits how far it is corrected: the default 3x corrects most of a moderate elongation and 8x usually makes the moon round, with more noise and edge overshoot. Leave Protect background on: the sky's noise is left alone, and the astigmatism boost is graded by each area's signal-to-noise, full on the planet and a moon's core but gentle on faint glow, so the moons do not turn speckled.
+5. Compare the limb and ring edges with Show difference, then sharpen as usual; Wavelet Sharpen Auto chooses suitable, usually lower, amounts for the corrected image.
+
+### Choosing moons
+
+Auto-select combines every suitable moon: bright, compact, away from other moons, not clipped and away from the planet's glow. Combining moons measures the blur with more signal. A moon on the planet's glow is measured unreliably and its correction can leave rings around the planet, so pick one by hand only if no other moon is available. A resolved disc such as Titan, or Jupiter's large moons, is larger than the blur and would give a wrong correction; Auto avoids it when smaller moons are present.
+
+### Aberrations that vary across the field
+
+Astigmatism, trefoil and collimation coma are usually the same across the frame, and the moons agree. Off-axis coma grows and turns away from the optical centre, so moons on different sides of the planet disagree and none of them shows the planet's own blur. The panel warns when the moons disagree on an aberration; untick it, or pick the moon nearest the planet. Two moons close together can also look like coma: check the moons at 100% zoom when one shows a strong tail.
+
+### Colour images
+
+With Measure each colour channel enabled, red, green and blue are each corrected with their own measurement of the same moons. A channel too faint to measure uses the luminance measurement.
+
+### Batches
+
+With Auto-select on, each image measures its own moons. A hand-picked moon is followed to the nearest moon within 30 pixels, so a moon drifting between frames of a series is still found. An image without a usable moon is reported as failed.
+
+### Limits
+
+The moons are assumed to be point sources. Stackers usually align the planet locally but not the moons, yet on test stacks the moons' blur still matched the planet's closely. The moons' faint halos are not used: the planet is around 1000 times brighter, so errors in a measured halo would show as rings around the limb. Sharpening the long axis gives the limb a slight dark edge on that axis; it grows with Max boost and with smaller Target sizes.
+
+[Back to contents](#contents)
+
 <a id="animate-and-motion-interpolation"></a>
 
 ## Animate and motion interpolation
@@ -956,17 +1001,18 @@ Use this sequence as a starting structure, and compare each change at useful ima
 
 ### Suggested workflow order
 
-1. Wavelet Sharpen.
-2. Adaptive Deconvolution.
-3. Moon Enhance.
-4. FFT Denoise or Wavelet Denoise.
-5. Deglow.
-6. Colour Correction Matrix, using the preset for your sensor.
-7. Levels or Curves.
-8. Saturation & Vibrance.
-9. Stretch Contrast OKLab.
+1. Correct Optical Aberrations, on the unsharpened stack, if the moons show astigmatism, coma or trefoil.
+2. Wavelet Sharpen.
+3. Adaptive Deconvolution.
+4. Moon Enhance.
+5. FFT Denoise or Wavelet Denoise.
+6. Deglow.
+7. Colour Correction Matrix, using the preset for your sensor.
+8. Levels or Curves.
+9. Saturation & Vibrance.
+10. Stretch Contrast OKLab.
 
-Sharpening comes first, so that denoising can remove the noise it amplifies. Colour and tonal adjustments follow once the detail is final, and Stretch Contrast sets the final brightness.
+Optical correction and sharpening come first, so that denoising can remove the noise it amplifies. Colour and tonal adjustments follow once the detail is final, and Stretch Contrast sets the final brightness.
 
 ### Ringing or soft detail
 
