@@ -1,5 +1,6 @@
 """Correct Optical Aberrations: a moon as the PSF, auto selection and the panel."""
 import os
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -252,6 +253,47 @@ class FilterTests(unittest.TestCase):
         self.assertIn('Coma/collimation', oc.disagreements(both))
         self.assertLess(both.coma_amount, a.coma_amount/3)
 
+    def drift_scene(self, smears, seed=5):
+        """Planet and moons sharing an elongated blur, each moon also smeared
+        along its own line (length px, angle deg) as drift in a long stack."""
+        h, w = 200, 320
+        yy, xx = np.mgrid[:h, :w]
+        sharp = np.zeros((h, w))
+        sharp[np.hypot(yy - 100, xx - 90) < 40] = .5
+        for (x, y), (length, angle) in zip(((250, 50), (280, 150), (200, 175)), smears):
+            t = np.linspace(-.5, .5, 64)*length
+            px = np.round(x + t*np.cos(np.radians(angle))).astype(int)
+            py = np.round(y - t*np.sin(np.radians(angle))).astype(int)
+            np.add.at(sharp, (py, px), 2.0/t.size)
+        blurred = ndimage.gaussian_filter(sharp, (1.8, 2.6))
+        rng = np.random.default_rng(seed)
+        return (blurred + 1e-4 + rng.normal(0, 1e-5, blurred.shape)).astype(np.float32)
+
+    def test_only_the_elongation_the_moons_share_is_corrected(self):
+        # Moons sharing the blur: corrected as measured.
+        same = self.drift_scene([(0, 0)]*3)
+        m = oc.measure_moons(same, True, oc.auto_select_moons(same, True))
+        self.assertEqual(len(m.moons), 3)
+        self.assertIsNone(m.boost_ellipse)
+        self.assertFalse(oc.elongation_differs(m))
+        # Two moons drifted by different amounts: the shared core is the unsmeared
+        # moon's, so the boost ignores the drift.
+        image = self.drift_scene([(0, 0), (10, 20), (8, 40)])
+        m = oc.measure_moons(image, True, oc.auto_select_moons(image, True))
+        self.assertEqual(len(m.moons), 3)
+        self.assertTrue(oc.elongation_differs(m))
+        clean = oc.measure_psf(same, 250, 50)
+        sa, sb, angle = m.boost_ellipse
+        self.assertAlmostEqual(sa*sa - sb*sb, clean.sigma_major**2 - clean.sigma_minor**2,
+                               delta=.25*(clean.sigma_major**2 - clean.sigma_minor**2))
+        self.assertLess(abs(angle - clean.angle_deg), 8)
+        self.assertLess(m.shared_elongation, .8)
+        # The planet gets only the shared correction.
+        out = oc.correct_optical_aberrations(image, True, coma=False, trefoil=False)
+        full = oc.correct_optical_aberrations(
+            image, True, coma=False, trefoil=False, auto=False, moon_x=250, moon_y=50)
+        np.testing.assert_allclose(out[60:140, 50:130], full[60:140, 50:130], atol=2e-3)
+
     def test_smaller_target_also_sharpens(self):
         image = scene()
         full = oc.correct_optical_aberrations(image, True, target_size=100)
@@ -327,6 +369,18 @@ class PanelTests(unittest.TestCase):
         self.assertIn(MOON, [(round(x), round(y)) for x, y, _ in markers[-1]])
         self.assertRegex(panel._aberration_boxes['astigmatism'].text(), r'Astigmatism \(\d+%\)')
         self.assertTrue(panel.agreement_warning.isHidden())
+
+    def test_drifted_moons_show_the_astigmatism_corrected(self):
+        panel = OpticalCorrectionDialog(True)
+        self.addCleanup(panel.close)
+        image = FilterTests.drift_scene(self, [(0, 0), (10, 20), (8, 40)])
+        panel.set_input_brightness(np.repeat(image[..., None], 3, axis=2), True)
+        measured, corrected = map(int, re.fullmatch(
+            r'Astigmatism \((\d+)%, (\d+)% corrected\)',
+            panel._aberration_boxes['astigmatism'].text()).groups())
+        self.assertLess(corrected, measured)
+        self.assertIn('drift', panel.agreement_warning.text())
+        self.assertFalse(panel.agreement_warning.isHidden())
 
     def test_click_or_box_picks_a_moon_and_turns_off_auto(self):
         panel, markers = self.panel()

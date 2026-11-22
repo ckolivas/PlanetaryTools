@@ -245,18 +245,31 @@ class OpticalCorrectionDialog(_FilterDialog):
             amounts = {"astigmatism": m.astigmatism_amount, "coma": m.coma_amount,
                        "trefoil": m.trefoil_amount}
             differing = oc.disagreements(m)
+            notes = []
             if differing:
-                self.agreement_warning.setText(
+                notes.append(
                     f"{' and '.join(differing)} differs between the moons; it "
                     "probably varies across the field, so it may not suit the "
                     "planet. Consider unticking it or picking the nearest moon.")
+            if oc.elongation_differs(m):
+                notes.append(
+                    "The moons are elongated by different amounts, as drift "
+                    "during a long stack does; only the elongation they share "
+                    f"({100*m.shared_elongation:.0f}%) is corrected as astigmatism.")
+            if notes:
+                self.agreement_warning.setText("\n".join(notes))
                 self.agreement_warning.show()
             else:
                 self.agreement_warning.hide()
         for key, label, _order, _tip in self._ABERRATIONS:
             value = amounts[key]
-            self._aberration_boxes[key].setText(
-                label if value is None else f"{label} ({100*value:.0f}%)")
+            text = label if value is None else f"{label} ({100*value:.0f}%"
+            if value is not None:
+                if key == "astigmatism" and oc.elongation_differs(m):
+                    # Only the share of the elongation the moons have in common.
+                    text += f", {100*value*m.shared_elongation:.0f}% corrected"
+                text += ")"
+            self._aberration_boxes[key].setText(text)
         self._refresh_corrected_view()
         self.refresh_markers()
 

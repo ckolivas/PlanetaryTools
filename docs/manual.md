@@ -850,7 +850,11 @@ Auto-select combines every suitable moon: bright, compact, away from other moons
 
 ### Aberrations that vary across the field
 
-Astigmatism, trefoil and collimation coma are usually the same across the frame, and the moons agree. Off-axis coma grows and turns away from the optical centre, so moons on different sides of the planet disagree and none of them shows the planet's own blur. The panel warns when the moons disagree on an aberration; untick it, or pick the moon nearest the planet. Two moons close together can also look like coma: check the moons at 100% zoom when one shows a strong tail.
+Astigmatism, trefoil and collimation coma are usually the same across the frame, and the moons agree. Off-axis coma grows and turns away from the optical centre, so moons on different sides of the planet disagree and none of them shows the planet's own blur. The panel warns when the moons disagree on an aberration; untick it, or pick the moon nearest the planet.
+
+Moons also drift against the planet during a long stack (5-6 minutes on Saturn), and an alt-az mount adds field rotation, so a moon can be smeared by its own motion; the planet is not. Each moon smears by a different amount and direction, while the optics, an ADC and atmospheric dispersion elongate every moon alike. With several moons, only the elongation they share is corrected as astigmatism, and the panel says so when the rest differs between them. A single moon cannot show this: if it is elongated on a scope known to have no astigmatism, untick Astigmatism.
+
+Two moons close together can also look like coma: check the moons at 100% zoom when one shows a strong tail.
 
 ### Colour images
 

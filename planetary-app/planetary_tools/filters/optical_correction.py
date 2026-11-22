@@ -126,6 +126,23 @@ _COMBINE_MIN_SCORE = 0.25
 # aberration are reported: it probably varies across the field.
 _AGREEMENT_WARN = 0.5
 _SIGNIFICANT_AMOUNT = 0.03
+# Elongation the moons share. Drift during a long stack (orbital motion, or
+# field rotation on an alt-az mount) smears each moon by its own amount and
+# direction, but not the planet; optics, ADC and dispersion elongate every
+# moon and the planet alike. Smearing adds to a moon's covariance, raising its
+# elongation by at most what it raises its size, so the shared part is the
+# largest common covariance every moon could have been smeared from. Where it
+# is this fraction of the combined elongation or more the combination is
+# used as it is; at the lower one or less only the shared part is corrected,
+# blended between. The 24 2026-11-21 and 2026-11-01 stacks (real
+# astigmatism) keep 0.85-1.0 of the correction; the 2026-11-03 prefoil stack
+# (none; its moons' elongations differ up to 2.4x) keeps 0.55.
+_SHARED_KEEP = 0.9
+_SHARED_ONLY = 0.7
+# Below this elongation (fraction of the core size) there is nothing to share.
+_SHARED_MIN_ELONGATION = 0.02
+# The panel reports a correction cut below this fraction.
+_SHARED_REPORT = 0.95
 # Auto-select: background variation under the moon at this fraction of its
 # peak halves the score.
 _GLOW_PENALTY_FRAC = 0.1
@@ -177,6 +194,11 @@ class PsfMeasurement:
     moon_amounts: dict = field(default_factory=dict)
     # Moons measured: (x, y, radius) for the canvas markers.
     moons: tuple = ()
+    # For a combination: the ellipse the astigmatism boost corrects
+    # (sigma_major, sigma_minor, angle_deg), None = the measured one, and the
+    # fraction of the combined elongation the moons share (1 = all of it).
+    boost_ellipse: tuple | None = None
+    shared_elongation: float = 1.0
 
     @property
     def radius(self) -> int:
@@ -484,8 +506,56 @@ def combine_measurements(
         size_sum = sum(w*abs(m.harmonics.get(order, 0j)) for m, w in pairs) + 1e-30
         agreement[order] = float(abs(vec)/size_sum)
         amounts[order] = float(size_sum/wsum)
+    boost, shared = _shared_ellipse([m for m, _ in pairs], out)
     return replace(out, agreement=agreement, moon_amounts=amounts,
-                   moons=tuple(mk for m, _ in pairs for mk in m.moons))
+                   moons=tuple(mk for m, _ in pairs for mk in m.moons),
+                   boost_ellipse=boost, shared_elongation=shared)
+
+
+def _covariance(sigma_major: float, sigma_minor: float, angle_deg: float) -> tuple[float, complex]:
+    """Core size (mean variance) and elongation (half the variance difference,
+    at twice the image-orientation angle) of a fitted ellipse, in px²."""
+    th = np.radians(-angle_deg)
+    return (0.5*(sigma_major**2 + sigma_minor**2),
+            0.5*(sigma_major**2 - sigma_minor**2)*np.exp(2j*th))
+
+
+def _shared_ellipse(
+    measurements: list[PsfMeasurement], combined: PsfMeasurement,
+) -> tuple[tuple[float, float, float] | None, float]:
+    """The elongation every moon shares, as the ellipse to correct, and its
+    fraction of the combined elongation.
+
+    A smear adds a covariance whose elongation is at most its size, so a
+    moon (size s, elongation E) came from a shared core (sf, Ef) only if
+    |E - Ef| <= s - sf. The shared core taken is the largest that fits every
+    moon: the least smear that explains the differences between them.
+    """
+    size, elong = _covariance(combined.sigma_major, combined.sigma_minor, combined.angle_deg)
+    if abs(elong) < _SHARED_MIN_ELONGATION*size:
+        return None, 1.0
+    moons = [_covariance(m.sigma_major, m.sigma_minor, m.angle_deg) for m in measurements]
+
+    def excess(p):
+        ef = complex(p[0], p[1])
+        return max(abs(e - ef) - s for s, e in moons)
+
+    fit = optimize.minimize(excess, [elong.real, elong.imag], method="Nelder-Mead",
+                            options={"xatol": 1e-4*size, "fatol": 1e-5*size})
+    shared = complex(fit.x[0], fit.x[1])
+    ratio = min(abs(shared)/abs(elong), 1.0)
+    if ratio >= _SHARED_KEEP:
+        return None, ratio
+    t = float(np.clip((ratio - _SHARED_ONLY)/(_SHARED_KEEP - _SHARED_ONLY), 0.0, 1.0))
+    # Never more elongation than the combination itself shows.
+    if abs(shared) > abs(elong):
+        shared *= abs(elong)/abs(shared)
+    target = t*elong + (1.0 - t)*shared
+    spread = min(abs(target), 0.95*size)
+    angle = float(np.degrees(-0.5*np.angle(target)))
+    angle = (angle + 90.0) % 180.0 - 90.0
+    return ((float(np.sqrt(size + spread)), float(np.sqrt(size - spread)), angle),
+            float(abs(target)/abs(elong)))
 
 
 def _without_harmonics(psf: np.ndarray, orders: tuple[int, ...]) -> np.ndarray:
@@ -653,11 +723,20 @@ def measure_moons(
         [w for _, w in moons])
 
 
+def elongation_differs(m: PsfMeasurement) -> bool:
+    """The moons' elongations differ enough that the astigmatism boost was
+    cut to the part they share (``m.shared_elongation``)."""
+    return m.boost_ellipse is not None and m.shared_elongation < _SHARED_REPORT
+
+
 def disagreements(m: PsfMeasurement) -> list[str]:
     """Aberrations the combined moons disagree on."""
     names = {1: "Coma/collimation", 2: "Astigmatism", 3: "Trefoil"}
     out = []
     for order, agree in sorted(m.agreement.items()):
+        # Astigmatism differing between moons is handled by shared_elongation.
+        if order == 2:
+            continue
         # Significant on the moons themselves, but mostly cancelling.
         if agree < _AGREEMENT_WARN and m.moon_amounts.get(order, 0.0) > _SIGNIFICANT_AMOUNT:
             out.append(names[order])
@@ -747,12 +826,14 @@ def _ellipse_otf(
     fx = np.fft.rfftfreq(shape[1])[None, :]
     if boost <= 1.0:
         return np.ones((shape[0], shape[1]//2 + 1))
-    th = np.radians(-m.angle_deg)  # back to image (y down) orientation
+    # Only the elongation the moons share, when they differ (drift).
+    sa, sb, deg = m.boost_ellipse or (m.sigma_major, m.sigma_minor, m.angle_deg)
+    th = np.radians(-deg)  # back to image (y down) orientation
     fu = fx*np.cos(th) + fy*np.sin(th)
     fv = -fx*np.sin(th) + fy*np.cos(th)
-    st2 = (max(float(target_size), 1.0)/100.0*m.sigma_minor)**2
-    exponent = 2*np.pi**2*(max(m.sigma_major**2 - st2, 0.0)*fu*fu
-                           + max(m.sigma_minor**2 - st2, 0.0)*fv*fv)
+    st2 = (max(float(target_size), 1.0)/100.0*sb)**2
+    exponent = 2*np.pi**2*(max(sa**2 - st2, 0.0)*fu*fu
+                           + max(sb**2 - st2, 0.0)*fv*fv)
     full = np.exp(np.minimum(exponent, 50.0))
     # Soft cap: 1 at zero frequency, follows the full inverse while it is
     # small and bends smoothly up to G; a sharp corner rings more for the
