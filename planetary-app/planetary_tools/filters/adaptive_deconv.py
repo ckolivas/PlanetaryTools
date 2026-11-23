@@ -68,7 +68,7 @@ def _luma_sharpen_rgb(
 def adaptive_deconvolution(
     data: np.ndarray,
     is_grayscale: bool,
-    amount: float = 10.0,
+    amount=10.0,
     adaptive: bool = True,
     luminance: bool = True,
 ) -> np.ndarray:
@@ -78,7 +78,8 @@ def adaptive_deconvolution(
     The optional dialog clamp handles limiting to 100%.
 
     On RGB, ``luminance=True`` sharpens BT.709 luma and adds the delta back
-    to linear RGB. ``luminance=False`` deconvolves each channel independently.
+    to linear RGB. ``luminance=False`` deconvolves each channel independently,
+    and then ``amount`` may be a sequence of one amount per RGB channel.
     """
     return _PreparedDeconvolution(data, is_grayscale, adaptive, luminance).apply(amount)
 
@@ -119,21 +120,37 @@ class _PreparedDeconvolution:
             correction = _convolve2d(relative, _PSF_MIRROR, self.width, self.height)
             self.corrections.append(correction - 1.0)
 
-    def apply(self, amount: float) -> np.ndarray:
+    def _damped(self, correction: np.ndarray, amount: float) -> np.ndarray:
         strength = amount / math.pi
         weighted_strength = (
             strength * self.sqrt_contrast if self.sqrt_contrast is not None else strength
         )
-        sharpened = []
-        for channel, correction in zip(self.channels, self.corrections):
-            # Keep the original multiplication order and float32 rounding.
-            damped = 1.0 + weighted_strength * correction
-            if not self.is_gray and not self.per_channel:
-                return _luma_sharpen_rgb(
-                    self.src, damped, y=self.lum.reshape(self.height, self.width),
-                )
-            sharpened.append(channel * damped * damped * damped)
+        # Keep the original multiplication order and float32 rounding.
+        return 1.0 + weighted_strength * correction
 
+    def apply_channel(self, index: int, amount: float) -> np.ndarray:
+        """One channel of a per-channel (or greyscale) result, as a plane."""
+        damped = self._damped(self.corrections[index], amount)
+        channel = self.channels[index]
+        return (channel * damped * damped * damped).reshape(self.height, self.width)
+
+    def apply(self, amount) -> np.ndarray:
+        """Deconvolve with one amount, or with one amount per RGB channel.
+
+        A sequence of three amounts needs per-channel RGB (no luminance). The
+        contrast weighting still follows the image luminance for every channel.
+        """
+        if not np.isscalar(amount):
+            if not self.per_channel:
+                raise ValueError("Per-channel amounts need RGB without luminance.")
+            return np.stack([self.apply_channel(c, float(a)) for c, a in enumerate(amount)],
+                            axis=-1)
+        if not self.is_gray and not self.per_channel:
+            damped = self._damped(self.corrections[0], amount)
+            return _luma_sharpen_rgb(
+                self.src, damped, y=self.lum.reshape(self.height, self.width),
+            )
+        sharpened = [self.apply_channel(c, amount) for c in range(len(self.channels))]
         if self.is_gray:
-            return sharpened[0].reshape(self.height, self.width)
-        return np.stack(sharpened, axis=-1).reshape(self.height, self.width, 3)
+            return sharpened[0]
+        return np.stack(sharpened, axis=-1)

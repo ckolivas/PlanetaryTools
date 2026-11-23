@@ -367,6 +367,40 @@ def auto_wavelet_sharpen_params(
     return AutoSharpenResult(fine, medium, coarse, chunky, n, c)
 
 
+def auto_wavelet_sharpen_channel_params(
+    data: np.ndarray,
+    target_noise: float = 3.0,
+    target_contrast: float = 15.0,
+    *,
+    max_amount: float = _MAX_AMOUNT,
+    progress: Callable[[float, float, float, float, float, float], None] | None = None,
+    channel_started: Callable[[int], None] | None = None,
+    texture_scale: float | None = None,
+    chromatic: bool | None = None,
+) -> list[AutoSharpenResult]:
+    """Run the Auto search on each RGB channel separately.
+
+    Each channel is scored on its own, as a greyscale plane, using the
+    image's texture scale and colour flag so its noise score is on the same
+    scale as the RGB readout. ``channel_started`` is called with 0, 1, 2.
+    """
+    src = np.asarray(data, dtype=np.float32)
+    if texture_scale is None:
+        texture_scale = estimate_texture_scale(src, False)
+    if chromatic is None:
+        chromatic = is_chromatic(src, False)
+    results = []
+    for index in range(3):
+        if channel_started is not None:
+            channel_started(index)
+        results.append(auto_wavelet_sharpen_params(
+            src[..., index], True, target_noise, target_contrast,
+            max_amount=max_amount, progress=progress,
+            texture_scale=texture_scale, chromatic=chromatic,
+        ))
+    return results
+
+
 def verify_auto_params(
     data: np.ndarray,
     is_grayscale: bool,

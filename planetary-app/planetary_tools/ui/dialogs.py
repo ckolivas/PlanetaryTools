@@ -657,6 +657,20 @@ class _FilterDialog(QWidget):
         self.rejected.emit()
 
 
+PER_CHANNEL_NOTE = (
+    "Per-channel amounts can't be adjusted by hand: the amounts above show "
+    "green's, and changing any setting applies one set of amounts to all "
+    "three channels."
+)
+
+
+PER_CHANNEL_READOUT_NOTE = (
+    "The amounts above show green's. Changing any\n"
+    "setting applies one set of amounts to all three\n"
+    "channels, and these can't be adjusted by hand."
+)
+
+
 class _AutoSearchMixin:
     """An Auto button that stays pressed while its search result is unaltered.
 
@@ -667,6 +681,63 @@ class _AutoSearchMixin:
     """
 
     _auto_selected = False
+    # Per-channel Auto results, one entry per RGB channel, while Auto is pressed.
+    _channel_results: list | None = None
+
+    def _add_per_channel_option(self, auto_layout: QHBoxLayout) -> None:
+        """Add the Each RGB channel option beside Auto, and its result readout."""
+        self.per_channel = QCheckBox("Each RGB channel")
+        self.per_channel.setToolTip(
+            "Auto searches red, green and blue separately, giving each channel "
+            "its own amounts.\n" + PER_CHANNEL_NOTE
+        )
+        self.per_channel.setEnabled(not self._is_grayscale)
+        auto_layout.insertWidget(1, self.per_channel)
+        self.channel_readout = QLabel()
+        self.channel_readout.setVisible(False)
+        self._form.addRow(self.channel_readout)
+
+    def _per_channel_active(self) -> bool:
+        return self.per_channel.isChecked() and not self._is_grayscale
+
+    def _show_channel_results(self) -> None:
+        results = self._channel_results
+        self.channel_readout.setVisible(bool(results))
+        # Per-channel amounts sharpen each channel, so Luminance does not apply.
+        self.luminance.setEnabled(not self._is_grayscale and not results)
+        if results:
+            lines = [f"{name}: {self._format_channel_result(r)}"
+                     for name, r in zip(("Red", "Green", "Blue"), results)]
+            # Short fixed lines: a wrapped label is mis-measured in the form.
+            heading = self._channel_result_heading
+            self.channel_readout.setText(
+                "Per-channel Auto amounts"
+                + (f"\n({heading}):\n" if heading else ":\n")
+                + "\n".join(lines) + "\n" + PER_CHANNEL_READOUT_NOTE
+            )
+
+    def _saved_channel_results(self) -> list | None:
+        if not (self._auto_selected and self._channel_results):
+            return None
+        return [list(r) if isinstance(r, (list, tuple)) else r
+                for r in self._channel_results]
+
+    def _load_per_channel(self, params: dict[str, Any]) -> None:
+        self.per_channel.blockSignals(True)
+        self.per_channel.setChecked(bool(params.get("per_channel", False)))
+        self.per_channel.blockSignals(False)
+        amounts = params.get("channel_amounts")
+        valid = (params.get("auto") and self._per_channel_active()
+                 and isinstance(amounts, (list, tuple)) and len(amounts) == 3)
+        self._channel_results = list(amounts) if valid else None
+        self._show_channel_results()
+
+    def _progress_label(self, channel: int | None = None) -> str:
+        if channel is None:
+            return "Calculating…"
+        name = ("red", "green", "blue")[channel]
+        return (f"Calculating the {name} channel ({channel + 1} of 3)…\n\n"
+                + PER_CHANNEL_NOTE)
 
     def _init_auto_button(self, controls) -> None:
         self.auto_apply.setCheckable(True)
@@ -678,6 +749,10 @@ class _AutoSearchMixin:
 
     def _set_auto_selected(self, selected: bool) -> None:
         self._auto_selected = selected
+        if not selected and self._channel_results is not None:
+            # Edited amounts apply to every channel alike.
+            self._channel_results = None
+            self._show_channel_results()
         self.auto_apply.blockSignals(True)
         self.auto_apply.setChecked(selected)
         self.auto_apply.blockSignals(False)
@@ -698,6 +773,7 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
     supports_presets = True
     supports_difference = True
     supports_clamp = True
+    _channel_result_heading = "fine / medium / coarse / chunky"
 
     def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
         self._is_grayscale = is_grayscale
@@ -705,9 +781,13 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
         super().__init__("Wavelet Sharpen", parent)
 
     def _build_filter_params(self) -> None:
-        from planetary_tools.filters.wavelet_auto import auto_wavelet_sharpen_params
+        from planetary_tools.filters.wavelet_auto import (
+            auto_wavelet_sharpen_channel_params,
+            auto_wavelet_sharpen_params,
+        )
 
         self._auto_wavelet_sharpen_params = auto_wavelet_sharpen_params
+        self._auto_wavelet_sharpen_channel_params = auto_wavelet_sharpen_channel_params
 
         fdef = FILTERS[self.filter_id]
         self.fine = self._add_double("Fine", fdef.default_params["fine"], 0.0, 300.0)
@@ -739,6 +819,7 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
         auto_layout.addWidget(self.auto_apply)
         auto_layout.addStretch(1)
         self._form.addRow(auto_row)
+        self._add_per_channel_option(auto_layout)
 
         self.target_noise = QDoubleSpinBox()
         self.target_noise.setRange(0.0, 20.0)
@@ -761,8 +842,13 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
         self._form.addRow("Target contrast", self.target_contrast)
         self._init_auto_button((
             self.fine, self.medium, self.coarse, self.chunky, self.luminance,
-            self.target_noise, self.target_contrast,
+            self.per_channel, self.target_noise, self.target_contrast,
         ))
+        self.per_channel.toggled.connect(lambda _: self.params_changed.emit())
+
+    @staticmethod
+    def _format_channel_result(amounts) -> str:
+        return " / ".join(f"{float(a):.1f}" for a in amounts)
 
     def _set_amount_spins(
         self, fine: float, medium: float, coarse: float, chunky: float
@@ -797,7 +883,11 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
             self.chunky.value(),
         )
 
-        progress_dlg = QProgressDialog("Calculating…", "Cancel", 0, 0, self)
+        per_channel = self._per_channel_active()
+        prior_results = self._channel_results
+        progress_dlg = QProgressDialog(
+            self._progress_label(0 if per_channel else None), "Cancel", 0, 0, self,
+        )
         progress_dlg.setWindowTitle("Auto Wavelet Sharpen")
         progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dlg.setMinimumDuration(0)
@@ -821,29 +911,45 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
             if progress_dlg.wasCanceled():
                 raise _Cancelled
 
+        def channel_started(index: int) -> None:
+            progress_dlg.setLabelText(self._progress_label(index))
+
         self._auto_running = True
         self.auto_apply.setEnabled(False)
         try:
-            result = self._auto_wavelet_sharpen_params(
-                data,
-                is_grayscale,
-                target_noise=self.target_noise.value(),
-                target_contrast=self.target_contrast.value(),
-                progress=progress,
-                texture_scale=getattr(self, "_noise_texture_scale", None),
-                chromatic=getattr(self, "_noise_chromatic", None),
-                luminance=self.luminance.isChecked(),
-            )
-            self._set_amount_spins(
-                result.fine, result.medium, result.coarse, result.chunky
-            )
-            self._set_auto_selected(True)
+            targets = {
+                "target_noise": self.target_noise.value(),
+                "target_contrast": self.target_contrast.value(),
+                "progress": progress,
+                "texture_scale": getattr(self, "_noise_texture_scale", None),
+                "chromatic": getattr(self, "_noise_chromatic", None),
+            }
+            if per_channel:
+                results = self._auto_wavelet_sharpen_channel_params(
+                    data, channel_started=channel_started, **targets,
+                )
+                amounts = [(r.fine, r.medium, r.coarse, r.chunky) for r in results]
+                # The spins show green, the channel that dominates luminance.
+                self._set_amount_spins(*amounts[1])
+                self._set_auto_selected(True)
+                self._channel_results = amounts
+            else:
+                result = self._auto_wavelet_sharpen_params(
+                    data, is_grayscale, luminance=self.luminance.isChecked(), **targets,
+                )
+                self._set_amount_spins(
+                    result.fine, result.medium, result.coarse, result.chunky
+                )
+                self._set_auto_selected(True)
+                self._channel_results = None
         except _Cancelled:
             self._set_amount_spins(*prior)
+            self._channel_results = prior_results if self._auto_selected else None
         finally:
             self._auto_running = False
             self.auto_apply.setEnabled(True)
             progress_dlg.close()
+            self._show_channel_results()
         # A load's caller updates the preview itself.
         if not loaded:
             self.params_changed.emit()
@@ -859,6 +965,8 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
             "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
             "auto": self._auto_selected,
+            "per_channel": self.per_channel.isChecked(),
+            "channel_amounts": self._saved_channel_results(),
         })
         return p
 
@@ -886,6 +994,7 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
         self.target_contrast.setValue(
             float(params.get("target_contrast", self.target_contrast.value()))
         )
+        self._load_per_channel(params)
         for spin in spins:
             spin.blockSignals(False)
         self.luminance.blockSignals(False)
@@ -1136,6 +1245,7 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
     supports_presets = True
     supports_difference = True
     supports_clamp = True
+    _channel_result_heading = ""
 
     def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
         self._is_grayscale = is_grayscale
@@ -1144,10 +1254,12 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
 
     def _build_filter_params(self) -> None:
         from planetary_tools.filters.adaptive_deconv_auto import (
+            auto_adaptive_deconv_channel_params,
             auto_adaptive_deconv_params,
         )
 
         self._auto_adaptive_deconv_params = auto_adaptive_deconv_params
+        self._auto_adaptive_deconv_channel_params = auto_adaptive_deconv_channel_params
 
         fdef = FILTERS[self.filter_id]
         self.amount = self._add_double(
@@ -1184,6 +1296,7 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
         auto_layout.addWidget(self.auto_apply)
         auto_layout.addStretch(1)
         self._form.addRow(auto_row)
+        self._add_per_channel_option(auto_layout)
 
         self.target_noise = QDoubleSpinBox()
         self.target_noise.setRange(0.0, 20.0)
@@ -1206,8 +1319,13 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
         self._form.addRow("Target contrast", self.target_contrast)
         self._init_auto_button((
             self.amount, self.adaptive, self.luminance,
-            self.target_noise, self.target_contrast,
+            self.per_channel, self.target_noise, self.target_contrast,
         ))
+        self.per_channel.toggled.connect(lambda _: self.params_changed.emit())
+
+    @staticmethod
+    def _format_channel_result(amount) -> str:
+        return f"{float(amount):.1f}"
 
     def _set_amount_spin(self, amount: float) -> None:
         self.amount.blockSignals(True)
@@ -1226,8 +1344,12 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
             return
         is_grayscale = bool(getattr(self, "_input_is_grayscale", False))
         prior = self.amount.value()
+        per_channel = self._per_channel_active()
+        prior_results = self._channel_results
 
-        progress_dlg = QProgressDialog("Calculating…", "Cancel", 0, 0, self)
+        progress_dlg = QProgressDialog(
+            self._progress_label(0 if per_channel else None), "Cancel", 0, 0, self,
+        )
         progress_dlg.setWindowTitle("Auto Adaptive Deconvolution")
         progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dlg.setMinimumDuration(0)
@@ -1244,28 +1366,43 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
             if progress_dlg.wasCanceled():
                 raise _Cancelled
 
+        def channel_started(index: int) -> None:
+            progress_dlg.setLabelText(self._progress_label(index))
+
         self._auto_running = True
         self.auto_apply.setEnabled(False)
         try:
-            result = self._auto_adaptive_deconv_params(
-                data,
-                is_grayscale,
-                target_noise=self.target_noise.value(),
-                target_contrast=self.target_contrast.value(),
-                adaptive=self.adaptive.isChecked(),
-                luminance=self.luminance.isChecked(),
-                progress=progress,
-                texture_scale=getattr(self, "_noise_texture_scale", None),
-                chromatic=getattr(self, "_noise_chromatic", None),
-            )
-            self._set_amount_spin(result.amount)
-            self._set_auto_selected(True)
+            targets = {
+                "target_noise": self.target_noise.value(),
+                "target_contrast": self.target_contrast.value(),
+                "adaptive": self.adaptive.isChecked(),
+                "progress": progress,
+                "texture_scale": getattr(self, "_noise_texture_scale", None),
+                "chromatic": getattr(self, "_noise_chromatic", None),
+            }
+            if per_channel:
+                results = self._auto_adaptive_deconv_channel_params(
+                    data, channel_started=channel_started, **targets,
+                )
+                # The spin shows green, the channel that dominates luminance.
+                self._set_amount_spin(results[1].amount)
+                self._set_auto_selected(True)
+                self._channel_results = [r.amount for r in results]
+            else:
+                result = self._auto_adaptive_deconv_params(
+                    data, is_grayscale, luminance=self.luminance.isChecked(), **targets,
+                )
+                self._set_amount_spin(result.amount)
+                self._set_auto_selected(True)
+                self._channel_results = None
         except _Cancelled:
             self._set_amount_spin(prior)
+            self._channel_results = prior_results if self._auto_selected else None
         finally:
             self._auto_running = False
             self.auto_apply.setEnabled(True)
             progress_dlg.close()
+            self._show_channel_results()
         # A load's caller updates the preview itself.
         if not loaded:
             self.params_changed.emit()
@@ -1279,6 +1416,8 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
             "target_noise": self.target_noise.value(),
             "target_contrast": self.target_contrast.value(),
             "auto": self._auto_selected,
+            "per_channel": self.per_channel.isChecked(),
+            "channel_amounts": self._saved_channel_results(),
         })
         return p
 
@@ -1301,6 +1440,7 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
         self.target_contrast.setValue(
             float(params.get("target_contrast", self.target_contrast.value()))
         )
+        self._load_per_channel(params)
         self.amount.blockSignals(False)
         self.adaptive.blockSignals(False)
         self.luminance.blockSignals(False)
@@ -1996,6 +2136,23 @@ def _apply_params_to_batch_widgets(
         sync_relative(widgets["retain_relative_brightness"].isChecked())
 
 
+def _step_per_channel_box(params: dict[str, Any], is_grayscale: bool) -> QCheckBox:
+    box = QCheckBox("Each RGB channel")
+    box.setToolTip(
+        "With Auto, search red, green and blue separately for each image, "
+        "giving each channel its own amounts."
+    )
+    box.setChecked(bool(params.get("per_channel", False)) and not is_grayscale)
+    return box
+
+
+def _sync_step_per_channel(widgets: dict[str, Any], auto: bool, is_grayscale: bool) -> None:
+    widgets["per_channel"].setEnabled(auto and not is_grayscale)
+    widgets["luminance"].setEnabled(
+        not is_grayscale and not (auto and widgets["per_channel"].isChecked())
+    )
+
+
 def edit_filter_params(
     filter_id: str,
     params: dict[str, Any],
@@ -2078,6 +2235,9 @@ def edit_filter_params(
         auto_box.setChecked(bool(params.get("auto", fdef.default_params.get("auto", False))))
         form.addRow(auto_box)
         widgets["auto"] = auto_box
+        per_channel = _step_per_channel_box(params, is_grayscale)
+        form.addRow(per_channel)
+        widgets["per_channel"] = per_channel
         target_noise = QDoubleSpinBox()
         target_noise.setRange(0.0, 20.0)
         target_noise.setDecimals(1)
@@ -2107,9 +2267,11 @@ def edit_filter_params(
                 widgets[key].setEnabled(not checked)
             widgets["target_noise"].setEnabled(checked)
             widgets["target_contrast"].setEnabled(checked)
+            _sync_step_per_channel(widgets, checked, is_grayscale)
             preset_combo.setEnabled(not checked)
 
         auto_box.toggled.connect(_sync_wavelet_auto)
+        per_channel.toggled.connect(lambda _: _sync_wavelet_auto(auto_box.isChecked()))
         _sync_wavelet_auto(auto_box.isChecked())
         widgets["_sync_auto"] = _sync_wavelet_auto
     elif filter_id == "fft_denoise":
@@ -2178,6 +2340,9 @@ def edit_filter_params(
         auto_box.setChecked(bool(params.get("auto", fdef.default_params.get("auto", False))))
         form.addRow(auto_box)
         widgets["auto"] = auto_box
+        per_channel = _step_per_channel_box(params, is_grayscale)
+        form.addRow(per_channel)
+        widgets["per_channel"] = per_channel
         target_noise = QDoubleSpinBox()
         target_noise.setRange(0.0, 20.0)
         target_noise.setDecimals(1)
@@ -2206,9 +2371,11 @@ def edit_filter_params(
             widgets["amount"].setEnabled(not checked)
             widgets["target_noise"].setEnabled(checked)
             widgets["target_contrast"].setEnabled(checked)
+            _sync_step_per_channel(widgets, checked, is_grayscale)
             preset_combo.setEnabled(not checked)
 
         auto_box.toggled.connect(_sync_deconv_auto)
+        per_channel.toggled.connect(lambda _: _sync_deconv_auto(auto_box.isChecked()))
         _sync_deconv_auto(auto_box.isChecked())
         widgets["_sync_auto"] = _sync_deconv_auto
     elif filter_id == "wiener_deconv":

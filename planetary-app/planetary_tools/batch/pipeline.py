@@ -41,7 +41,9 @@ class PipelineStep:
         if self.preset_name:
             parts.append(self.preset_name)
         if self.params.get("auto"):
-            parts.append("Auto")
+            per_channel = (self.filter_id in ("wavelet_sharpen", "adaptive_deconv")
+                           and self.params.get("per_channel"))
+            parts.append("Auto per channel" if per_channel else "Auto")
         if self.filter_id == "scale_image":
             wp, hp = scale_percents(self.params)
             if abs(wp - hp) < 1e-6:
@@ -244,7 +246,32 @@ def _resolve_auto_params(
     if not merged.get("auto"):
         return merged
 
-    if filter_id == "wavelet_sharpen":
+    per_channel = bool(merged.get("per_channel")) and not is_grayscale
+    if filter_id == "wavelet_sharpen" and per_channel:
+        from planetary_tools.filters.wavelet_auto import auto_wavelet_sharpen_channel_params
+
+        results = auto_wavelet_sharpen_channel_params(
+            data,
+            target_noise=float(merged.get("target_noise", 3.0)),
+            target_contrast=float(merged.get("target_contrast", 15.0)),
+        )
+        amounts = [[r.fine, r.medium, r.coarse, r.chunky] for r in results]
+        merged["channel_amounts"] = amounts
+        merged.update(zip(("fine", "medium", "coarse", "chunky"), amounts[1]))
+    elif filter_id == "adaptive_deconv" and per_channel:
+        from planetary_tools.filters.adaptive_deconv_auto import (
+            auto_adaptive_deconv_channel_params,
+        )
+
+        results = auto_adaptive_deconv_channel_params(
+            data,
+            target_noise=float(merged.get("target_noise", 3.5)),
+            target_contrast=float(merged.get("target_contrast", 15.0)),
+            adaptive=bool(merged.get("adaptive", True)),
+        )
+        merged["channel_amounts"] = [r.amount for r in results]
+        merged["amount"] = results[1].amount
+    elif filter_id == "wavelet_sharpen":
         from planetary_tools.filters.wavelet_auto import auto_wavelet_sharpen_params
 
         result = auto_wavelet_sharpen_params(

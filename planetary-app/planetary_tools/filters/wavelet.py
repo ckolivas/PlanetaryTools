@@ -206,6 +206,18 @@ def wavelet_sharpen(
     return _process_channels(data, is_grayscale, sharpen_channel)
 
 
+def wavelet_sharpen_channels(data: np.ndarray, amounts) -> np.ndarray:
+    """Sharpen each RGB channel with its own (fine, medium, coarse, chunky).
+
+    Identical to ``wavelet_sharpen`` on RGB without luminance when the three
+    amount sets are equal, since that also sharpens each channel separately.
+    """
+    src = np.asarray(data, dtype=np.float32)
+    return np.stack([
+        wavelet_sharpen(src[..., c], True, *amounts[c]) for c in range(3)
+    ], axis=-1).astype(np.float32)
+
+
 def merge_wavelet_detail(
     main_data: np.ndarray,
     secondary_data: np.ndarray,

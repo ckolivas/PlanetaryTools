@@ -46,7 +46,9 @@ from planetary_tools.filters.fft_denoise import DEFAULT_FFT_DENOISE_PARAMS, fft_
 from planetary_tools.filters.deglow import DEFAULT_DEGLOW_PARAMS, deglow
 from planetary_tools.filters.saturation import apply_saturation_vibrance
 from planetary_tools.filters.stretch import stretch_contrast_oklab
-from planetary_tools.filters.wavelet import merge_wavelet_detail, wavelet_denoise, wavelet_sharpen
+from planetary_tools.filters.wavelet import (
+    merge_wavelet_detail, wavelet_denoise, wavelet_sharpen, wavelet_sharpen_channels,
+)
 from planetary_tools.filters.wiener_deconv import wiener_deconvolution
 
 FilterFunc = Callable[[np.ndarray, bool], np.ndarray]
@@ -103,9 +105,32 @@ class FilterDef:
         raise NotImplementedError
 
 
+def channel_amounts(params: dict[str, Any], is_grayscale: bool, size: int = 0):
+    """Per-channel Auto amounts, or ``None`` to use the shared amounts.
+
+    They apply only while Auto and Each RGB channel are both on: editing an
+    amount releases Auto, and the shared amounts then apply to all channels.
+    ``size`` is the number of amounts per channel, or 0 for a single value.
+    """
+    amounts = params.get("channel_amounts")
+    if (is_grayscale or not params.get("auto") or not params.get("per_channel")
+            or not isinstance(amounts, (list, tuple)) or len(amounts) != 3):
+        return None
+    try:
+        if size:
+            values = [tuple(float(a) for a in channel) for channel in amounts]
+            return values if all(len(v) == size for v in values) else None
+        return [float(a) for a in amounts]
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass
 class WaveletSharpenDef(FilterDef):
     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
+        amounts = channel_amounts(params, is_grayscale, size=4)
+        if amounts is not None:
+            return wavelet_sharpen_channels(data, amounts)
         return wavelet_sharpen(
             data, is_grayscale,
             params.get("fine", 16.0),
@@ -139,10 +164,11 @@ class FftDenoiseDef(FilterDef):
 @dataclass
 class AdaptiveDeconvDef(FilterDef):
     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
-        luminance = params.get("luminance", True) and not is_grayscale
+        amounts = channel_amounts(params, is_grayscale)
+        luminance = params.get("luminance", True) and not is_grayscale and amounts is None
         return adaptive_deconvolution(
             data, is_grayscale,
-            params.get("amount", 10.0),
+            params.get("amount", 10.0) if amounts is None else amounts,
             params.get("adaptive", True),
             luminance=luminance,
         )
@@ -394,6 +420,8 @@ FILTERS: dict[str, FilterDef] = {
             "chunky": 0.0,
             "luminance": False,
             "auto": False,
+            "per_channel": False,
+            "channel_amounts": None,
             "target_noise": 3.0,
             "target_contrast": 15.0,
         }),
@@ -415,6 +443,8 @@ FILTERS: dict[str, FilterDef] = {
             "adaptive": True,
             "luminance": True,
             "auto": False,
+            "per_channel": False,
+            "channel_amounts": None,
             "target_noise": 3.5,
             "target_contrast": 15.0,
         }),

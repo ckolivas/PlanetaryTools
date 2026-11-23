@@ -82,6 +82,11 @@ def auto_adaptive_deconv_params(
         c = 0.0 if contrast is None else float(contrast)
         return n, c
 
+    return _search_amount(metrics, target_noise, target_contrast, max_amount, progress)
+
+
+def _search_amount(metrics, target_noise, target_contrast, max_amount, progress):
+    """Largest 0.1-step amount whose noise and contrast stay within the targets."""
     def ok(n: float, c: float) -> bool:
         return n <= target_noise + _EPS and c <= target_contrast + _EPS
 
@@ -116,3 +121,49 @@ def auto_adaptive_deconv_params(
     if progress is not None:
         progress(amount, best_n, best_c)
     return AutoDeconvResult(amount, best_n, best_c)
+
+
+def auto_adaptive_deconv_channel_params(
+    data: np.ndarray,
+    target_noise: float = 3.5,
+    target_contrast: float = 15.0,
+    *,
+    adaptive: bool = True,
+    max_amount: float = _MAX_AMOUNT,
+    progress: Callable[[float, float, float], None] | None = None,
+    channel_started: Callable[[int], None] | None = None,
+    texture_scale: float | None = None,
+    chromatic: bool | None = None,
+) -> list[AutoDeconvResult]:
+    """Search one amount per RGB channel, each against the same targets.
+
+    Each channel is scored on its own, as a greyscale plane, using the
+    image's texture scale and colour flag so its noise score is on the same
+    scale as the RGB readout. ``channel_started`` is called with 0, 1, 2.
+    """
+    target_noise = max(0.0, float(target_noise))
+    target_contrast = max(0.0, float(target_contrast))
+    max_amount = _round_step(max(0.0, min(float(max_amount), _MAX_AMOUNT)))
+    src = np.asarray(data, dtype=np.float32)
+    if texture_scale is None:
+        texture_scale = estimate_texture_scale(src, False)
+    if chromatic is None:
+        chromatic = is_chromatic(src, False)
+    engine = _PreparedDeconvolution(src, False, bool(adaptive), False)
+    results = []
+    for index in range(3):
+        if channel_started is not None:
+            channel_started(index)
+        plane = src[..., index]
+
+        def metrics(amount: float, index=index, plane=plane) -> tuple[float, float]:
+            out = engine.apply_channel(index, float(amount))
+            noise = absolute_noise(out, True, texture_scale=texture_scale, chromatic=chromatic)
+            contrast = brightness_increase_pct(plane, out, True)
+            return (0.0 if noise is None else float(noise),
+                    0.0 if contrast is None else float(contrast))
+
+        results.append(_search_amount(
+            metrics, target_noise, target_contrast, max_amount, progress,
+        ))
+    return results
