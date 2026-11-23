@@ -301,7 +301,7 @@ Determines how much of the different sharpening sliders Auto applies, according 
 
 ### Auto: Target contrast
 
-Limits oversharpening when the noise limit has not been reached. Normal values are 15-20 for first-stage sharpening before deconvolution, or 30-40 when Wavelet Sharpen is the sole sharpening endpoint. It limits brightness increase, rather than measuring local texture contrast.
+Limits oversharpening when the noise limit has not been reached. Normal values are 15-25 for first-stage sharpening before deconvolution, or 30-40 when Wavelet Sharpen is the sole sharpening endpoint. It limits brightness increase, rather than measuring local texture contrast.
 
 ### Luminance for poorer captures
 
@@ -1094,8 +1094,8 @@ The author's normal process for one-shot colour images corrects optical aberrati
 ### Suggested process
 
 1. First, on the raw stack, open Correct Optical Aberrations with Auto-select moons on. It needs at least one small moon in the frame; without one, skip this step. Tick Coma/collimation and Trefoil only if each registers above 5%, and untick any that does not. If neither does, cancel and leave the image uncorrected. See [Correct Optical Aberrations](#correct-optical-aberrations).
-2. In Wavelet Sharpen, set Target noise to 3-6 and Target contrast to 15, then press Auto. Choose a noise level appropriate to the capture quality.
-3. In Adaptive Deconvolution, set Target noise 0.5-1.0 higher than the Wavelet Sharpen target, keep Target contrast at 15 and press Auto. For example, a wavelet target of 4 becomes 4.5-5 for deconvolution.
+2. In Wavelet Sharpen, set Target noise to 3-6 and Target contrast to 25. On one-shot colour images, tick Each RGB channel so that Auto searches each colour channel separately, unless using Luminance mode for a poorer capture (step 5). Then press Auto. Choose a noise level appropriate to the capture quality.
+3. In Adaptive Deconvolution, set Target noise 0.5-1.0 higher than the Wavelet Sharpen target, set Target contrast to 15 and press Auto. For example, a wavelet target of 4 becomes 4.5-5 for deconvolution.
 4. For images intended for WinJUPOS derotation, leave Contrast Adaptive off. For a single stack being finished as the final image, turn Contrast Adaptive on. Adaptive mode is often best saved for this finalising sharpening step.
 5. For poorer-quality captures, use Luminance (BT.709) mode in the sharpening tools. During final post-processing, set Vibrance to 1.15-1.3 to restore saturation.
 
@@ -1103,9 +1103,9 @@ The author's normal process for one-shot colour images corrects optical aberrati
 
 Correcting coma and trefoil moves light back into place rather than amplifying detail, so it adds no noise, and Wavelet Sharpen Auto then usually needs lower amounts. Below 5% the measurement is hard to tell from noise and the moons' own shape, and correcting it gains little while adding ringing.
 
-### Two stages, one contrast limit
+### Contrast targets for the two stages
 
-This workflow uses a contrast target of 15 in both stages. The higher 30-40 wavelet contrast range is for Wavelet Sharpen used as the sole sharpening endpoint.
+This workflow uses a contrast target of 25 for Wavelet Sharpen and 15 for Adaptive Deconvolution. The higher 30-40 wavelet contrast range is for Wavelet Sharpen used as the sole sharpening endpoint.
 
 ### Adjust to the capture
 
