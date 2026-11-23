@@ -86,6 +86,7 @@ def build(output, fonts):
     # Bookmark without listing the contents page in itself.
     story += [Paragraph('<a name="contents"/>Contents', h1), toc]
     anchor = None
+    pending = None  # an anchor not yet given to a heading
     block = []
     active = False
 
@@ -97,7 +98,7 @@ def build(output, fonts):
     for line in md.splitlines():
         if line.startswith('<a id='):
             flush()
-            anchor = re.search(r'id="([^"]+)"', line)[1]
+            anchor = pending = re.search(r'id="([^"]+)"', line)[1]
             active = True
         elif not active:
             continue
@@ -106,12 +107,16 @@ def build(output, fonts):
             story.append(PageBreak())
             heading = Paragraph(inline(line[3:]), h1)
             heading.anchor = anchor
+            pending = None
             story.append(heading)
         elif line.startswith('### '):
             flush()
             if line[4:] == 'Undocking, resizing and reattaching tool panels':
                 story.append(PageBreak())
-            story.append(Paragraph(inline(line[4:]), h2))
+            # A subsection anchor becomes a link destination, not a bookmark.
+            target = f'<a name="{pending}"/>' if pending else ''
+            pending = None
+            story.append(Paragraph(target + inline(line[4:]), h2))
         elif line.startswith('<img '):
             flush()
             src = re.search(r'src="([^"]+)"', line)[1]
@@ -180,9 +185,14 @@ def build(output, fonts):
                 left += parts[i]._content + [Spacer(1, 10)]
                 if position + 1 < len(figures):
                     left += parts[i+1:figures[position+1]]
-            table = Table([[left, parts[figures[-1]+1:]]], colWidths=[232, 267])
+            # Only the first subsection sits beside the images: a table row
+            # cannot split across pages, so the rest flows below them.
+            headings = [n for n in range(figures[-1]+1, len(parts))
+                        if isinstance(parts[n], Paragraph) and parts[n].style is h2]
+            end = headings[1] if len(headings) > 1 else len(parts)
+            table = Table([[left, parts[figures[-1]+1:end]]], colWidths=[232, 267])
             table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
-            return parts[:figures[0]] + [table]
+            return parts[:figures[0]] + [table] + parts[end:]
         if len(figures) == 1 and not parts[figures[0]].wide:
             i = figures[0]
             image_block = parts[i]

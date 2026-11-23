@@ -1,8 +1,9 @@
 # Planetary Tools
 
 Planetary Tools (PT) is a standalone desktop application for processing stacked
-planetary images. Sharpen detail, reduce noise, correct colour, enhance moons,
-align frames and create animations in one application.
+planetary images. Correct optical aberrations, sharpen detail, reduce noise,
+correct colour, enhance moons, align frames and create animations in one
+application.
 
 **[Download the latest release](https://github.com/ckolivas/PlanetaryTools/releases/latest)**
  · **[Read the illustrated manual](docs/manual.md)**

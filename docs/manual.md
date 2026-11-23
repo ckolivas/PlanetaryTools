@@ -2,7 +2,7 @@
 
 [Project overview and downloads](../README.md) · [PDF edition](../Planetary-Tools-Manual.pdf) · [Development guide](development.md)
 
-Revised **29 October 2026**. Covers application build **0d03d55**, labelled **1.4.0**. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
+Revised **23 November 2026**. Covers application build **c0ca4f0**, labelled **1.5.0**. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
 
 ## Contents
 
@@ -63,6 +63,8 @@ Drag an edge or corner of the floating panel to resize it. The resize cursor app
 
 PT remembers each tool's floating size separately, including after restarting. When that tool is reopened while floating, or undocked again, its saved size is restored within the available screen space and the controls' minimum size. This changes the controls' size, not the image resolution or zoom.
 
+When a docked panel is taller than the window, it scrolls, so its OK and Cancel buttons are never out of reach. The readout lines at the top keep their compact height, and any spare height goes to a graph or below the controls.
+
 Click the reattach button, or drag the title bar to the left or right edge of the main window, to dock the panel again at its compact width. Closing a tool panel cancels unapplied changes; use OK to keep them. These dock controls apply to panels attached to the workspace. Tools such as Caption and Rotate already open in separate dialog windows.
 
 <img src="images/workspace_floating.png" alt="Undocked Curves panel enlarged to give its graph more space" width="600">
@@ -96,8 +98,20 @@ PT remembers file-dialog locations and the last selected output format. Save As 
 1. Open a file, or choose it from Open Recent. In the file picker, use Favourites on the left and Recent directories below the separator.
 2. Filter by an image type or All Images. All Files reveals every file; it does not make an unsupported format readable.
 3. Choose Save As for a new output copy. Select the format/bit depth, check the destination and name, then save. Save writes to the current image path.
-4. To keep a record of how the image was made, tick Save workflow with image in the Save As dialog, or File > Save Workflow With Image for both Save and Save As. Saving then also writes a .ptbatch workflow beside the image, with the same name (saturn.png gives saturn.ptbatch), holding the edits applied to it exactly as Batch Processing's Current workflow would import them, with the saved bit depth as its output depth. Edits with no batch step, such as Caption, are left out, and no workflow is written when none of the edits has one. If a .ptbatch of that name already exists, including one from an earlier save of the same image, PT asks whether to replace it; Keep Existing, the default, leaves it unchanged, and the image is saved either way. Load it in Batch Processing with Load workflow, or run it on another open image with Apply Workflow to Image. The option starts on, and turning it off or on again is remembered.
+4. Leave Save workflow with image ticked to keep a record of how the image was made; see [Saving the workflow with the image](#saving-the-workflow-with-the-image) below.
 5. Choose File > Close to unload the image and clear its history without quitting. PT asks first if there are unsaved changes, and asks you to finish or cancel an open tool.
+
+<a id="saving-the-workflow-with-the-image"></a>
+
+### Saving the workflow with the image
+
+<img src="images/menu_file.png" alt="File menu with Save Workflow With Image ticked and Apply Workflow to Image" width="270">
+
+Tick Save workflow with image in the Save As dialog, or File > Save Workflow With Image for both Save and Save As. Saving then also writes a .ptbatch workflow beside the image, with the same name (saturn.png gives saturn.ptbatch). It holds the edits applied to the image exactly as Batch Processing's Current workflow would import them, with the saved bit depth as its output depth. Edits with no batch step, such as Caption, are left out, and no workflow is written when none of the edits has one. The option starts on, and turning it off or on again is remembered.
+
+If a .ptbatch of that name already exists, including one from an earlier save of the same image, PT asks whether to replace it. Keep Existing, the default, leaves it unchanged; the image is saved either way.
+
+Load the workflow in Batch Processing with Load workflow to repeat the edits on a folder, or run it on another open image with [Apply Workflow to Image](#apply-workflow-to-image).
 
 ### Output choices
 
@@ -384,7 +398,7 @@ Use this mainly after sharpening. A smooth radial frequency filter suppresses hi
 
 ### Feather and Curve
 
-Feather is the transition width, not its absolute endpoint. Negative Curve retains more of the transition; positive Curve suppresses more. Wider transitions generally reduce abrupt-cutoff ringing.
+Feather is the transition width, not its absolute endpoint, and can be set up to 200%. Negative Curve retains more of the transition; positive Curve suppresses more. Wider transitions generally reduce abrupt-cutoff ringing.
 
 ### Auto in batches
 
@@ -846,9 +860,18 @@ Coma and trefoil displace light rather than spread it, so their correction moves
 
 Astigmatism, an elongated moon, is not corrected. Boosting detail along the long axis amplified noise that later sharpening raised further, and the sharpened result was worse than without it; leave the elongation to the usual sharpening.
 
+<img src="images/optical.png" alt="Correct Optical Aberrations measuring 15% coma and 7% trefoil from four moons" width="420">
+
+### What it needs
+
+Apply the correction to the raw stacked image, straight from the stacker, with at least one small moon in the frame:
+
+- **The raw stack.** Every later step changes the moons' shape. Sharpening adds wavelet ringing around them, which the tool would read as part of the blur, deepen and amplify along with the noise. Moon Enhance, denoising, deglow and clamping alter the moons' cores and halos. Run it first, before any other processing; cropping beforehand is fine.
+- **A small moon.** The moon is the measurement. Without one in the frame there is nothing to measure, and the tool cannot be used. Tethys, Dione, Rhea or Enceladus suit Saturn. A large, resolved moon such as Titan, or Jupiter's Galilean moons, is bigger than the blur and gives a wrong correction. The moon must be bright enough to stand clear of the noise, unclipped and away from the planet's glow. Several moons are better than one.
+
 ### How to use
 
-1. Open the unsharpened stack. The tool is designed for it: the moons are measured cleanly there and the correction barely rings. On an already sharpened image it deepens the wavelet ringing and amplifies noise. Always run it before Moon Enhance, denoising or clamping, which change the moons' shape.
+1. Open the raw stack, with at least one small moon in the frame; see What it needs above.
 2. Leave Auto-select moons on, or click a moon on the image or drag a box around it. Shift-drag pans the image. The moons used are circled; the panel shows their measured size, elongation and angle, the strength of each aberration, and the moon before and after correction.
 3. Leave Coma/collimation and Trefoil ticked to correct everything measured, or untick either you do not want corrected. Correcting an aberration measured below 5% is not recommended: at that strength it is hard to tell from noise and the moons' own shape, correcting it gains little, and it introduces other artefacts such as ringing.
 4. Leave Protect background on, so the sky's noise is left alone.
@@ -934,7 +957,9 @@ Apply an ordered pipeline to many images and write processed copies. Batch runs 
 
 ### Current workflow
 
-Process one image interactively, then click Current workflow to repeat the same steps on the batch with the same settings. It follows Undo and Redo, so undone edits are left out. Edits without a batch filter, such as Caption, Merge Wavelet Detail or flipped rotations, are skipped and listed. PT asks before replacing existing pipeline steps. FFT Denoise applied with Auto stays in Auto mode, recalculating for each image.
+Process one image interactively, then click Current workflow to repeat the same steps on the batch with the same settings. It follows Undo and Redo, so undone edits are left out. Edits without a batch filter, such as Caption, Merge Wavelet Detail or flipped rotations, are skipped and listed. PT asks before replacing existing pipeline steps. FFT Denoise, Wavelet Sharpen and Adaptive Deconvolution applied with Auto still pressed stay in Auto mode, recalculating for each image; Correct Optical Aberrations with Auto-select moons measures each image's own moons.
+
+<a id="apply-workflow-to-image"></a>
 
 ### Apply Workflow to Image
 
@@ -966,7 +991,7 @@ Input/output directories and output-depth preferences persist; the output folder
 
 Use view controls to inspect pixels and Help to identify the running version or check for a newer published release.
 
-<img src="images/about.png" alt="About Planetary Tools showing version 1.4.0" width="400">
+<img src="images/about.png" alt="About Planetary Tools showing version 1.5.0" width="400">
 
 <img src="images/updates.png" alt="Update check displaying a network connection error" width="550">
 
@@ -986,7 +1011,19 @@ Use view controls to inspect pixels and Help to identify the running version or 
 
 ### Manual build identification
 
-This manual covers application build 0d03d55, labelled 1.4.0. Changes since the 1.2.1 manual include Show difference in the Enhance tools, the Moon Enhance gain cap and improved detection, WebP quality, batch Current workflow and remembered Last settings, File > Close, the 100% zoom button and the startup update check. Development builds can include changes not yet in a published release.
+This manual covers application build c0ca4f0, labelled 1.5.0. Changes since the 1.4.0 manual include:
+
+- Tools > Correct Optical Aberrations, which uses the moons to correct coma and trefoil.
+- Save Workflow With Image, which writes a .ptbatch beside the saved image, and asks before replacing one.
+- File > Apply Workflow to Image.
+- The Each RGB channel option for Wavelet Sharpen and Adaptive Deconvolution Auto.
+- Auto in those two tools now stays pressed and carries into batch steps.
+- Caption presets.
+- Max moons now starts at 4.
+- FFT Denoise feather widths up to 200%.
+- Compact panel readouts, with tall panels scrolling in the dock.
+
+Development builds can include changes not yet in a published release.
 
 ### Updating
 
@@ -1017,7 +1054,7 @@ Use this sequence as a starting structure, and compare each change at useful ima
 
 ### Suggested workflow order
 
-1. Correct Optical Aberrations, on the unsharpened stack, if the moons show coma or trefoil.
+1. Correct Optical Aberrations, on the raw stack with at least one small moon in the frame, if the moons show coma or trefoil above 5%.
 2. Wavelet Sharpen.
 3. Adaptive Deconvolution.
 4. Moon Enhance.
@@ -1044,7 +1081,7 @@ Check crop bounds, Moon Enhance margin, sensitivity and Max moons, and tone/clam
 
 ### Source and revision
 
-Revised 29 October 2026 for application build 0d03d55. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
+Revised 23 November 2026 for application build c0ca4f0. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
 
 [Back to contents](#contents)
 
@@ -1052,14 +1089,19 @@ Revised 29 October 2026 for application build 0d03d55. The author's camera-prese
 
 ## The author's sharpening workflow
 
-The author's normal process for one-shot colour images uses Wavelet Sharpen first, followed by deconvolution. Choose the deconvolution mode according to whether the image will be derotated in WinJUPOS or finished as a single stack.
+The author's normal process for one-shot colour images corrects optical aberrations on the raw stack, then uses Wavelet Sharpen, followed by deconvolution. Choose the deconvolution mode according to whether the image will be derotated in WinJUPOS or finished as a single stack.
 
 ### Suggested process
 
-1. In Wavelet Sharpen, set Target noise to 3-6 and Target contrast to 15, then press Auto. Choose a noise level appropriate to the capture quality.
-2. In Adaptive Deconvolution, set Target noise 0.5-1.0 higher than the Wavelet Sharpen target, keep Target contrast at 15 and press Auto. For example, a wavelet target of 4 becomes 4.5-5 for deconvolution.
-3. For images intended for WinJUPOS derotation, leave Contrast Adaptive off. For a single stack being finished as the final image, turn Contrast Adaptive on. Adaptive mode is often best saved for this finalising sharpening step.
-4. For poorer-quality captures, use Luminance (BT.709) mode in the sharpening tools. During final post-processing, set Vibrance to 1.15-1.3 to restore saturation.
+1. First, on the raw stack, open Correct Optical Aberrations with Auto-select moons on. It needs at least one small moon in the frame; without one, skip this step. Tick Coma/collimation and Trefoil only if each registers above 5%, and untick any that does not. If neither does, cancel and leave the image uncorrected. See [Correct Optical Aberrations](#correct-optical-aberrations).
+2. In Wavelet Sharpen, set Target noise to 3-6 and Target contrast to 15, then press Auto. Choose a noise level appropriate to the capture quality.
+3. In Adaptive Deconvolution, set Target noise 0.5-1.0 higher than the Wavelet Sharpen target, keep Target contrast at 15 and press Auto. For example, a wavelet target of 4 becomes 4.5-5 for deconvolution.
+4. For images intended for WinJUPOS derotation, leave Contrast Adaptive off. For a single stack being finished as the final image, turn Contrast Adaptive on. Adaptive mode is often best saved for this finalising sharpening step.
+5. For poorer-quality captures, use Luminance (BT.709) mode in the sharpening tools. During final post-processing, set Vibrance to 1.15-1.3 to restore saturation.
+
+### Why aberrations are corrected first
+
+Correcting coma and trefoil moves light back into place rather than amplifying detail, so it adds no noise, and Wavelet Sharpen Auto then usually needs lower amounts. Below 5% the measurement is hard to tell from noise and the moons' own shape, and correcting it gains little while adding ringing.
 
 ### Two stages, one contrast limit
 
