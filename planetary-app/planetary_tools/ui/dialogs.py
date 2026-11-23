@@ -2700,17 +2700,6 @@ def edit_filter_params(
             box.setChecked(bool(params.get(key, fdef.default_params[key])))
             form.addRow(box)
             widgets[key] = box
-            strength = QDoubleSpinBox()
-            strength.setRange(0.0, 10.0)
-            strength.setDecimals(1)
-            strength.setSingleStep(0.1)
-            strength.setSuffix(" ×")
-            strength.setToolTip(f"{label}: strength of the correction relative to "
-                                "what the moons show; 1× as measured.")
-            strength.setValue(float(params.get(f"{key}_strength",
-                                               fdef.default_params[f"{key}_strength"])))
-            form.addRow(f"{label} strength", strength)
-            widgets[f"{key}_strength"] = strength
         protect = QCheckBox("Protect background")
         protect.setChecked(bool(params.get(
             "protect_background", fdef.default_params["protect_background"])))

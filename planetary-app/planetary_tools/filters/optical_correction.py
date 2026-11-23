@@ -79,14 +79,7 @@ DEFAULT_OPTICAL_CORRECTION_PARAMS = {
     "astigmatism": True,
     "coma": True,
     "trefoil": True,
-    # Strength of each correction relative to the measured aberration, for
-    # testing: 1 = as measured, 0 = none, above 1 exaggerated.
-    "astigmatism_strength": 1.0,
-    "coma_strength": 1.0,
-    "trefoil_strength": 1.0,
 }
-# Range of the strengths.
-MAX_STRENGTH = 10.0
 
 # Candidate detection threshold (local SNR) and count.
 _DETECT_SENSITIVITY = 5.0
@@ -814,7 +807,6 @@ def _otf(kernel: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
 
 def _phase_otf(
     m: PsfMeasurement, shape: tuple[int, int], orders: tuple[int, ...],
-    strengths: dict[int, float] | None = None,
 ) -> np.ndarray:
     """Unit-magnitude transfer that removes the chosen one-sided (m = 1, coma)
     and three-fold (m = 3, trefoil) parts of the PSF.
@@ -824,26 +816,10 @@ def _phase_otf(
     amplifies nothing. Only where the moon's spectrum is measured reliably,
     and not at the largest scales, where the moon's faint halo and any glow
     under it would distort a planet 1000x brighter.
-
-    ``strengths`` (order -> factor, default 1) scale each order's phase
-    correction: 0 leaves it, above 1 exaggerates it.
     """
-    strengths = strengths or {}
     h = _otf(m.psf, shape)
-
-    def phase_of(removed: tuple[int, ...]) -> np.ndarray:
-        return np.angle(h*np.conj(_otf(_without_harmonics(m.psf, removed), shape)))
-
-    # Both orders removed together at full strength, as measured; each
-    # order's own phase scales its share.
-    delta = phase_of(orders)
-    if len(orders) == 1:
-        delta = strengths.get(orders[0], 1.0)*delta
-    else:
-        for order in orders:
-            factor = strengths.get(order, 1.0)
-            if factor != 1.0:
-                delta = delta + (factor - 1.0)*phase_of((order,))
+    kept = _otf(_without_harmonics(m.psf, orders), shape)
+    delta = np.angle(h*np.conj(kept))
     power = np.abs(h)**2
     weight = power/(power + (_NOISE_FLOOR_SIGMAS*m.spectral_noise)**2 + 1e-30)
     fy = np.fft.fftfreq(shape[0])[:, None]
@@ -869,19 +845,14 @@ def _phase_otf(
 def correction_otf(
     m: PsfMeasurement, shape: tuple[int, int], target_size: float, max_boost: float,
     *, astigmatism: bool = True, coma: bool = True, trefoil: bool = True,
-    astigmatism_strength: float = 1.0, coma_strength: float = 1.0,
-    trefoil_strength: float = 1.0,
 ) -> np.ndarray:
-    """Transfer function correcting the chosen aberrations of the measured
-    moon, each scaled by its strength (1 = as measured)."""
+    """Transfer function correcting the chosen aberrations of the measured moon."""
     k: np.ndarray | complex = 1.0
-    if astigmatism and astigmatism_strength > 0:
-        k = _ellipse_otf(m, shape, target_size, max_boost, astigmatism_strength)
-    strengths = {1: coma_strength, 3: trefoil_strength}
-    orders = tuple(order for order, on in ((1, coma), (3, trefoil))
-                   if on and strengths[order] > 0)
+    if astigmatism:
+        k = _ellipse_otf(m, shape, target_size, max_boost)
+    orders = tuple(order for order, on in ((1, coma), (3, trefoil)) if on)
     if orders:
-        k = k*_phase_otf(m, shape, orders, strengths)
+        k = k*_phase_otf(m, shape, orders)
     if np.isscalar(k):
         return np.ones((shape[0], shape[1]//2 + 1), dtype=np.complex128)
     return k
@@ -889,10 +860,8 @@ def correction_otf(
 
 def _ellipse_otf(
     m: PsfMeasurement, shape: tuple[int, int], target_size: float, max_boost: float,
-    strength: float = 1.0,
 ) -> np.ndarray:
-    """Real, even transfer function ≥ 1 that makes the fitted core round;
-    ``strength`` scales the elongation removed (1 = as measured)."""
+    """Real, even transfer function ≥ 1 that makes the fitted core round."""
     boost = float(max_boost)
     fy = np.fft.fftfreq(shape[0])[:, None]
     fx = np.fft.rfftfreq(shape[1])[None, :]
@@ -900,7 +869,6 @@ def _ellipse_otf(
         return np.ones((shape[0], shape[1]//2 + 1))
     # Only the elongation the moons share, when they differ (drift).
     sa, sb, deg = m.boost_ellipse or (m.sigma_major, m.sigma_minor, m.angle_deg)
-    sa = float(np.sqrt(sb*sb + max(float(strength), 0.0)*(sa*sa - sb*sb)))
     th = np.radians(-deg)  # back to image (y down) orientation
     fu = fx*np.cos(th) + fy*np.sin(th)
     fv = -fx*np.sin(th) + fy*np.cos(th)
@@ -957,7 +925,7 @@ def _signal_maps(
 
 def _adaptive_level_weights(
     snr: np.ndarray, m: PsfMeasurement, shape: tuple[int, int],
-    target_size: float, max_boost: float, strength: float = 1.0,
+    target_size: float, max_boost: float,
 ):
     """Boost levels and, per level, a function giving its weight map.
 
@@ -968,7 +936,7 @@ def _adaptive_level_weights(
     levels = [lv for lv in _BOOST_LEVELS if lv < g] + [g]
     gains = []
     for level in levels:
-        k = _ellipse_otf(m, shape, target_size, level, strength)
+        k = _ellipse_otf(m, shape, target_size, level)
         gains.append(float(np.sqrt(np.mean(np.abs(k)**2))))
     smooth = np.exp(ndimage.gaussian_filter(
         np.log(np.maximum(snr, 1e-3)), max(1.0, m.sigma_major)))
@@ -1011,9 +979,6 @@ def correct_optical_aberrations(
     astigmatism: bool = True,
     coma: bool = True,
     trefoil: bool = True,
-    astigmatism_strength: float = 1.0,
-    coma_strength: float = 1.0,
-    trefoil_strength: float = 1.0,
 ) -> np.ndarray:
     params = {"auto": auto, "moon_x": moon_x, "moon_y": moon_y}
     arr = np.asarray(data, dtype=np.float32)
@@ -1032,9 +997,7 @@ def correct_optical_aberrations(
     if protect_background:
         mask, snr = signal_maps(_plane(arr, is_grayscale), base)
     settings = dict(target_size=target_size, max_boost=max_boost,
-                    astigmatism=astigmatism, coma=coma, trefoil=trefoil,
-                    astigmatism_strength=astigmatism_strength,
-                    coma_strength=coma_strength, trefoil_strength=trefoil_strength)
+                    astigmatism=astigmatism, coma=coma, trefoil=trefoil)
 
     if arr.ndim == 2:
         return correct_plane(arr, base, mask, snr, **settings)
@@ -1063,8 +1026,6 @@ def correct_plane(
     plane: np.ndarray, m: PsfMeasurement, mask: np.ndarray | None, snr: np.ndarray | None,
     *, target_size: float, max_boost: float,
     astigmatism: bool, coma: bool, trefoil: bool,
-    astigmatism_strength: float = 1.0, coma_strength: float = 1.0,
-    trefoil_strength: float = 1.0,
 ) -> np.ndarray:
     """Correct one image plane; ``mask``/``snr`` None leaves noise unprotected.
 
@@ -1080,20 +1041,16 @@ def correct_plane(
 
     def run(boost: float, astig: bool) -> np.ndarray:
         k = correction_otf(m, shape, target_size, boost,
-                           astigmatism=astig, coma=coma, trefoil=trefoil,
-                           astigmatism_strength=astigmatism_strength,
-                           coma_strength=coma_strength, trefoil_strength=trefoil_strength)
+                           astigmatism=astig, coma=coma, trefoil=trefoil)
         return irfft2(spectrum*k, shape)[pad:-pad, pad:-pad]
 
-    astigmatism = astigmatism and astigmatism_strength > 0
     if mask is None:
         return run(max_boost, astigmatism).astype(np.float32)
     if not astigmatism or max_boost <= 1.0:
         corrected = run(max_boost, False)
     else:
         snr_pad = np.pad(snr, pad, mode="reflect")
-        levels, weight = _adaptive_level_weights(snr_pad, m, shape, target_size, max_boost,
-                                                 astigmatism_strength)
+        levels, weight = _adaptive_level_weights(snr_pad, m, shape, target_size, max_boost)
         corrected = np.zeros(plane.shape, dtype=np.float64)
         for i, level in enumerate(levels):
             w = weight(i)[pad:-pad, pad:-pad]

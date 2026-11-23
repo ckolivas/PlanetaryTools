@@ -7,9 +7,7 @@ from typing import Any
 import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QWidget,
-)
+from PyQt6.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
 
 from planetary_tools.filters import optical_correction as oc
 from planetary_tools.filters.registry import FILTERS
@@ -125,37 +123,16 @@ class OpticalCorrectionDialog(_FilterDialog):
         self._form.addRow(thumbs)
 
         self._aberration_boxes: dict[str, QCheckBox] = {}
-        self._strength_spins: dict[str, QDoubleSpinBox] = {}
         for key, label, _order, tip in self._ABERRATIONS:
             box = QCheckBox(label)
             box.setChecked(bool(fdef.default_params[key]))
             box.setToolTip(tip + " The figure is its measured strength relative "
                                  "to the round part of the moon.")
-            spin = QDoubleSpinBox()
-            spin.setRange(0.0, oc.MAX_STRENGTH)
-            spin.setDecimals(1)
-            spin.setSingleStep(0.1)
-            spin.setSuffix(" ×")
-            spin.setValue(float(fdef.default_params[f"{key}_strength"]))
-            spin.setKeyboardTracking(False)
-            spin.setToolTip(
-                f"{label}: strength of the correction relative to what the moons "
-                "show, for testing. 1× corrects as measured, 0× not at all, "
-                "above 1× exaggerates it.")
-            spin.setEnabled(box.isChecked())
-            box.toggled.connect(spin.setEnabled)
-            for signal in (box.toggled, spin.valueChanged):
-                signal.connect(lambda _: self._update_labels())
-                signal.connect(lambda _: self._refresh_corrected_view())
-                signal.connect(lambda _: self.params_changed.emit())
-            row = QWidget()
-            line = QHBoxLayout(row)
-            line.setContentsMargins(0, 0, 0, 0)
-            line.addWidget(box, 1)
-            line.addWidget(spin)
-            self._form.addRow(row)
+            box.toggled.connect(lambda _: self._update_labels())
+            box.toggled.connect(lambda _: self._refresh_corrected_view())
+            box.toggled.connect(lambda _: self.params_changed.emit())
+            self._form.addRow(box)
             self._aberration_boxes[key] = box
-            self._strength_spins[key] = spin
         self._amounts: dict[str, float | None] = {}
         self.agreement_warning = QLabel()
         self.agreement_warning.setWordWrap(True)
@@ -235,12 +212,8 @@ class OpticalCorrectionDialog(_FilterDialog):
     def _selection_params(self) -> dict[str, Any]:
         return {"auto": self.auto.isChecked(), "moon_x": self._moon_x, "moon_y": self._moon_y}
 
-    def _aberrations(self) -> dict[str, Any]:
-        """The aberration boxes and their strengths, as filter parameters."""
-        out: dict[str, Any] = {key: box.isChecked() for key, box in self._aberration_boxes.items()}
-        out.update({f"{key}_strength": spin.value()
-                    for key, spin in self._strength_spins.items()})
-        return out
+    def _aberrations(self) -> dict[str, bool]:
+        return {key: box.isChecked() for key, box in self._aberration_boxes.items()}
 
     def _update_measurement(self) -> None:
         data = self._data()
@@ -298,22 +271,19 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.refresh_markers()
 
     def _update_labels(self) -> None:
-        """Each aberration's measured strength and, where it differs, the
-        part corrected (the moons' shared elongation, times the strength)."""
+        """Each aberration's measured strength and, for astigmatism whose
+        elongation differs between the moons, the shared part corrected."""
         m = self._measurement
         for key, label, _order, _tip in self._ABERRATIONS:
             value = self._amounts.get(key)
             if value is None or m is None:
                 self._aberration_boxes[key].setText(label)
                 continue
-            corrected = value*self._strength_spins[key].value()
-            if key == "astigmatism" and oc.elongation_differs(m):
-                # Only the share of the elongation the moons have in common.
-                corrected *= m.shared_elongation
             text = f"{label} ({100*value:.0f}%"
-            if (self._aberration_boxes[key].isChecked()
-                    and f"{100*corrected:.0f}" != f"{100*value:.0f}"):
-                text += f", {100*corrected:.0f}% corrected"
+            if (key == "astigmatism" and oc.elongation_differs(m)
+                    and self._aberration_boxes[key].isChecked()):
+                # Only the share of the elongation the moons have in common.
+                text += f", {100*value*m.shared_elongation:.0f}% corrected"
             self._aberration_boxes[key].setText(text + ")")
 
     def _luminance(self) -> np.ndarray:
@@ -360,9 +330,7 @@ class OpticalCorrectionDialog(_FilterDialog):
     def set_params(self, params: dict[str, Any]) -> None:
         super().set_params(params)
         defaults = FILTERS[self.filter_id].default_params
-        spins = [(self.target_size, "target_size"), (self.max_boost, "max_boost"),
-                 *((spin, f"{key}_strength") for key, spin in self._strength_spins.items())]
-        for spin, key in spins:
+        for spin, key in ((self.target_size, "target_size"), (self.max_boost, "max_boost")):
             spin.blockSignals(True)
             spin.setValue(float(params.get(key, defaults[key])))
             spin.blockSignals(False)
@@ -373,8 +341,6 @@ class OpticalCorrectionDialog(_FilterDialog):
             box.blockSignals(True)
             box.setChecked(bool(params.get(key, defaults[key])))
             box.blockSignals(False)
-        for key, spin in self._strength_spins.items():
-            spin.setEnabled(self._aberration_boxes[key].isChecked())
         self._moon_x = float(params.get("moon_x", -1.0))
         self._moon_y = float(params.get("moon_y", -1.0))
         self._update_measurement()
