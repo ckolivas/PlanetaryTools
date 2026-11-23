@@ -48,6 +48,11 @@ def measured(plane, x, y):
     return m.fwhm_major, m.fwhm_minor
 
 
+def elongation(plane, x, y):
+    major, minor = measured(plane, x, y)
+    return major/minor
+
+
 class FilterTests(unittest.TestCase):
     def test_auto_selects_bright_compact_moon_not_resolved_disc(self):
         image = scene()
@@ -165,8 +170,9 @@ class FilterTests(unittest.TestCase):
             base = float(fine(image)[glow].std())
             self.assertGreater(float(fine(plain)[glow].std()), 3*base)
             self.assertLess(float(fine(kept)[glow].std()), 1.1*base)
-            # The bright moon is still corrected in full.
-            np.testing.assert_allclose(measured(kept, *MOON), measured(plain, *MOON), atol=.1)
+            # The bright moon is still corrected, as far as the image's
+            # signal allows at each frequency.
+            self.assertAlmostEqual(elongation(kept, *MOON), elongation(plain, *MOON), delta=.05)
 
     def test_dark_gap_beside_the_planet_gets_the_planets_boost(self):
         # Measured against a local median raised by the planet's glow, the
@@ -189,6 +195,28 @@ class FilterTests(unittest.TestCase):
         # The local-median version differed by 7.5% of the peak here.
         self.assertLess(float(np.abs(kept[gap] - plain[gap]).max()), .002*float(image.max()))
 
+    def test_boost_stays_where_the_image_has_signal(self):
+        # On the planet every pixel has signal, but along the long axis its
+        # finest scales are at the noise; boosting them only raised noise
+        # for later sharpening (2026-11-21 IR642: noise score 0.26 -> 0.54
+        # unlimited, 0.36 limited, the moon as round).
+        image = scene(seed=8)
+        image = image + np.random.default_rng(9).normal(0, 2e-3, image.shape).astype(np.float32)
+        m = oc.measure_moons(image, True, oc.auto_select_moons(image, True))
+        maps = oc.signal_maps(image, m)
+        settings = dict(target_size=100, max_boost=3.0, astigmatism=True, coma=False,
+                        trefoil=False)
+        limited = oc.correct_plane(image, m, *maps, **settings)
+        unlimited = oc.correct_plane(image, m, *maps, frequency_snr=np.full((3, 2), 1e12),
+                                     **settings)
+        disc = (slice(85, 116), slice(70, 111))  # flat inside the planet
+
+        def fine(z):
+            return float((z - ndimage.gaussian_filter(z, 1.0))[disc].std())
+        # Unlimited x1.57, limited x1.02.
+        self.assertGreater(fine(unlimited), 1.4*fine(image))
+        self.assertLess(fine(limited), 1.1*fine(image))
+
     def test_protect_background_leaves_sky_noise_alone(self):
         image = scene()
         sky = (slice(0, 25), slice(180, 320))
@@ -197,7 +225,7 @@ class FilterTests(unittest.TestCase):
         self.assertGreater(float(plain[sky].std()), 1.2*float(image[sky].std()))
         self.assertLess(float(kept[sky].std()), 1.05*float(image[sky].std()))
         for x, y in (MOON, FAINT_MOON):
-            np.testing.assert_allclose(measured(kept, x, y), measured(plain, x, y), atol=.1)
+            self.assertAlmostEqual(elongation(kept, x, y), elongation(plain, x, y), delta=.02)
 
     def lobed_scene(self, lobes, seed=11):
         """Moons blurred by a round core plus off-centre lobes (coma: one,
@@ -328,8 +356,10 @@ class FilterTests(unittest.TestCase):
 
     def test_smaller_target_also_sharpens(self):
         image = scene()
-        full = oc.correct_optical_aberrations(image, True, target_size=100)
-        small = oc.correct_optical_aberrations(image, True, target_size=70, max_boost=8)
+        full = oc.correct_optical_aberrations(image, True, target_size=100,
+                                              protect_background=False)
+        small = oc.correct_optical_aberrations(image, True, target_size=70, max_boost=8,
+                                               protect_background=False)
         self.assertLess(measured(small, *MOON)[1], measured(full, *MOON)[1]*.9)
 
     def test_manual_choice_follows_a_drifted_moon(self):
@@ -347,7 +377,8 @@ class FilterTests(unittest.TestCase):
         blue = scene(sigma=(3.0, 1.8), seed=4)
         rgb = np.stack([red, (red + blue)/2, blue], axis=2)
         out = apply_filter('optical_correction', rgb, False,
-                           {'per_channel': True, 'clamp': False, 'max_boost': 12.0})
+                           {'per_channel': True, 'clamp': False, 'max_boost': 12.0,
+                            'protect_background': False})
         for c in (0, 2):
             major, minor = measured(out[..., c], *MOON)
             self.assertLess(major/minor, 1.25, c)

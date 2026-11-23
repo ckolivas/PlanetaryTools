@@ -61,6 +61,7 @@ class OpticalCorrectionDialog(_FilterDialog):
         self._moon_y = -1.0
         self._measurement: oc.PsfMeasurement | None = None
         self._maps = None  # protect-background maps for the measurement
+        self._frequency_snr = None  # the image's signal/noise per frequency
         super().__init__("Correct Optical Aberrations", parent)
         self.set_help_text(
             "Uses the moons in the image as its point spread function and "
@@ -152,8 +153,9 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.max_boost.setSuffix(" ×")
         self.max_boost.setToolTip(
             "Astigmatism: largest amplification of detail along the moon's "
-            "long axis. 1× leaves it uncorrected; the default 3× corrects most of a "
-            "moderate elongation and 8× usually makes the moon round, with "
+            "long axis. 1× leaves it uncorrected; the default 2× corrects part of a "
+            "moderate elongation with little added noise, 3× most of it, and "
+            "8× usually makes the moon round, with "
             "more noise and edge overshoot. Nothing is ever smoothed.")
         for spin in (self.target_size, self.max_boost):
             spin.setKeyboardTracking(False)
@@ -173,9 +175,11 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.protect_background.setChecked(bool(fdef.default_params["protect_background"]))
         self.protect_background.setToolTip(
             "Boost detail for astigmatism only where the signal is strong "
-            "enough that its noise stays hidden; leave sky and faint glow, "
-            "including the moons' outer glow, unchanged so their speckle is "
-            "not boosted.")
+            "enough that its noise stays hidden: in areas, leaving sky and "
+            "faint glow (including the moons' outer glow) unchanged so their "
+            "speckle is not boosted; and in fineness, leaving the finest "
+            "detail along the long axis alone where the image holds only "
+            "noise there, so later sharpening is not spent on boosted noise.")
         self.protect_background.toggled.connect(lambda _: self._refresh_corrected_view())
         self.protect_background.toggled.connect(lambda _: self.params_changed.emit())
         self._form.addRow(self.protect_background)
@@ -246,6 +250,7 @@ class OpticalCorrectionDialog(_FilterDialog):
                     f"{m.elongation:.2f}:1 at {m.angle_deg:.0f}°, SNR {m.snr:.0f}")
             self.moon_info.setText(text)
             self._maps = oc.signal_maps(self._luminance(), m)
+            self._frequency_snr = oc.spectral_snr(self._luminance(), m)
             amounts = {"astigmatism": m.astigmatism_amount, "coma": m.coma_amount,
                        "trefoil": m.trefoil_amount}
             differing = oc.disagreements(m)
@@ -297,7 +302,8 @@ class OpticalCorrectionDialog(_FilterDialog):
             return
         maps = self._maps if self.protect_background.isChecked() else None
         before, after = oc.moon_preview(
-            self._luminance(), m, maps, target_size=self.target_size.value(),
+            self._luminance(), m, maps, self._frequency_snr,
+            target_size=self.target_size.value(),
             max_boost=self.max_boost.value(), **self._aberrations())
         self.measured_view.setPixmap(_psf_pixmap(before))
         self.corrected_view.setPixmap(_psf_pixmap(after))

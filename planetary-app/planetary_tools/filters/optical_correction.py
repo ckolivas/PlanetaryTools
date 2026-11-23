@@ -70,7 +70,7 @@ DEFAULT_OPTICAL_CORRECTION_PARAMS = {
     # Target PSF size as % of the measured minor axis profile. 100 = round only.
     "target_size": 100.0,
     # Largest boost the filter may give any spatial frequency.
-    "max_boost": 3.0,
+    "max_boost": 2.0,
     # Measure each colour channel's PSF on the same moon.
     "per_channel": True,
     # Leave sky that holds only noise unchanged instead of boosting its speckle.
@@ -177,6 +177,20 @@ _MASK_REACH_PER_SIGMA = 3.0
 # the moon still 13.6x9.0 -> 9.6x8.2 px and ringing unchanged at 0.003%).
 _BOOST_SNR_PER_GAIN = 8.0
 _BOOST_LEVELS = (1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0)
+# Per pixel is not enough: on the planet every pixel has signal, but along
+# the long axis its finest scales are already at the noise, where a boost
+# adds only noise for later sharpening to raise further (2026-11-21 IR642:
+# long-axis signal/noise power 8.7 at 0.2 cycles/px, 1.9 at 0.3, boosted 3x;
+# noise score 0.26 -> 0.54, and Wavelet Auto had to cut fine from 22 to 5).
+# Each frequency's boost K is cut to 1 + (K - 1) s/(s + K^2), s the image's
+# signal/noise power there: the full boost only where the signal outweighs
+# the noise it amplifies. Same IR642 stack: noise 0.37; after Wavelet Auto
+# at the same noise, long/short-axis edge gradient 4.08/11.55 against
+# 4.06/11.32 unlimited and 3.80/11.48 uncorrected.
+# Noise is the mean power beyond this frequency; the power is smoothed over
+# this many frequency bins.
+_NOISE_FREQ = 0.4
+_SPECTRUM_SMOOTH = 2.0
 
 
 @dataclass(frozen=True)
@@ -923,30 +937,73 @@ def _signal_maps(
     return mask, signal/pixel_sigma
 
 
+def spectral_snr(plane: np.ndarray, m: PsfMeasurement) -> np.ndarray:
+    """Signal-to-noise power per spatial frequency of a plane, padded as
+    ``correct_plane`` pads it (rfft2 layout)."""
+    plane = np.asarray(plane, dtype=np.float64)
+    pad = _plane_pad(plane.shape, m)
+    return _spectral_snr(rfft2(np.pad(plane, pad, mode="reflect")))
+
+
+def _plane_pad(shape: tuple[int, ...], m: PsfMeasurement) -> int:
+    return min(max(2*m.radius, 16), max(1, min(shape) - 1))
+
+
+def _spectral_snr(spectrum: np.ndarray) -> np.ndarray:
+    power = np.abs(spectrum)**2
+    h, w = power.shape
+    fy = np.fft.fftfreq(h)[:, None]
+    fx = np.fft.rfftfreq(2*(w - 1))[None, :]
+    high = np.hypot(fx, fy) > _NOISE_FREQ
+    noise = float(power[high].mean()) if high.any() else float(power.mean())
+    smooth = ndimage.gaussian_filter(power, _SPECTRUM_SMOOTH, mode="wrap")
+    return np.maximum(smooth/max(noise, 1e-30) - 1.0, 0.0)
+
+
+def _resample_spectrum(grid: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """A per-frequency (rfft2 layout) grid at another padded image shape."""
+    target = (shape[0], shape[1]//2 + 1)
+    if grid.shape == target:
+        return grid
+    src_fy = np.fft.fftshift(np.fft.fftfreq(grid.shape[0]))
+    src_fx = np.fft.rfftfreq(2*(grid.shape[1] - 1))
+    fy = np.fft.fftfreq(shape[0])
+    fx = np.fft.rfftfreq(shape[1])
+    iy = np.interp(fy, src_fy, np.arange(src_fy.size))
+    ix = np.interp(fx, src_fx, np.arange(src_fx.size))
+    yy, xx = np.meshgrid(iy, ix, indexing="ij")
+    return ndimage.map_coordinates(np.fft.fftshift(grid, axes=0), [yy, xx],
+                                   order=1, mode="nearest")
+
+
+def _limit_boost(k: np.ndarray, snr: np.ndarray | None) -> np.ndarray:
+    """The boost where the image has signal to boost: 1 + (K - 1) s/(s + K²)."""
+    if snr is None:
+        return k
+    return 1.0 + (k - 1.0)*snr/(snr + k*k)
+
+
 def _adaptive_level_weights(
-    snr: np.ndarray, m: PsfMeasurement, shape: tuple[int, int],
-    target_size: float, max_boost: float,
+    snr: np.ndarray, levels: list[float], ellipse_for, sigma_major: float,
 ):
-    """Boost levels and, per level, a function giving its weight map.
+    """Per boost level, a function giving its weight map.
 
     Each pixel's allowed noise gain is its smoothed signal-to-noise / 8; it
     is placed between the two levels whose white-noise gain brackets that.
     """
-    g = max(float(max_boost), 1.0)
-    levels = [lv for lv in _BOOST_LEVELS if lv < g] + [g]
     gains = []
     for level in levels:
-        k = _ellipse_otf(m, shape, target_size, level)
+        k = ellipse_for(level)
         gains.append(float(np.sqrt(np.mean(np.abs(k)**2))))
     smooth = np.exp(ndimage.gaussian_filter(
-        np.log(np.maximum(snr, 1e-3)), max(1.0, m.sigma_major)))
+        np.log(np.maximum(snr, 1e-3)), max(1.0, sigma_major)))
     allowed = np.maximum(smooth/_BOOST_SNR_PER_GAIN, 1.0)
     index = np.interp(allowed, np.maximum.accumulate(np.array(gains)),
                       np.arange(len(levels), dtype=np.float64))
 
     def weight(i: int) -> np.ndarray:
         return np.clip(1.0 - np.abs(index - i), 0.0, 1.0)
-    return levels, weight
+    return weight
 
 
 def background_mask(lum: np.ndarray, sigma_minor: float, sigma_major: float) -> np.ndarray:
@@ -973,7 +1030,7 @@ def correct_optical_aberrations(
     moon_x: float = -1.0,
     moon_y: float = -1.0,
     target_size: float = 100.0,
-    max_boost: float = 3.0,
+    max_boost: float = 2.0,
     per_channel: bool = True,
     protect_background: bool = True,
     astigmatism: bool = True,
@@ -1026,22 +1083,35 @@ def correct_plane(
     plane: np.ndarray, m: PsfMeasurement, mask: np.ndarray | None, snr: np.ndarray | None,
     *, target_size: float, max_boost: float,
     astigmatism: bool, coma: bool, trefoil: bool,
+    frequency_snr: np.ndarray | None = None,
 ) -> np.ndarray:
     """Correct one image plane; ``mask``/``snr`` None leaves noise unprotected.
 
     Coma and trefoil only move light, so they are corrected wherever there is
     signal; the astigmatism boost is graded by what each pixel's
-    signal-to-noise can take.
+    signal-to-noise can take, and at each spatial frequency by the plane's
+    signal-to-noise there (``frequency_snr``, from ``spectral_snr`` of the
+    whole plane when this is a cut-out of it; measured here otherwise).
     """
     plane = np.asarray(plane, dtype=np.float32)
-    pad = min(max(2*m.radius, 16), max(1, min(plane.shape) - 1))
+    pad = _plane_pad(plane.shape, m)
     padded = np.pad(plane.astype(np.float64), pad, mode="reflect")
     spectrum = rfft2(padded)
     shape = padded.shape
+    if mask is None:
+        freq_snr = None  # unprotected: the full correction
+    elif frequency_snr is None:
+        freq_snr = _spectral_snr(spectrum)
+    else:
+        freq_snr = _resample_spectrum(frequency_snr, shape)
+    others = correction_otf(m, shape, target_size, max_boost, astigmatism=False,
+                            coma=coma, trefoil=trefoil)
+
+    def ellipse_for(boost: float) -> np.ndarray:
+        return _limit_boost(_ellipse_otf(m, shape, target_size, boost), freq_snr)
 
     def run(boost: float, astig: bool) -> np.ndarray:
-        k = correction_otf(m, shape, target_size, boost,
-                           astigmatism=astig, coma=coma, trefoil=trefoil)
+        k = others*ellipse_for(boost) if astig else others
         return irfft2(spectrum*k, shape)[pad:-pad, pad:-pad]
 
     if mask is None:
@@ -1050,7 +1120,9 @@ def correct_plane(
         corrected = run(max_boost, False)
     else:
         snr_pad = np.pad(snr, pad, mode="reflect")
-        levels, weight = _adaptive_level_weights(snr_pad, m, shape, target_size, max_boost)
+        g = max(float(max_boost), 1.0)
+        levels = [lv for lv in _BOOST_LEVELS if lv < g] + [g]
+        weight = _adaptive_level_weights(snr_pad, levels, ellipse_for, m.sigma_major)
         corrected = np.zeros(plane.shape, dtype=np.float64)
         for i, level in enumerate(levels):
             w = weight(i)[pad:-pad, pad:-pad]
@@ -1061,11 +1133,14 @@ def correct_plane(
 
 def moon_preview(
     lum: np.ndarray, m: PsfMeasurement, maps: tuple[np.ndarray, np.ndarray] | None,
-    **settings,
+    frequency_snr: np.ndarray | None = None, **settings,
 ) -> tuple[np.ndarray, np.ndarray]:
     """The best moon cut from the image before and after correction, exactly
-    as the image is corrected (for the dialog thumbnails)."""
+    as the image is corrected (for the dialog thumbnails). ``frequency_snr``
+    is ``spectral_snr`` of ``lum``, measured here when not given."""
     lum = np.asarray(lum, dtype=np.float32)
+    if maps is not None and frequency_snr is None:
+        frequency_snr = spectral_snr(lum, m)
     h, w = lum.shape
     r = m.radius
     reach = 3*r
@@ -1076,7 +1151,7 @@ def moon_preview(
     mask = snr = None
     if maps is not None:
         mask, snr = maps[0][y0:y1, x0:x1], maps[1][y0:y1, x0:x1]
-    corrected = correct_plane(crop, m, mask, snr, **settings)
+    corrected = correct_plane(crop, m, mask, snr, frequency_snr=frequency_snr, **settings)
     sy, sx = cy - y0, cx - x0
     window = (slice(max(0, sy - r), sy + r + 1), slice(max(0, sx - r), sx + r + 1))
     before, after = crop[window], corrected[window]
