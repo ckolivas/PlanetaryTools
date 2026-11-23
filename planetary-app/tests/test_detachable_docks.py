@@ -44,6 +44,31 @@ class DetachableDockTests(unittest.TestCase):
                 with self.subTest(tool=tool, action=action):
                     self.exercise_dock(tool, action)
 
+    def test_tall_panel_scrolls_and_readouts_keep_their_height(self):
+        from planetary_tools.ui.dialogs import AdaptiveDeconvDialog
+        window = MainWindow()
+        self.addCleanup(window.close)
+        panel = AdaptiveDeconvDialog(False)
+        window._filter_host_layout.addWidget(panel)
+        window._filter_dock.set_panel_width(window._panel_width_for(panel))
+        window._filter_dock.show()
+        readouts = [panel._input_label, panel._output_label, panel._increase_label,
+                    panel._noise_label]
+        # A tall dock: spare height must not go to the readout lines.
+        window.resize(1200, 1400)
+        window.show()
+        self.app.processEvents()
+        self.assertGreater(window._filter_dock.height(), panel.sizeHint().height() + 200)
+        for label in readouts:
+            self.assertEqual(label.height(), label.sizeHint().height(), label.text())
+        # A short one scrolls rather than cutting off OK/Cancel or forcing
+        # the window taller than the screen.
+        self.assertLess(window.minimumSizeHint().height(), panel.minimumSizeHint().height())
+        window.resize(1200, 450)
+        self.app.processEvents()
+        self.assertTrue(window._filter_scroll.verticalScrollBar().isVisible())
+        self.assertGreaterEqual(panel.height(), panel.minimumSizeHint().height())
+
     def test_background_is_painted_after_repeated_redocking(self):
         window = MainWindow()
         dock = window._filter_dock

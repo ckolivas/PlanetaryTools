@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QStyle,
     QVBoxLayout,
@@ -331,6 +332,18 @@ class _FilterDialog(QWidget):
         )
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self._reject)
+        # Spare height goes to a graph that can use it, else below the
+        # controls; never into the readout lines at the top.
+        for label in (self._input_label, self._output_label, self._increase_label,
+                      self._noise_label, self._channel_input_label,
+                      self._channel_output_label):
+            if label is not None:
+                label.setSizePolicy(label.sizePolicy().horizontalPolicy(),
+                                    QSizePolicy.Policy.Fixed)
+        grows = QSizePolicy.PolicyFlag.ExpandFlag
+        if not any(w.sizePolicy().verticalPolicy().value & grows.value
+                   for w in self.findChildren(QWidget)):
+            root.addStretch(1)
         root.addWidget(buttons)
 
         if self.filter_id and self.supports_presets:

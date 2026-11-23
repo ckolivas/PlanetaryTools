@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QScrollArea,
     QStatusBar,
     QToolBar,
     QVBoxLayout,
@@ -272,7 +273,14 @@ class MainWindow(QMainWindow):
         self._filter_host.setAutoFillBackground(True)
         self._filter_host_layout = QVBoxLayout(self._filter_host)
         self._filter_host_layout.setContentsMargins(8, 8, 8, 8)
-        self._filter_dock.setWidget(self._filter_host)
+        # Scroll rather than cut off a panel taller than the dock; a panel's
+        # full height as the dock's minimum pushed the window past the screen.
+        self._filter_scroll = QScrollArea()
+        self._filter_scroll.setWidgetResizable(True)
+        self._filter_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._filter_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._filter_scroll.setWidget(self._filter_host)
+        self._filter_dock.setWidget(self._filter_scroll)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._filter_dock)
         self._filter_dock.hide()
         self._filter_loop: QEventLoop | None = None
@@ -1062,6 +1070,14 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, retry)
         return True
 
+    def _panel_width_for(self, dlg: QWidget) -> int:
+        """Dock width that fits the panel, with room for the scroll bar a
+        short dock shows."""
+        margins = self._filter_host_layout.contentsMargins()
+        width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
+        scroll_bar = self._filter_scroll.verticalScrollBar().sizeHint().width()
+        return width + margins.left() + margins.right() + scroll_bar
+
     def _run_filter_dialog(self, dlg: _FilterDialog, label: str) -> None:
         """Show filter controls in the dock with optional live canvas preview."""
         if self._document is None:
@@ -1079,10 +1095,7 @@ class MainWindow(QMainWindow):
             self._filter_dock.setWindowTitle(label)
             # Size the dock to this dialog's rendered content so nothing is
             # clipped regardless of font metrics.
-            margins = self._filter_host_layout.contentsMargins()
-            width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
-            self._filter_dock.set_panel_width(
-                width + margins.left() + margins.right(), type(dlg).__name__)
+            self._filter_dock.set_panel_width(self._panel_width_for(dlg), type(dlg).__name__)
             self._filter_dock.show()
 
             tex, chroma = self._document.noise_context()
@@ -1753,10 +1766,7 @@ class MainWindow(QMainWindow):
             self._clear_filter_panel()
             self._filter_host_layout.addWidget(dlg)
             self._filter_dock.setWindowTitle("Crop/Expand Image")
-            margins = self._filter_host_layout.contentsMargins()
-            width = max(FILTER_PANEL_WIDTH, dlg.sizeHint().width())
-            self._filter_dock.set_panel_width(
-                width + margins.left() + margins.right(), type(dlg).__name__)
+            self._filter_dock.set_panel_width(self._panel_width_for(dlg), type(dlg).__name__)
             self._filter_dock.show()
 
             dlg.rect_changed.connect(self._canvas.set_crop_overlay)
