@@ -1142,7 +1142,8 @@ class MoonEnhanceDialog(_FilterDialog):
             step=1.0, decimals=0,
         )
         self.max_moons.setToolTip(
-            "Keep at most this many detections, strongest first."
+            "Keep at most this many detections, strongest first.\n"
+            "Confirm the expected moons with an ephemerides tool, such as WinJUPOS."
         )
 
     def _on_relative_toggled(self, checked: bool) -> None:
