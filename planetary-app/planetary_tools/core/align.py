@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.ndimage import (
-    distance_transform_edt, gaussian_filter, gaussian_filter1d, map_coordinates,
-    spline_filter,
+    affine_transform, distance_transform_edt, gaussian_filter, gaussian_filter1d,
+    map_coordinates, spline_filter,
 )
 from scipy.ndimage import shift as ndi_shift
 from scipy.optimize import least_squares
@@ -275,3 +275,144 @@ def align_to_reference(reference: np.ndarray, target: np.ndarray) -> np.ndarray:
         ndi_shift(tgt[..., c], (dy, dx), order=3, mode="constant", cval=0.0)
         for c in range(tgt.shape[2])
     ], axis=-1)
+
+
+# Dispersion: an uncorrected atmosphere spreads each colour along one axis by a
+# different amount, so red and blue end up a slightly different size from
+# green along that axis.
+_DISPERSION_MIN_PX = 0.5  # Red-to-blue separation needed to define the axis.
+_DISPERSION_MAX_SCALE = 0.1  # Allow up to 10% magnification either way.
+
+
+def dispersion_axis(red_shift, blue_shift) -> np.ndarray | None:
+    """Unit (dy, dx) axis along which the atmosphere spread the colours.
+
+    Each shift is the translation that registers that channel onto green. Red
+    and blue lie either side of green along the dispersion, so the difference
+    gives the axis. Return ``None`` when the separation is too small to show a
+    direction (an ADC was used, or the planet was high).
+    """
+    spread = np.subtract(blue_shift, red_shift, dtype=np.float64)
+    length = float(np.hypot(*spread))
+    if not np.isfinite(length) or length < _DISPERSION_MIN_PX:
+        return None
+    return spread / length
+
+
+def _axial_scale_transform(angle_deg, dy, dx, scale, axis, shape):
+    """Return ``affine_transform`` matrix/offset for rotate, scale along axis, shift.
+
+    The forward map is ``out = S R (in - c) + c + d``, with the rotation of
+    the rigid match, ``S`` scaling by ``scale`` along ``axis`` only, and ``c``
+    the canvas centre. Green is the reference, so it is never transformed.
+    """
+    from planetary_tools.core.field_derotate import _rotation_matrix
+
+    u = np.asarray(axis, dtype=np.float64)
+    inverse_scale = np.eye(2) + (1.0 / scale - 1.0) * np.outer(u, u)
+    matrix = _rotation_matrix(angle_deg).T @ inverse_scale
+    centre = (np.asarray(shape[:2], dtype=np.float64) - 1) / 2.0
+    return matrix, centre - matrix @ (centre + [dy, dx])
+
+
+def fit_dispersion_scale(reference, target, match, axis) -> tuple[float, float, float]:
+    """Fit magnification along ``axis`` with the shift, keeping the rotation.
+
+    Compare the unmasked, unfiltered planes: the size difference shows mostly
+    in the faint glow at the ends of the axis, which the brightness mask and
+    the structure filter used for the rigid match would remove. The rigid
+    match only seeds the fit. Return ``(scale, dy, dx)``; a scale above one
+    enlarges the target. Keep the rigid match if the fit cannot improve on it.
+    """
+    ref = np.asarray(reference, dtype=np.float64)
+    tgt = np.asarray(target, dtype=np.float64)
+    rigid = (1.0, float(match.dy), float(match.dx))
+    peak = float(ref.max())
+    if peak <= 0.0 or float(tgt.max()) <= 0.0:
+        return rigid
+    yy, xx = np.nonzero(gaussian_filter(ref, 2.0) > 0.01 * peak)
+    if not yy.size:
+        return rigid
+    margin = 8 + int(np.ceil(3 + _DISPERSION_MAX_SCALE * max(ref.shape)))
+    y0, y1 = max(0, int(yy.min()) - margin), min(ref.shape[0], int(yy.max()) + margin + 1)
+    x0, x1 = max(0, int(xx.min()) - margin), min(ref.shape[1], int(xx.max()) + margin + 1)
+    stride = max(1, int(np.ceil(np.sqrt((y1 - y0) * (x1 - x0) / 100_000))))
+    points = np.mgrid[y0:y1:stride, x0:x1:stride].reshape(2, -1).astype(np.float64)
+    values = ref[y0:y1:stride, x0:x1:stride].ravel().copy()
+    values -= values.mean()
+    values /= max(float(np.linalg.norm(values)), 1e-12)
+    padding = 12
+    coefficients = spline_filter(np.pad(tgt, padding), order=3)
+
+    def residual(params):
+        matrix, offset = _axial_scale_transform(
+            match.angle_deg, params[1], params[2], params[0], axis, ref.shape,
+        )
+        samples = map_coordinates(
+            coefficients, matrix @ points + offset[:, None] + padding,
+            order=3, prefilter=False, mode="grid-constant", cval=0.0,
+        )
+        samples -= samples.mean()
+        samples /= max(float(np.linalg.norm(samples)), 1e-12)
+        return samples - values
+
+    start = np.array(rigid)
+    step = [_DISPERSION_MAX_SCALE, 3.0, 3.0]
+    fit = least_squares(
+        residual, start, bounds=(start - step, start + step), x_scale=[0.01, 1.0, 1.0],
+        diff_step=1e-3, ftol=1e-8, xtol=1e-6, gtol=1e-9, max_nfev=40,
+    )
+    start_cost = 0.5 * float(np.sum(residual(start) ** 2))
+    if not fit.success or fit.cost >= start_cost:
+        return rigid
+    return tuple(float(v) for v in fit.x)
+
+
+def align_rgb(
+    data: np.ndarray, *, mask_fraction: float | None = .25, rotate: bool = False,
+    max_angle: float = 45.0, dispersion: bool = False,
+) -> np.ndarray:
+    """Register red and blue to green, optionally correcting dispersion.
+
+    With ``dispersion`` set, red and blue are also rescaled along the
+    dispersion axis so that they match green's size there. Green and the
+    canvas size are unchanged, and each channel is resampled once.
+    """
+    from planetary_tools.core.field_derotate import (
+        apply_rigid, estimate_rigid, mask_alignment_background,
+    )
+
+    arr = np.asarray(data, dtype=np.float32)
+    if arr.ndim != 3 or arr.shape[2] != 3:
+        raise ValueError("Align RGB requires an RGB image.")
+    green = arr[..., 1]
+
+    def estimation(plane):
+        if mask_fraction is None:
+            return plane
+        return mask_alignment_background(plane, mask_fraction)
+
+    ref = estimation(green)
+    targets = {c: estimation(arr[..., c]) for c in (0, 2)}
+    matches = {c: estimate_rigid(ref, targets[c], rotate=rotate, max_angle=max_angle)
+               for c in (0, 2)}
+    axis = None
+    if dispersion:
+        axis = dispersion_axis(*[(matches[c].dy, matches[c].dx) for c in (0, 2)])
+    channels = []
+    for c in range(3):
+        if c == 1:
+            channels.append(green)
+            continue
+        if axis is None:
+            channels.append(apply_rigid(arr[..., c], matches[c], expand=False))
+            continue
+        scale, dy, dx = fit_dispersion_scale(green, arr[..., c], matches[c], axis)
+        matrix, offset = _axial_scale_transform(
+            matches[c].angle_deg, dy, dx, scale, axis, green.shape,
+        )
+        channels.append(affine_transform(
+            arr[..., c], matrix, offset=offset, order=3, mode="constant", cval=0.0,
+            output=np.float32,
+        ))
+    return np.stack(channels, axis=-1).astype(np.float32)
