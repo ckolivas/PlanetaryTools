@@ -210,7 +210,17 @@ class CurrentWorkflowTests(unittest.TestCase):
         # plain Save rewrites the workflow after a further edit.
         self.assertTrue(MainWindow()._save_workflow_act.isChecked())
         self.rotate(12.0)
-        w._save_file()
+        # An existing workflow is replaced only when confirmed.
+        before = saved.read_text()
+        with patch.object(MainWindow, '_confirm_replace_workflow', return_value=False) as ask:
+            w._save_file()
+        ask.assert_called_once_with(saved)
+        self.assertEqual(saved.read_text(), before)
+        self.assertIn('existing workflow saturn.ptbatch kept', w._status.currentMessage())
+        self.assertTrue((root/'saturn.png').exists())
+        with patch.object(MainWindow, '_confirm_replace_workflow', return_value=True) as ask:
+            w._save_file()
+        ask.assert_called_once_with(saved)
         self.assertEqual([s.filter_id for s in load_workflow(saved)[0].steps],
                          ['wavelet_sharpen', 'scale_image', 'rotate_image'])
         # Unticked in the File menu: plain Save leaves the workflow alone.
@@ -218,6 +228,22 @@ class CurrentWorkflowTests(unittest.TestCase):
         saved.unlink()
         w._save_file()
         self.assertFalse(saved.exists())
+
+    def test_replace_prompt_defaults_to_keeping_the_existing_workflow(self):
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+        seen = {}
+
+        def answer(choice):
+            box = QApplication.activeModalWidget()
+            seen['text'] = box.text()
+            seen['default'] = box.defaultButton().text()
+            next(b for b in box.buttons() if b.text() == choice).click()
+        for choice, expected in (('Keep Existing', False), ('Replace', True)):
+            QTimer.singleShot(0, lambda choice=choice: answer(choice))
+            self.assertIs(self.window._confirm_replace_workflow(Path('/x/saturn.ptbatch')), expected)
+            self.assertEqual(seen, {'text': 'saturn.ptbatch already exists.',
+                                    'default': 'Keep Existing'})
 
     def test_save_without_batch_edits_writes_no_workflow(self):
         root = Path(tempfile.mkdtemp())

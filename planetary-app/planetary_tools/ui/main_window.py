@@ -896,6 +896,8 @@ class MainWindow(QMainWindow):
         depth = bit_depth if bit_depth in (8, 16, 32) else (
             self._document.storage_bits if self._document.storage_bits in (8, 16, 32) else 16)
         path = workflow_path_for(image_path)
+        if path.exists() and not self._confirm_replace_workflow(path):
+            return f"; existing workflow {path.name} kept"
         try:
             save_workflow(path, BatchWorkflow(steps=steps, bit_depth=depth))
         except Exception as exc:
@@ -906,6 +908,22 @@ class MainWindow(QMainWindow):
         if skipped:
             note += f" ({len(skipped)} edit{'s' if len(skipped) > 1 else ''} with no batch step left out)"
         return note
+
+    def _confirm_replace_workflow(self, path: Path) -> bool:
+        """Ask before replacing a workflow file; the image is already saved."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Replace Workflow?")
+        box.setText(f"{path.name} already exists.")
+        box.setInformativeText(
+            "Replace it with the workflow for this image? The image itself has "
+            "been saved either way."
+        )
+        replace = box.addButton("Replace", QMessageBox.ButtonRole.AcceptRole)
+        keep = box.addButton("Keep Existing", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(keep)
+        box.exec()
+        return box.clickedButton() is replace
 
     def _populate_recent_menu(self) -> None:
         self._recent_menu.clear()
