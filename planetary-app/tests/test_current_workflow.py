@@ -253,16 +253,16 @@ class CurrentWorkflowTests(unittest.TestCase):
         w._set_document(ImageDocument(self.source.copy()))
         return path, expected, steps
 
-    def run_workflow(self, path):
+    def apply_workflow(self, path):
         with patch('planetary_tools.ui.file_dialog.QFileDialog.getOpenFileName',
                    return_value=(str(path), '')):
-            self.window._run_batch_workflow()
+            self.window._apply_workflow_to_image()
 
-    def test_run_batch_workflow_applies_each_step_as_an_edit(self):
+    def test_apply_workflow_to_image_applies_each_step_as_an_edit(self):
         w = self.window
         path, expected, steps = self.saved_workflow()
-        self.assertTrue(w._run_workflow_act.isEnabled())
-        self.run_workflow(path)
+        self.assertTrue(w._apply_workflow_act.isEnabled())
+        self.apply_workflow(path)
         np.testing.assert_allclose(w._document.data, expected, atol=1e-6)
         ops = w._undo.stack.applied_operations()
         self.assertEqual([(o.filter_id, o.params) for o in ops],
@@ -272,7 +272,7 @@ class CurrentWorkflowTests(unittest.TestCase):
             w._undo_action()
         np.testing.assert_allclose(w._document.data, self.source, atol=1e-6)
 
-    def test_run_batch_workflow_cancels_after_the_step_in_progress(self):
+    def test_apply_workflow_to_image_cancels_after_the_step_in_progress(self):
         w = self.window
         path, _, steps = self.saved_workflow()
         real = pipeline.apply_filter
@@ -284,7 +284,7 @@ class CurrentWorkflowTests(unittest.TestCase):
                 w._workflow_worker.cancel()  # pressed while step 2 runs
             return real(filter_id, *args, **kwargs)
         with patch('planetary_tools.batch.pipeline.apply_filter', apply_and_cancel_in_step_two):
-            self.run_workflow(path)
+            self.apply_workflow(path)
         self.assertEqual(calls, ['wavelet_sharpen', 'scale_image'])
         self.assertEqual([o.filter_id for o in w._undo.stack.applied_operations()],
                          ['wavelet_sharpen'])
@@ -292,7 +292,7 @@ class CurrentWorkflowTests(unittest.TestCase):
         np.testing.assert_allclose(w._document.data, one_step, atol=1e-6)
         self.assertIn('cancelled; 1 of 3', w._status.currentMessage())
 
-    def test_run_batch_workflow_stops_at_a_failing_step(self):
+    def test_apply_workflow_to_image_stops_at_a_failing_step(self):
         w = self.window
         path, _, _ = self.saved_workflow()
         real = pipeline.apply_filter
@@ -303,14 +303,14 @@ class CurrentWorkflowTests(unittest.TestCase):
             return real(filter_id, *args, **kwargs)
         with patch('planetary_tools.batch.pipeline.apply_filter', fail_scale), \
                 patch.object(QMessageBox, 'critical') as critical:
-            self.run_workflow(path)
+            self.apply_workflow(path)
         self.assertIn('no memory', critical.call_args.args[2])
         self.assertEqual([o.filter_id for o in w._undo.stack.applied_operations()],
                          ['wavelet_sharpen'])
         # Nothing to run: no image, or no file chosen.
         with patch('planetary_tools.ui.file_dialog.QFileDialog.getOpenFileName',
                    return_value=('', '')):
-            w._run_batch_workflow()
+            w._apply_workflow_to_image()
         self.assertEqual(len(w._undo.stack.applied_operations()), 1)
 
     def test_disabled_without_edits_and_cleared_by_open_or_close(self):

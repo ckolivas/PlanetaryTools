@@ -928,9 +928,9 @@ Apply an ordered pipeline to many images and write processed copies. Batch runs 
 
 Process one image interactively, then click Current workflow to repeat the same steps on the batch with the same settings. It follows Undo and Redo, so undone edits are left out. Edits without a batch filter, such as Caption, Merge Wavelet Detail or flipped rotations, are skipped and listed. PT asks before replacing existing pipeline steps. FFT Denoise applied with Auto stays in Auto mode, recalculating for each image.
 
-### Run Batch Workflow
+### Apply Workflow to Image
 
-**File > Run Batch Workflow** runs a saved .ptbatch workflow on the open image instead of a folder: choose the file and its steps are applied in order, each as its own edit, so the image updates step by step and Undo takes them back one at a time. Steps with Auto search their amounts for this image. Cancel stops after the step in progress, which is discarded; the steps already finished stay applied. If a step fails, the run stops there and says which. A workflow saved with Save Workflow With Image repeats that image's edits on another one.
+**File > Apply Workflow to Image** runs a saved .ptbatch workflow on the open image instead of a folder: choose the file and its steps are applied in order, each as its own edit, so the image updates step by step and Undo takes them back one at a time. Steps with Auto search their amounts for this image. Cancel stops after the step in progress, which is discarded; the steps already finished stay applied. If a step fails, the run stops there and says which. A workflow saved with Save Workflow With Image repeats that image's edits on another one.
 
 ### Workflows and presets
 

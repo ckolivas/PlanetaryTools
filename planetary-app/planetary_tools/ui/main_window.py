@@ -411,14 +411,14 @@ class MainWindow(QMainWindow):
         self._batch_act.triggered.connect(self._run_batch)
         file_menu.addAction(self._batch_act)
 
-        self._run_workflow_act = QAction("Run Batch &Workflow…", self)
-        self._run_workflow_act.setToolTip(
+        self._apply_workflow_act = QAction("A&pply Workflow to Image…", self)
+        self._apply_workflow_act.setToolTip(
             "Choose a saved batch workflow (.ptbatch) and run its steps on the "
             "open image, in order. Each step is its own undo entry; Cancel "
             "stops after the step in progress."
         )
-        self._run_workflow_act.triggered.connect(self._run_batch_workflow)
-        file_menu.addAction(self._run_workflow_act)
+        self._apply_workflow_act.triggered.connect(self._apply_workflow_to_image)
+        file_menu.addAction(self._apply_workflow_act)
 
         file_menu.addSeparator()
         self._close_act = QAction("&Close", self)
@@ -728,7 +728,7 @@ class MainWindow(QMainWindow):
         has_doc = self._document is not None
         for act in (
             self._save_act, self._save_as_act, self._close_act, self._scale_act, self._rotate_act,
-            self._run_workflow_act,
+            self._apply_workflow_act,
             self._crop_act, self._caption_act, self._optical_act,
             self._sharpen_act, self._denoise_act, self._fft_denoise_act, self._deconv_act,
             self._moon_enhance_act, self._deglow_act, self._merge_detail_act,
@@ -1593,29 +1593,29 @@ class MainWindow(QMainWindow):
         dlg = BatchDialog(self, current_operations=operations)
         dlg.exec()
 
-    def _run_batch_workflow(self) -> None:
+    def _apply_workflow_to_image(self) -> None:
         if self._document is None:
             return
-        if self._guard_filter_dialog("Run Batch Workflow", self._run_batch_workflow):
+        if self._guard_filter_dialog("Apply Workflow to Image", self._apply_workflow_to_image):
             return
         ext = WORKFLOW_EXTENSION.lstrip(".")
         path, _ = QFileDialog.getOpenFileName(
-            self, "Run Batch Workflow", last_open_directory(),
+            self, "Apply Workflow to Image", last_open_directory(),
             f"Batch workflows (*.{ext});;All Files (*)")
         if not path:
             return
         try:
             workflow, warnings = load_workflow(path)
         except Exception as exc:
-            QMessageBox.critical(self, "Run Batch Workflow", f"Could not read the workflow:\n{exc}")
+            QMessageBox.critical(self, "Apply Workflow to Image", f"Could not read the workflow:\n{exc}")
             return
         name = Path(path).name
         if not workflow.steps:
-            QMessageBox.warning(self, "Run Batch Workflow",
+            QMessageBox.warning(self, "Apply Workflow to Image",
                                 f"{name} contains no steps that can be run.")
             return
         if warnings:
-            QMessageBox.information(self, "Run Batch Workflow",
+            QMessageBox.information(self, "Apply Workflow to Image",
                                     f"{name}:\n" + "\n".join(warnings))
         self._run_workflow_steps(workflow.steps, name)
 
@@ -1626,7 +1626,7 @@ class MainWindow(QMainWindow):
         doc = self._document
         total = len(steps)
         progress = QProgressDialog(f"Running {name}…", "Cancel", 0, total, self)
-        progress.setWindowTitle("Run Batch Workflow")
+        progress.setWindowTitle("Apply Workflow to Image")
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
         progress.setAutoClose(False)
@@ -1669,7 +1669,7 @@ class MainWindow(QMainWindow):
         if error:
             index, message = error[0]
             QMessageBox.critical(
-                self, "Run Batch Workflow",
+                self, "Apply Workflow to Image",
                 f"Step {index + 1} ({steps[index].label}) failed:\n{message}\n\n"
                 f"{count} of {total} steps were applied.")
             self._status.showMessage(f"{name}: stopped at step {index + 1}; {count} of {total} applied")
