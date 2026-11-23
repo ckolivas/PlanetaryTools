@@ -10,7 +10,10 @@ import numpy as np
 from PyQt6.QtCore import QSettings, QTimer
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from planetary_tools.batch.pipeline import apply_pipeline, load_workflow
+from planetary_tools.batch import pipeline
+from planetary_tools.batch.pipeline import (
+    BatchWorkflow, apply_pipeline, load_workflow, save_workflow, steps_from_operations,
+)
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.undo import AppliedOperation, UndoStack
 from planetary_tools.ui.batch_dialog import BatchDialog
@@ -234,6 +237,81 @@ class CurrentWorkflowTests(unittest.TestCase):
         self.assertIs(box.window(), dialog)
         self.assertTrue(box.isVisible())
         dialog.reject()
+
+    def saved_workflow(self):
+        """Edit the image, save its workflow, and start again from the source."""
+        w = self.window
+        self.apply_panel(w._run_wavelet_sharpen, {'fine': 40.0, 'medium': 10.0})
+        self.scale(50.0)
+        self.apply_panel(w._run_saturation_vibrance, {'saturation': 1.4})
+        expected = w._document.data.copy()
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: [p.unlink() for p in root.iterdir()] and root.rmdir())
+        path = root/'edits.ptbatch'
+        steps, _ = steps_from_operations(w._undo.stack.applied_operations())
+        save_workflow(path, BatchWorkflow(steps=steps))
+        w._set_document(ImageDocument(self.source.copy()))
+        return path, expected, steps
+
+    def run_workflow(self, path):
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getOpenFileName',
+                   return_value=(str(path), '')):
+            self.window._run_batch_workflow()
+
+    def test_run_batch_workflow_applies_each_step_as_an_edit(self):
+        w = self.window
+        path, expected, steps = self.saved_workflow()
+        self.assertTrue(w._run_workflow_act.isEnabled())
+        self.run_workflow(path)
+        np.testing.assert_allclose(w._document.data, expected, atol=1e-6)
+        ops = w._undo.stack.applied_operations()
+        self.assertEqual([(o.filter_id, o.params) for o in ops],
+                         [(s.filter_id, s.params) for s in steps])
+        self.assertIn('all 3 steps applied', w._status.currentMessage())
+        for _ in steps:
+            w._undo_action()
+        np.testing.assert_allclose(w._document.data, self.source, atol=1e-6)
+
+    def test_run_batch_workflow_cancels_after_the_step_in_progress(self):
+        w = self.window
+        path, _, steps = self.saved_workflow()
+        real = pipeline.apply_filter
+        calls = []
+
+        def apply_and_cancel_in_step_two(filter_id, *args, **kwargs):
+            calls.append(filter_id)
+            if len(calls) == 2:
+                w._workflow_worker.cancel()  # pressed while step 2 runs
+            return real(filter_id, *args, **kwargs)
+        with patch('planetary_tools.batch.pipeline.apply_filter', apply_and_cancel_in_step_two):
+            self.run_workflow(path)
+        self.assertEqual(calls, ['wavelet_sharpen', 'scale_image'])
+        self.assertEqual([o.filter_id for o in w._undo.stack.applied_operations()],
+                         ['wavelet_sharpen'])
+        one_step = apply_pipeline(self.source.copy(), False, steps[:1])
+        np.testing.assert_allclose(w._document.data, one_step, atol=1e-6)
+        self.assertIn('cancelled; 1 of 3', w._status.currentMessage())
+
+    def test_run_batch_workflow_stops_at_a_failing_step(self):
+        w = self.window
+        path, _, _ = self.saved_workflow()
+        real = pipeline.apply_filter
+
+        def fail_scale(filter_id, *args, **kwargs):
+            if filter_id == 'scale_image':
+                raise ValueError('no memory')
+            return real(filter_id, *args, **kwargs)
+        with patch('planetary_tools.batch.pipeline.apply_filter', fail_scale), \
+                patch.object(QMessageBox, 'critical') as critical:
+            self.run_workflow(path)
+        self.assertIn('no memory', critical.call_args.args[2])
+        self.assertEqual([o.filter_id for o in w._undo.stack.applied_operations()],
+                         ['wavelet_sharpen'])
+        # Nothing to run: no image, or no file chosen.
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getOpenFileName',
+                   return_value=('', '')):
+            w._run_batch_workflow()
+        self.assertEqual(len(w._undo.stack.applied_operations()), 1)
 
     def test_disabled_without_edits_and_cleared_by_open_or_close(self):
         self.assertFalse(self.imported()._current_wf_btn.isEnabled())

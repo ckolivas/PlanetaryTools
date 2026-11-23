@@ -282,15 +282,42 @@ def apply_pipeline(
     is_grayscale: bool,
     steps: list[PipelineStep],
 ) -> np.ndarray:
+    out = [data]
+    run_steps(data, is_grayscale, steps,
+              on_step=lambda _i, _step, result: out.__setitem__(0, result))
+    return out[0]
+
+
+def run_steps(
+    data: np.ndarray,
+    is_grayscale: bool,
+    steps: list[PipelineStep],
+    *,
+    on_start: Callable[[int, PipelineStep], None] | None = None,
+    on_step: Callable[[int, PipelineStep, np.ndarray], None] | None = None,
+    cancelled: Callable[[], bool] = lambda: False,
+) -> int:
+    """Apply ``steps`` in order, calling ``on_step`` with each result.
+
+    Stops before the next step once ``cancelled()`` is true, and discards a
+    step that finishes after it was cancelled. Returns the number of steps
+    completed.
+    """
     out = data
-    gray = is_grayscale
-    for step in steps:
+    for i, step in enumerate(steps):
+        if cancelled():
+            return i
+        if on_start:
+            on_start(i, step)
         merged = {**FILTERS[step.filter_id].default_params, **step.params}
-        merged = _resolve_auto_params(step.filter_id, out, gray, merged)
-        out = apply_filter(step.filter_id, out, gray, merged)
-        # if step.filter_id == "oklab_luminance":
-        #     gray = False
-    return out
+        merged = _resolve_auto_params(step.filter_id, out, is_grayscale, merged)
+        result = apply_filter(step.filter_id, out, is_grayscale, merged)
+        if cancelled():
+            return i
+        out = result
+        if on_step:
+            on_step(i, step, result)
+    return len(steps)
 
 
 def output_path_for(

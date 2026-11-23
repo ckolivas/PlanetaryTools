@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from copy import deepcopy
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from PyQt6.QtCore import QEventLoop, QSettings, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEventLoop, QSettings, QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -22,6 +23,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QProgressDialog,
     QScrollArea,
     QStatusBar,
     QToolBar,
@@ -39,7 +41,11 @@ from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import AppliedOperation, UndoManager
 # from planetary_tools.filters import oklab_compose, oklab_decompose
 from planetary_tools.batch.pipeline import (
+    WORKFLOW_EXTENSION,
     BatchWorkflow,
+    PipelineStep,
+    load_workflow,
+    run_steps,
     save_workflow,
     steps_from_operations,
     workflow_path_for,
@@ -106,6 +112,38 @@ _LUMA_WEIGHTS = {"Red": 0.299, "Green": 0.587, "Blue": 0.114}
 
 # Preferred reference channel order when aligning compose-from-files channels.
 _ALIGN_PRIORITY = ("Green", "Red", "Blue")
+
+
+class _WorkflowWorker(QThread):
+    """Runs a batch workflow's steps on the open image, off the GUI thread."""
+
+    step_started = pyqtSignal(int)
+    step_done = pyqtSignal(int, object)
+    failed = pyqtSignal(int, str)
+
+    def __init__(self, data: np.ndarray, is_grayscale: bool, steps: list[PipelineStep],
+                 parent=None) -> None:
+        super().__init__(parent)
+        self._data = data
+        self._is_grayscale = is_grayscale
+        self._steps = steps
+        self._cancel = threading.Event()
+        self._current = 0
+
+    def cancel(self) -> None:
+        """Stop after the step in progress, discarding its result."""
+        self._cancel.set()
+
+    def run(self) -> None:
+        def started(index, _step):
+            self._current = index
+            self.step_started.emit(index)
+        try:
+            run_steps(self._data, self._is_grayscale, self._steps, on_start=started,
+                      on_step=lambda i, _step, result: self.step_done.emit(i, result),
+                      cancelled=self._cancel.is_set)
+        except Exception as exc:
+            self.failed.emit(self._current, str(exc))
 
 
 class _ToolDock(QDockWidget):
@@ -372,6 +410,15 @@ class MainWindow(QMainWindow):
         )
         self._batch_act.triggered.connect(self._run_batch)
         file_menu.addAction(self._batch_act)
+
+        self._run_workflow_act = QAction("Run Batch &Workflow…", self)
+        self._run_workflow_act.setToolTip(
+            "Choose a saved batch workflow (.ptbatch) and run its steps on the "
+            "open image, in order. Each step is its own undo entry; Cancel "
+            "stops after the step in progress."
+        )
+        self._run_workflow_act.triggered.connect(self._run_batch_workflow)
+        file_menu.addAction(self._run_workflow_act)
 
         file_menu.addSeparator()
         self._close_act = QAction("&Close", self)
@@ -681,6 +728,7 @@ class MainWindow(QMainWindow):
         has_doc = self._document is not None
         for act in (
             self._save_act, self._save_as_act, self._close_act, self._scale_act, self._rotate_act,
+            self._run_workflow_act,
             self._crop_act, self._caption_act, self._optical_act,
             self._sharpen_act, self._denoise_act, self._fft_denoise_act, self._deconv_act,
             self._moon_enhance_act, self._deglow_act, self._merge_detail_act,
@@ -1544,6 +1592,94 @@ class MainWindow(QMainWindow):
         operations = self._undo.stack.applied_operations() if self._document is not None else []
         dlg = BatchDialog(self, current_operations=operations)
         dlg.exec()
+
+    def _run_batch_workflow(self) -> None:
+        if self._document is None:
+            return
+        if self._guard_filter_dialog("Run Batch Workflow", self._run_batch_workflow):
+            return
+        ext = WORKFLOW_EXTENSION.lstrip(".")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Run Batch Workflow", last_open_directory(),
+            f"Batch workflows (*.{ext});;All Files (*)")
+        if not path:
+            return
+        try:
+            workflow, warnings = load_workflow(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Run Batch Workflow", f"Could not read the workflow:\n{exc}")
+            return
+        name = Path(path).name
+        if not workflow.steps:
+            QMessageBox.warning(self, "Run Batch Workflow",
+                                f"{name} contains no steps that can be run.")
+            return
+        if warnings:
+            QMessageBox.information(self, "Run Batch Workflow",
+                                    f"{name}:\n" + "\n".join(warnings))
+        self._run_workflow_steps(workflow.steps, name)
+
+    def _run_workflow_steps(self, steps: list[PipelineStep], name: str) -> int:
+        """Run the steps on the open image with a cancellable progress
+        dialog, committing each finished step as its own edit. Returns the
+        number of steps applied."""
+        doc = self._document
+        total = len(steps)
+        progress = QProgressDialog(f"Running {name}…", "Cancel", 0, total, self)
+        progress.setWindowTitle("Run Batch Workflow")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        worker = _WorkflowWorker(doc.data.copy(), doc.is_grayscale, steps, self)
+        self._workflow_worker = worker
+        applied: list[int] = []
+        error: list[tuple[int, str]] = []
+
+        def started(index: int) -> None:
+            if not progress.wasCanceled():
+                progress.setLabelText(f"Step {index + 1} of {total}: {steps[index].label}")
+            progress.setValue(index)
+
+        def done(index: int, result) -> None:
+            step = steps[index]
+            self._commit_filter(step.label, result, operation=AppliedOperation(
+                step.label, step.filter_id, deepcopy(step.params)))
+            applied.append(index)
+            progress.setValue(index + 1)
+
+        def cancel() -> None:
+            worker.cancel()
+            progress.setLabelText("Cancelling after the step in progress…")
+
+        worker.step_started.connect(started)
+        worker.step_done.connect(done)
+        worker.failed.connect(lambda index, message: error.append((index, message)))
+        progress.canceled.connect(cancel)
+        loop = QEventLoop(self)
+        worker.finished.connect(loop.quit)
+        progress.show()
+        worker.start()
+        loop.exec()
+        worker.wait()
+        progress.close()
+        progress.deleteLater()
+        self._workflow_worker = None
+        count = len(applied)
+        if error:
+            index, message = error[0]
+            QMessageBox.critical(
+                self, "Run Batch Workflow",
+                f"Step {index + 1} ({steps[index].label}) failed:\n{message}\n\n"
+                f"{count} of {total} steps were applied.")
+            self._status.showMessage(f"{name}: stopped at step {index + 1}; {count} of {total} applied")
+        elif count < total:
+            self._status.showMessage(
+                f"{name}: cancelled; {count} of {total} steps applied"
+                + (" (Undo removes them)" if count else ""))
+        else:
+            self._status.showMessage(f"{name}: all {total} steps applied")
+        return count
 
     def _run_field_derotate(self) -> None:
         if self._guard_filter_dialog("Derotate/Align", self._run_field_derotate):
