@@ -179,7 +179,7 @@ class MoonEnhanceDef(FilterDef):
             params.get("sensitivity", 8.0),
             params.get("radius_scale", 0.5),
             params.get("planet_margin", 0.0),
-            int(params.get("max_moons", 12)),
+            int(params.get("max_moons", 4)),
             retain_relative_brightness=params.get("retain_relative_brightness", False),
             pseudo_relative_brightness=params.get("pseudo_relative_brightness", False),
         )
@@ -440,7 +440,7 @@ FILTERS: dict[str, FilterDef] = {
             "radius_scale": 0.5,
             # 0 = auto: follow the local disk/ring glow within a size-based limit.
             "planet_margin": 0.0,
-            "max_moons": 12,
+            "max_moons": 4,
         },
     ),
     "optical_correction": OpticalCorrectionDef(

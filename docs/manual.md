@@ -405,7 +405,7 @@ Find and brighten compact moons outside the planet and ring protection area whil
 
 ### Max moons
 
-Max moons keeps at most this many detections, strongest first. Limit it to the number of moons you expect in the frame rather than leaving it high: any extra detections are noise, hot pixels or glow and will be brightened as if they were moons. Confirm which moons are present before choosing the number, using a tool such as WinJUPOS for the capture time and/or a temporary Levels adjustment. In Levels, disable Clamp to 100%, lower Input maximum or raise Gamma until faint moons become visible, note their positions, then Cancel. If a real moon is missing while Max moons matches the expected count, a stronger false detection may have displaced it; raise Sensitivity or adjust the planet margin.
+Max moons keeps at most this many detections, strongest first; it starts at 4. Limit it to the number of moons you expect in the frame rather than leaving it high: any extra detections are noise, hot pixels or glow and will be brightened as if they were moons. Confirm which moons are present before choosing the number, using a tool such as WinJUPOS for the capture time and/or a temporary Levels adjustment. In Levels, disable Clamp to 100%, lower Input maximum or raise Gamma until faint moons become visible, note their positions, then Cancel. If a real moon is missing while Max moons matches the expected count, a stronger false detection may have displaced it; raise Sensitivity or adjust the planet margin.
 
 ### Relative brightness
 

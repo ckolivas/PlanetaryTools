@@ -120,7 +120,7 @@ class MoonEnhanceTests(unittest.TestCase):
     def test_pseudo_batch_roundtrip_and_gain_changes_reuse_detection(self):
         source, _ = scene()
         enhance(source, retain_relative_brightness=True)
-        params = {'brightness': 25, 'planet_margin': 10,
+        params = {'brightness': 25, 'planet_margin': 10, 'max_moons': 12,
                   'retain_relative_brightness': True, 'pseudo_relative_brightness': True}
         workflow, warnings = workflow_from_dict(workflow_to_dict(BatchWorkflow(
             steps=[PipelineStep('moon_enhance', params)]
