@@ -40,10 +40,9 @@ class OpticalCorrectionDialog(_FilterDialog):
     # [(x, y, radius), ...] of the moons in use; empty hides the markers.
     markers_changed = pyqtSignal(object)
 
+    # Astigmatism is not offered: its correction left a worse result after
+    # sharpening (see optical_correction.ASTIGMATISM_ENABLED).
     _ABERRATIONS = (
-        ("astigmatism", "Astigmatism", 2,
-         "Elongated blur. Detail along the long axis is boosted until the "
-         "moon is round (Target size, Max boost)."),
         ("coma", "Coma/collimation", 1,
          "One-sided blur, a comet-like tail. Light is moved back from the "
          "tail; nothing is amplified. Off-axis coma varies across the field: "
@@ -61,12 +60,11 @@ class OpticalCorrectionDialog(_FilterDialog):
         self._moon_y = -1.0
         self._measurement: oc.PsfMeasurement | None = None
         self._maps = None  # protect-background maps for the measurement
-        self._frequency_snr = None  # the image's signal/noise per frequency
         super().__init__("Correct Optical Aberrations", parent)
         self.set_help_text(
             "Uses the moons in the image as its point spread function and "
-            "corrects the aberrations they show: astigmatism (elongation), "
-            "coma (a one-sided tail) and trefoil (three lobes). Each is "
+            "corrects the aberrations they show: coma (a one-sided tail) and "
+            "trefoil (three lobes). Each is "
             "measured on the moons; untick any you do not want corrected. "
             "Auto combines every suitable moon (bright, compact, isolated, "
             "unclipped and off the planet's glow; a resolved disc such as "
@@ -141,26 +139,6 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.agreement_warning.hide()
         self._form.addRow(self.agreement_warning)
 
-        self.target_size = self._add_double(
-            "Target size", fdef.default_params["target_size"], 25.0, 100.0, step=5.0, decimals=0)
-        self.target_size.setSuffix(" %")
-        self.target_size.setToolTip(
-            "Astigmatism: size of the round PSF the moon is corrected to, as a "
-            "percentage of its narrowest width. 100% removes only the "
-            "elongation; lower values also sharpen and amplify noise.")
-        self.max_boost = self._add_double(
-            "Max boost", fdef.default_params["max_boost"], 1.0, 20.0, step=0.5, decimals=1)
-        self.max_boost.setSuffix(" ×")
-        self.max_boost.setToolTip(
-            "Astigmatism: largest amplification of detail along the moon's "
-            "long axis. 1× leaves it uncorrected; the default 2× corrects part of a "
-            "moderate elongation with little added noise, 3× most of it, and "
-            "8× usually makes the moon round, with "
-            "more noise and edge overshoot. Nothing is ever smoothed.")
-        for spin in (self.target_size, self.max_boost):
-            spin.setKeyboardTracking(False)
-            spin.valueChanged.connect(lambda _: self._refresh_corrected_view())
-
         self.per_channel = QCheckBox("Measure each colour channel")
         self.per_channel.setChecked(bool(fdef.default_params["per_channel"]))
         self.per_channel.setToolTip(
@@ -174,12 +152,8 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.protect_background = QCheckBox("Protect background")
         self.protect_background.setChecked(bool(fdef.default_params["protect_background"]))
         self.protect_background.setToolTip(
-            "Boost detail for astigmatism only where the signal is strong "
-            "enough that its noise stays hidden: in areas, leaving sky and "
-            "faint glow (including the moons' outer glow) unchanged so their "
-            "speckle is not boosted; and in fineness, leaving the finest "
-            "detail along the long axis alone where the image holds only "
-            "noise there, so later sharpening is not spent on boosted noise.")
+            "Leave sky that holds only noise unchanged, so the correction "
+            "does not move its speckle about.")
         self.protect_background.toggled.connect(lambda _: self._refresh_corrected_view())
         self.protect_background.toggled.connect(lambda _: self.params_changed.emit())
         self._form.addRow(self.protect_background)
@@ -226,7 +200,7 @@ class OpticalCorrectionDialog(_FilterDialog):
         moons = oc.choose_moons(data, self._input_is_grayscale, self._selection_params())
         m = oc.measure_moons(data, self._input_is_grayscale, moons) if moons else None
         self._measurement = m
-        amounts = {"astigmatism": None, "coma": None, "trefoil": None}
+        amounts = {"coma": None, "trefoil": None}
         if m is None:
             if not moons and self.auto.isChecked():
                 text = "No suitable moon found. Click a moon or drag a box around it."
@@ -250,9 +224,7 @@ class OpticalCorrectionDialog(_FilterDialog):
                     f"{m.elongation:.2f}:1 at {m.angle_deg:.0f}°, SNR {m.snr:.0f}")
             self.moon_info.setText(text)
             self._maps = oc.signal_maps(self._luminance(), m)
-            self._frequency_snr = oc.spectral_snr(self._luminance(), m)
-            amounts = {"astigmatism": m.astigmatism_amount, "coma": m.coma_amount,
-                       "trefoil": m.trefoil_amount}
+            amounts = {"coma": m.coma_amount, "trefoil": m.trefoil_amount}
             differing = oc.disagreements(m)
             notes = []
             if differing:
@@ -260,11 +232,6 @@ class OpticalCorrectionDialog(_FilterDialog):
                     f"{' and '.join(differing)} differs between the moons; it "
                     "probably varies across the field, so it may not suit the "
                     "planet. Consider unticking it or picking the nearest moon.")
-            if oc.elongation_differs(m):
-                notes.append(
-                    "The moons are elongated by different amounts, as drift "
-                    "during a long stack does; only the elongation they share "
-                    f"({100*m.shared_elongation:.0f}%) is corrected as astigmatism.")
             if notes:
                 self.agreement_warning.setText("\n".join(notes))
                 self.agreement_warning.show()
@@ -276,20 +243,14 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.refresh_markers()
 
     def _update_labels(self) -> None:
-        """Each aberration's measured strength and, for astigmatism whose
-        elongation differs between the moons, the shared part corrected."""
+        """Each aberration's measured strength."""
         m = self._measurement
         for key, label, _order, _tip in self._ABERRATIONS:
             value = self._amounts.get(key)
             if value is None or m is None:
                 self._aberration_boxes[key].setText(label)
                 continue
-            text = f"{label} ({100*value:.0f}%"
-            if (key == "astigmatism" and oc.elongation_differs(m)
-                    and self._aberration_boxes[key].isChecked()):
-                # Only the share of the elongation the moons have in common.
-                text += f", {100*value*m.shared_elongation:.0f}% corrected"
-            self._aberration_boxes[key].setText(text + ")")
+            self._aberration_boxes[key].setText(f"{label} ({100*value:.0f}%)")
 
     def _luminance(self) -> np.ndarray:
         return oc._plane(self._data(), self._input_is_grayscale)
@@ -302,9 +263,7 @@ class OpticalCorrectionDialog(_FilterDialog):
             return
         maps = self._maps if self.protect_background.isChecked() else None
         before, after = oc.moon_preview(
-            self._luminance(), m, maps, self._frequency_snr,
-            target_size=self.target_size.value(),
-            max_boost=self.max_boost.value(), **self._aberrations())
+            self._luminance(), m, maps, **self._aberrations())
         self.measured_view.setPixmap(_psf_pixmap(before))
         self.corrected_view.setPixmap(_psf_pixmap(after))
 
@@ -324,8 +283,6 @@ class OpticalCorrectionDialog(_FilterDialog):
             "auto": self.auto.isChecked(),
             "moon_x": float(self._moon_x),
             "moon_y": float(self._moon_y),
-            "target_size": self.target_size.value(),
-            "max_boost": self.max_boost.value(),
             # Kept as set for colour images; greyscale ignores it.
             "per_channel": self.per_channel.isChecked(),
             "protect_background": self.protect_background.isChecked(),
@@ -336,10 +293,6 @@ class OpticalCorrectionDialog(_FilterDialog):
     def set_params(self, params: dict[str, Any]) -> None:
         super().set_params(params)
         defaults = FILTERS[self.filter_id].default_params
-        for spin, key in ((self.target_size, "target_size"), (self.max_boost, "max_boost")):
-            spin.blockSignals(True)
-            spin.setValue(float(params.get(key, defaults[key])))
-            spin.blockSignals(False)
         boxes = [(self.auto, "auto"), (self.per_channel, "per_channel"),
                  (self.protect_background, "protect_background"),
                  *((box, key) for key, box in self._aberration_boxes.items())]

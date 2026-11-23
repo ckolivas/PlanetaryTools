@@ -547,7 +547,7 @@ class MainWindow(QMainWindow):
         self._optical_act = QAction("Correct &Optical Aberrations…", self)
         self._optical_act.setToolTip(
             "Use a small moon as the image's point spread function to correct "
-            "blur such as astigmatism. Auto-selects the most suitable moon, or "
+            "coma and trefoil blur. Auto-selects the most suitable moons, or "
             "click one on the image."
         )
         self._optical_act.triggered.connect(self._run_optical_correction)

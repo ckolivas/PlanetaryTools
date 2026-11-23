@@ -2680,22 +2680,11 @@ def edit_filter_params(
             spin.setValue(float(params.get(key, fdef.default_params[key])))
             form.addRow(label, spin)
             widgets[key] = spin
-        specs = (("target_size", "Target size", 25.0, 100.0, 0, " %"),
-                 ("max_boost", "Max boost", 1.0, 20.0, 1, " ×"))
-        for key, label, lo, hi, decimals, suffix in specs:
-            spin = QDoubleSpinBox()
-            spin.setRange(lo, hi)
-            spin.setDecimals(decimals)
-            spin.setSuffix(suffix)
-            spin.setValue(float(params.get(key, fdef.default_params[key])))
-            form.addRow(label, spin)
-            widgets[key] = spin
         per_channel = QCheckBox("Measure each colour channel")
         per_channel.setChecked(bool(params.get("per_channel", fdef.default_params["per_channel"])))
         form.addRow(per_channel)
         widgets["per_channel"] = per_channel
-        for key, label in (("astigmatism", "Astigmatism"), ("coma", "Coma/collimation"),
-                           ("trefoil", "Trefoil")):
+        for key, label in (("coma", "Coma/collimation"), ("trefoil", "Trefoil")):
             box = QCheckBox(label)
             box.setChecked(bool(params.get(key, fdef.default_params[key])))
             form.addRow(box)

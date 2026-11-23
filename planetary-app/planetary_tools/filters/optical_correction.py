@@ -19,7 +19,8 @@ Method:
    normalised and averaged. Angular harmonics of the core measure coma
    (m = 1), astigmatism (m = 2) and trefoil (m = 3), and whether the moons
    agree on them: off-axis coma varies across the field.
-3. Astigmatism: an elliptical Gaussian fitted to the point-symmetric core
+3. Astigmatism (switched off, ASTIGMATISM_ENABLED; kept for revisiting):
+   an elliptical Gaussian fitted to the point-symmetric core
    gives σa, σb and the angle. The analytic inverse of the extra blur along
    the long axis, ``K = exp(2π² ((σa² − σt²) fu² + (σb² − σt²)₊ fv²))``,
    with σt = Target size × σb, softly capped at the Max boost G as
@@ -61,25 +62,37 @@ from planetary_tools.filters.moon_enhance import (
     _luminance,
 )
 
+# Astigmatism correction is switched off: even limited to the frequencies
+# with signal, the boost left a worse result after sharpening than no
+# correction (the noise it added cost more sharpening than the elongation
+# it removed gave back). The code is kept, with its tests, to revisit; with
+# this off, the moons' elongation is still measured (the ellipse sizes the
+# sky mask) but not compared between moons for drift, and the filter takes
+# no astigmatism, Target size or Max boost parameters.
+ASTIGMATISM_ENABLED = False
+
 DEFAULT_OPTICAL_CORRECTION_PARAMS = {
     # Pick the most suitable moon in each image.
     "auto": True,
     # Manual moon position in image pixels; negative = none chosen.
     "moon_x": -1.0,
     "moon_y": -1.0,
-    # Target PSF size as % of the measured minor axis profile. 100 = round only.
-    "target_size": 100.0,
-    # Largest boost the filter may give any spatial frequency.
-    "max_boost": 2.0,
     # Measure each colour channel's PSF on the same moon.
     "per_channel": True,
-    # Leave sky that holds only noise unchanged instead of boosting its speckle.
+    # Leave sky that holds only noise unchanged instead of moving its speckle.
     "protect_background": True,
     # Which aberrations to correct.
-    "astigmatism": True,
     "coma": True,
     "trefoil": True,
 }
+if ASTIGMATISM_ENABLED:
+    DEFAULT_OPTICAL_CORRECTION_PARAMS.update({
+        # Target PSF size as % of the measured minor axis profile. 100 = round only.
+        "target_size": 100.0,
+        # Largest boost the filter may give any spatial frequency.
+        "max_boost": 2.0,
+        "astigmatism": True,
+    })
 
 # Candidate detection threshold (local SNR) and count.
 _DETECT_SENSITIVITY = 5.0
@@ -558,7 +571,8 @@ def combine_measurements(
         size_sum = sum(w*abs(m.harmonics.get(order, 0j)) for m, w in pairs) + 1e-30
         agreement[order] = float(abs(vec)/size_sum)
         amounts[order] = float(size_sum/wsum)
-    boost, shared = _shared_ellipse([m for m, _ in pairs], out)
+    boost, shared = (_shared_ellipse([m for m, _ in pairs], out)
+                     if ASTIGMATISM_ENABLED else (None, 1.0))
     # The correction reaches as far as the worst moon's flare.
     flare = max([out.flare_radius] + [m.flare_radius for m, _ in pairs])
     return replace(out, agreement=agreement, moon_amounts=amounts, flare_radius=flare,
@@ -1033,10 +1047,14 @@ def correct_optical_aberrations(
     max_boost: float = 2.0,
     per_channel: bool = True,
     protect_background: bool = True,
-    astigmatism: bool = True,
+    astigmatism: bool = False,
     coma: bool = True,
     trefoil: bool = True,
 ) -> np.ndarray:
+    """Correct the moons' aberrations in the image. ``astigmatism`` (with
+    ``target_size`` and ``max_boost``) is ignored unless ASTIGMATISM_ENABLED,
+    which the tests switch on to keep that code working."""
+    astigmatism = astigmatism and ASTIGMATISM_ENABLED
     params = {"auto": auto, "moon_x": moon_x, "moon_y": moon_y}
     arr = np.asarray(data, dtype=np.float32)
     moons = choose_moons(arr, is_grayscale, params)
@@ -1081,8 +1099,8 @@ def signal_maps(lum: np.ndarray, m: PsfMeasurement) -> tuple[np.ndarray, np.ndar
 
 def correct_plane(
     plane: np.ndarray, m: PsfMeasurement, mask: np.ndarray | None, snr: np.ndarray | None,
-    *, target_size: float, max_boost: float,
-    astigmatism: bool, coma: bool, trefoil: bool,
+    *, target_size: float = 100.0, max_boost: float = 1.0,
+    astigmatism: bool = False, coma: bool = True, trefoil: bool = True,
     frequency_snr: np.ndarray | None = None,
 ) -> np.ndarray:
     """Correct one image plane; ``mask``/``snr`` None leaves noise unprotected.
@@ -1139,7 +1157,7 @@ def moon_preview(
     as the image is corrected (for the dialog thumbnails). ``frequency_snr``
     is ``spectral_snr`` of ``lum``, measured here when not given."""
     lum = np.asarray(lum, dtype=np.float32)
-    if maps is not None and frequency_snr is None:
+    if maps is not None and frequency_snr is None and settings.get("astigmatism"):
         frequency_snr = spectral_snr(lum, m)
     h, w = lum.shape
     r = m.radius

@@ -53,6 +53,20 @@ def elongation(plane, x, y):
     return major/minor
 
 
+def astig_correct(image, grayscale, **kwargs):
+    """The kept (switched off) astigmatism correction, for its tests: run
+    with ASTIGMATISM_ENABLED patched on."""
+    kwargs.setdefault('astigmatism', True)
+    return oc.correct_optical_aberrations(image, grayscale, **kwargs)
+
+
+def astig_apply(image, grayscale, params):
+    """``apply_filter`` with astigmatism: the registry no longer passes it."""
+    keys = ('auto', 'moon_x', 'moon_y', 'target_size', 'max_boost', 'per_channel',
+            'protect_background', 'coma', 'trefoil')
+    return astig_correct(image, grayscale, **{k: params[k] for k in keys if k in params})
+
+
 class FilterTests(unittest.TestCase):
     def test_auto_selects_bright_compact_moon_not_resolved_disc(self):
         image = scene()
@@ -80,12 +94,13 @@ class FilterTests(unittest.TestCase):
         choice = oc.auto_select_moon(image, True)
         self.assertLess(min(np.hypot(choice.x - x, choice.y - y) for x, y in (MOON, FAINT_MOON)), 1.5)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_correction_makes_every_moon_round_at_the_minor_width(self):
         image = scene()
         # Max boost limits how far a strong (1.67:1) elongation is undone.
         # Unprotected: the full correction everywhere, so the strength shows.
         for boost, ratio in ((4.0, 1.4), (12.0, 1.25)):
-            out = oc.correct_optical_aberrations(image, True, max_boost=boost,
+            out = astig_correct(image, True, max_boost=boost,
                                                  protect_background=False)
             for x, y in (MOON, FAINT_MOON):
                 before = measured(image, x, y)
@@ -100,6 +115,7 @@ class FilterTests(unittest.TestCase):
         self.assertAlmostEqual(float(np.median(out[:20, 200:])),
                                float(np.median(image[:20, 200:])), delta=2e-5)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_no_rings_around_a_planet_far_brighter_than_the_moon(self):
         # The moon's faint halo is measured far less accurately than the
         # planet's glow is bright. Reshaping it left dark rings around the
@@ -127,7 +143,7 @@ class FilterTests(unittest.TestCase):
 
         before = deepest_dip(image)
         for boost in (1.0, 4.0):
-            out = oc.correct_optical_aberrations(image, True, max_boost=boost)
+            out = astig_correct(image, True, max_boost=boost)
             # Edge overshoot from sharpening the long axis stays tiny; the
             # halo-reshaping version reached 0.149 here.
             self.assertLess(deepest_dip(out), max(3*before, .01), boost)
@@ -135,24 +151,26 @@ class FilterTests(unittest.TestCase):
         start = measured(image, 290, 60)
         self.assertLess(major/minor, start[0]/start[1] - .15)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_never_smooths_the_noise_and_one_times_is_no_change(self):
         # Dividing by the noisy measured spectrum fell towards zero at high
         # frequencies: speckle around the moon was blurred, the moon left
         # elongated.
         image = scene()
-        same = oc.correct_optical_aberrations(image, True, max_boost=1.0,
+        same = astig_correct(image, True, max_boost=1.0,
                                               coma=False, trefoil=False)
         np.testing.assert_allclose(same, image, atol=1e-6)
         sky = (slice(0, 25), slice(180, 320))
         for boost in (2.0, 4.0):
-            kept = oc.correct_optical_aberrations(image, True, max_boost=boost)
+            kept = astig_correct(image, True, max_boost=boost)
             self.assertGreaterEqual(float(kept[sky].std()), .99*float(image[sky].std()))
-            out = oc.correct_optical_aberrations(image, True, max_boost=boost,
+            out = astig_correct(image, True, max_boost=boost,
                                                  protect_background=False)
             self.assertGreater(float(out[sky].std()), float(image[sky].std()))
             major, minor = measured(out, *MOON)
             self.assertLess(major/minor, measured(image, *MOON)[0]/measured(image, *MOON)[1] - .15)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_protection_keeps_a_faint_moons_glow_free_of_speckle(self):
         # One boost everywhere amplified the noise in a moon's faint outer
         # glow, so the corrected moon looked speckled (2026-11-21 IR642).
@@ -164,9 +182,9 @@ class FilterTests(unittest.TestCase):
         def fine(z):
             return z - ndimage.gaussian_filter(z, 1.0)
         for boost in (4.0, 12.0):
-            plain = oc.correct_optical_aberrations(image, True, max_boost=boost,
+            plain = astig_correct(image, True, max_boost=boost,
                                                    protect_background=False)
-            kept = oc.correct_optical_aberrations(image, True, max_boost=boost)
+            kept = astig_correct(image, True, max_boost=boost)
             base = float(fine(image)[glow].std())
             self.assertGreater(float(fine(plain)[glow].std()), 3*base)
             self.assertLess(float(fine(kept)[glow].std()), 1.1*base)
@@ -174,6 +192,7 @@ class FilterTests(unittest.TestCase):
             # signal allows at each frequency.
             self.assertAlmostEqual(elongation(kept, *MOON), elongation(plain, *MOON), delta=.05)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_dark_gap_beside_the_planet_gets_the_planets_boost(self):
         # Measured against a local median raised by the planet's glow, the
         # gaps between rings and globe read as empty and got no boost beside
@@ -188,8 +207,8 @@ class FilterTests(unittest.TestCase):
         sharp[170, 320] = 1.0
         image = (ndimage.gaussian_filter(sharp, (SIGMA_Y, SIGMA_X)) + 1e-4
                  + np.random.default_rng(5).normal(0, 1e-5, (h, w))).astype(np.float32)
-        kept = oc.correct_optical_aberrations(image, True, coma=False, trefoil=False)
-        plain = oc.correct_optical_aberrations(image, True, coma=False, trefoil=False,
+        kept = astig_correct(image, True, coma=False, trefoil=False)
+        plain = astig_correct(image, True, coma=False, trefoil=False,
                                                protect_background=False)
         gap = (slice(100, 121), slice(154, 162))
         # The local-median version differed by 7.5% of the peak here.
@@ -217,11 +236,12 @@ class FilterTests(unittest.TestCase):
         self.assertGreater(fine(unlimited), 1.4*fine(image))
         self.assertLess(fine(limited), 1.1*fine(image))
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_protect_background_leaves_sky_noise_alone(self):
         image = scene()
         sky = (slice(0, 25), slice(180, 320))
-        plain = oc.correct_optical_aberrations(image, True, protect_background=False)
-        kept = oc.correct_optical_aberrations(image, True, protect_background=True)
+        plain = astig_correct(image, True, protect_background=False)
+        kept = astig_correct(image, True, protect_background=True)
         self.assertGreater(float(plain[sky].std()), 1.2*float(image[sky].std()))
         self.assertLess(float(kept[sky].std()), 1.05*float(image[sky].std()))
         for x, y in (MOON, FAINT_MOON):
@@ -329,6 +349,7 @@ class FilterTests(unittest.TestCase):
         rng = np.random.default_rng(seed)
         return (blurred + 1e-4 + rng.normal(0, 1e-5, blurred.shape)).astype(np.float32)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_only_the_elongation_the_moons_share_is_corrected(self):
         # Moons sharing the blur: corrected as measured.
         same = self.drift_scene([(0, 0)]*3)
@@ -349,34 +370,37 @@ class FilterTests(unittest.TestCase):
         self.assertLess(abs(angle - clean.angle_deg), 8)
         self.assertLess(m.shared_elongation, .8)
         # The planet gets only the shared correction.
-        out = oc.correct_optical_aberrations(image, True, coma=False, trefoil=False)
-        full = oc.correct_optical_aberrations(
+        out = astig_correct(image, True, coma=False, trefoil=False)
+        full = astig_correct(
             image, True, coma=False, trefoil=False, auto=False, moon_x=250, moon_y=50)
         np.testing.assert_allclose(out[60:140, 50:130], full[60:140, 50:130], atol=2e-3)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_smaller_target_also_sharpens(self):
         image = scene()
-        full = oc.correct_optical_aberrations(image, True, target_size=100,
+        full = astig_correct(image, True, target_size=100,
                                               protect_background=False)
-        small = oc.correct_optical_aberrations(image, True, target_size=70, max_boost=8,
+        small = astig_correct(image, True, target_size=70, max_boost=8,
                                                protect_background=False)
         self.assertLess(measured(small, *MOON)[1], measured(full, *MOON)[1]*.9)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_manual_choice_follows_a_drifted_moon(self):
         params = {'auto': False, 'moon_x': FAINT_MOON[0] + 2.0, 'moon_y': FAINT_MOON[1] - 1.0}
         drifted = scene(shift=(12, -9))
         choice = oc.choose_moon(drifted, True, params)
         self.assertLess(np.hypot(choice.x - FAINT_MOON[0] - 12, choice.y - FAINT_MOON[1] + 9), 1.0)
-        out = apply_filter('optical_correction', drifted, True,
+        out = astig_apply(drifted, True,
                            {**params, 'max_boost': 12.0, 'protect_background': False})
         major, minor = measured(out, FAINT_MOON[0] + 12, FAINT_MOON[1] - 9)
         self.assertLess(major/minor, 1.25)
 
+    @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_each_colour_channel_uses_its_own_psf(self):
         red = scene(sigma=(1.8, 3.0))
         blue = scene(sigma=(3.0, 1.8), seed=4)
         rgb = np.stack([red, (red + blue)/2, blue], axis=2)
-        out = apply_filter('optical_correction', rgb, False,
+        out = astig_apply(rgb, False,
                            {'per_channel': True, 'clamp': False, 'max_boost': 12.0,
                             'protect_background': False})
         for c in (0, 2):
@@ -388,6 +412,24 @@ class FilterTests(unittest.TestCase):
             apply_filter('optical_correction', scene(moons=False), True, {})
         with self.assertRaises(oc.NoMoonError):
             apply_filter('optical_correction', scene(), True, {'auto': False})
+
+    def test_astigmatism_is_switched_off(self):
+        # Its boost left a worse result after sharpening; the code is kept.
+        self.assertFalse(oc.ASTIGMATISM_ENABLED)
+        defaults = FILTERS['optical_correction'].default_params
+        self.assertFalse({'astigmatism', 'target_size', 'max_boost'} & set(defaults))
+        image = scene()
+        moons = oc.auto_select_moons(image, True)
+        self.assertIsNone(oc.measure_moons(image, True, moons).boost_ellipse)
+        # An old preset asking for it changes nothing: the elongation stays.
+        out = apply_filter('optical_correction', image, True,
+                           {'astigmatism': True, 'max_boost': 12.0, 'protect_background': False})
+        np.testing.assert_allclose(
+            out, apply_filter('optical_correction', image, True, {'protect_background': False}),
+            atol=1e-7)
+        self.assertAlmostEqual(elongation(out, *MOON), elongation(image, *MOON), delta=.03)
+        ignored = oc.correct_optical_aberrations(image, True, astigmatism=True, max_boost=12.0)
+        np.testing.assert_allclose(ignored, oc.correct_optical_aberrations(image, True), atol=1e-7)
 
     def test_registered_for_batch_with_auto_label(self):
         from planetary_tools.batch.pipeline import PipelineStep
@@ -430,20 +472,12 @@ class PanelTests(unittest.TestCase):
         self.assertTrue(panel.moon_info.text().startswith('Auto:'))
         self.assertIsNotNone(panel.measured_view.pixmap())
         self.assertIn(MOON, [(round(x), round(y)) for x, y, _ in markers[-1]])
-        self.assertRegex(panel._aberration_boxes['astigmatism'].text(), r'Astigmatism \(\d+%\)')
+        self.assertRegex(panel._aberration_boxes['coma'].text(), r'Coma/collimation \(\d+%\)')
+        # Astigmatism is not offered (switched off), nor its controls.
+        self.assertEqual(set(panel._aberration_boxes), {'coma', 'trefoil'})
+        self.assertFalse(hasattr(panel, 'max_boost') or hasattr(panel, 'target_size'))
+        self.assertFalse({'astigmatism', 'max_boost', 'target_size'} & set(panel.get_params()))
         self.assertTrue(panel.agreement_warning.isHidden())
-
-    def test_drifted_moons_show_the_astigmatism_corrected(self):
-        panel = OpticalCorrectionDialog(True)
-        self.addCleanup(panel.close)
-        image = FilterTests.drift_scene(self, [(0, 0), (10, 20), (8, 40)])
-        panel.set_input_brightness(np.repeat(image[..., None], 3, axis=2), True)
-        measured, corrected = map(int, re.fullmatch(
-            r'Astigmatism \((\d+)%, (\d+)% corrected\)',
-            panel._aberration_boxes['astigmatism'].text()).groups())
-        self.assertLess(corrected, measured)
-        self.assertIn('drift', panel.agreement_warning.text())
-        self.assertFalse(panel.agreement_warning.isHidden())
 
     def test_click_or_box_picks_a_moon_and_turns_off_auto(self):
         panel, markers = self.panel()
@@ -463,8 +497,7 @@ class PanelTests(unittest.TestCase):
         self.assertTrue(panel.moon_info.text().startswith('Auto:'))
         # The aberration boxes are saved with the params.
         panel._aberration_boxes['coma'].setChecked(False)
-        self.assertEqual([panel.get_params()[k] for k in ('astigmatism', 'coma', 'trefoil')],
-                         [True, False, True])
+        self.assertEqual([panel.get_params()[k] for k in ('coma', 'trefoil')], [False, True])
 
     def test_unticking_auto_keeps_its_moon(self):
         panel, _ = self.panel()
