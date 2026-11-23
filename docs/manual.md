@@ -496,7 +496,7 @@ Different wavelengths, seeing or capture times may show different real structure
 
 **Colours > Align RGB**
 
-Align the red and blue channels to green using the same registration approach as Derotate/Align. It can also correct atmospheric dispersion by matching the size of red and blue to green. Green remains the reference, keeping its position and size, and the canvas dimensions remain fixed.
+Align the red and blue channels to green using the same registration approach as Derotate/Align. Green remains the reference and the canvas dimensions remain fixed.
 
 <img src="images/align_rgb.png" alt="Align RGB interface" width="420">
 
@@ -505,20 +505,11 @@ Align the red and blue channels to green using the same registration approach as
 1. Open the RGB image and choose Align RGB. Keep Mask dim pixels enabled initially.
 2. Start with the 25% brightness mask. It excludes the bottom part of each channel's own minimum-to-maximum perceptual brightness range during estimation.
 3. Use shift-only alignment by disabling Derotate, or enable it when rotation between channels is expected. Set a realistic Max search angle.
-4. For an image taken without an ADC, enable Correct dispersion as well.
-5. Inspect coloured fringes on the limb and rings with preview on/off. Apply when the channels agree more closely.
+4. Inspect coloured fringes on the limb and rings with preview on/off. Apply when the channels agree more closely.
 
 ### Masking is for measurement
 
 Dim pixels are ignored when estimating alignment; they are not removed from the resulting image.
-
-### Correcting dispersion
-
-Without an atmospheric dispersion corrector (ADC), the atmosphere spreads each colour along one direction. This direction points towards the horizon, and the spread grows as the planet gets lower. Aligning the channels removes most of the colour fringe, but red and blue can still end up a slightly different size from green along that direction. That leaves a thin coloured rim at both ends of the planet and rings.
-
-Correct dispersion measures the direction from how far red and blue had to move to reach green. It then rescales red and blue along that direction only, so that each matches green's size. Green is never resized. The size is measured on the whole channel, including the faint glow where the rim shows, so the brightness mask does not apply to this step. A typical correction is around 1% or less. If red and blue were less than half a pixel apart, there is no direction to measure, and the option changes nothing.
-
-Each channel within the spread is also smeared along the direction by a different amount. Resizing does not remove that blur, so the result stays softer than an image taken with an ADC.
 
 ### Seeing and glow
 

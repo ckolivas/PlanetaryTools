@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox, QLabel
 
-from planetary_tools.core.align import align_rgb
+from planetary_tools.core.align import align_channel
 from planetary_tools.ui.dialogs import _FilterDialog
 
 
@@ -14,7 +14,7 @@ class AlignRgbDialog(_FilterDialog):
         super().__init__("Align RGB", parent)
 
     def _build_filter_params(self) -> None:
-        hint = QLabel("Align red and blue to green. Green, its size and the canvas size stay unchanged.")
+        hint = QLabel("Align red and blue to green. Green and the canvas size stay unchanged.")
         hint.setWordWrap(True)
         self._form.addRow(hint)
 
@@ -53,22 +53,12 @@ class AlignRgbDialog(_FilterDialog):
         self._max_angle.setToolTip("Search this many degrees either side of zero.")
         self._form.addRow("Max search angle", self._max_angle)
 
-        self._dispersion = QCheckBox("Correct dispersion")
-        self._dispersion.setChecked(False)
-        self._dispersion.setToolTip(
-            "Also match the size of red and blue to green along the direction\n"
-            "the atmosphere spread the colours, for images taken without an ADC.\n"
-            "The size is measured on the whole channel, including faint glow."
-        )
-        self._form.addRow(self._dispersion)
-
         self._mask_enabled.toggled.connect(self._mask_percent.setEnabled)
         self._derotate.toggled.connect(self._max_angle.setEnabled)
         self._mask_enabled.toggled.connect(self.params_changed.emit)
         self._mask_percent.valueChanged.connect(self.params_changed.emit)
         self._derotate.toggled.connect(self.params_changed.emit)
         self._max_angle.valueChanged.connect(self.params_changed.emit)
-        self._dispersion.toggled.connect(self.params_changed.emit)
 
     def build_filter_func(self):
         # Snapshot controls before the preview worker starts. Each render uses
@@ -76,12 +66,17 @@ class AlignRgbDialog(_FilterDialog):
         fraction = self._mask_percent.value() / 100 if self._mask_enabled.isChecked() else None
         rotate = self._derotate.isChecked()
         angle = self._max_angle.value()
-        dispersion = self._dispersion.isChecked()
 
         def apply(data: np.ndarray, is_grayscale: bool) -> np.ndarray:
             if is_grayscale or data.ndim != 3 or data.shape[2] != 3:
                 raise ValueError("Align RGB requires an RGB image.")
-            return align_rgb(data, mask_fraction=fraction, rotate=rotate,
-                             max_angle=angle, dispersion=dispersion)
+            green = data[..., 1]
+            channels = [
+                green if c == 1 else align_channel(
+                    green, data[..., c], mask_fraction=fraction, rotate=rotate, max_angle=angle,
+                )
+                for c in range(3)
+            ]
+            return np.stack(channels, axis=-1).astype(np.float32)
 
         return apply

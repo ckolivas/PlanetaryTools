@@ -11,7 +11,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 from scipy.ndimage import rotate, shift
 
-from planetary_tools.core.align import align_channel, align_rgb
+from planetary_tools.core.align import align_channel
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.field_derotate import apply_rigid, estimate_rigid, mask_alignment_background
 from planetary_tools.ui.align_rgb_dialog import AlignRgbDialog
@@ -31,7 +31,6 @@ class AlignRgbDialogTests(unittest.TestCase):
         self.assertEqual(panel._mask_percent.value(), 25)
         self.assertTrue(panel._derotate.isChecked())
         self.assertEqual(panel._max_angle.value(), 45)
-        self.assertFalse(panel._dispersion.isChecked())
         events = []
         panel.params_changed.connect(lambda: events.append(True))
         default = panel.build_filter_func()
@@ -41,22 +40,19 @@ class AlignRgbDialogTests(unittest.TestCase):
         panel._mask_enabled.setChecked(False)
         panel._derotate.setChecked(False)
         disabled = panel.build_filter_func()
-        panel._dispersion.setChecked(True)
-        dispersion = panel.build_filter_func()
         self.assertFalse(panel._mask_percent.isEnabled())
         self.assertFalse(panel._max_angle.isEnabled())
-        self.assertEqual(len(events), 5)
+        self.assertEqual(len(events), 4)
         data = np.random.default_rng(25).random((10, 12, 3), dtype=np.float32)
-        names = ('mask_fraction', 'rotate', 'max_angle', 'dispersion')
-        for func, expected in ((default, (.25, True, 45, False)), (changed, (.5, True, 3, False)),
-                               (disabled, (None, False, 3, False)),
-                               (dispersion, (None, False, 3, True))):
-            with patch('planetary_tools.ui.align_rgb_dialog.align_rgb',
-                       side_effect=lambda data, **kwargs: data.copy()) as align:
+        for func, expected in ((default, (.25, True, 45)), (changed, (.5, True, 3)),
+                               (disabled, (None, False, 3))):
+            with patch('planetary_tools.ui.align_rgb_dialog.align_channel',
+                       side_effect=lambda ref, target, **kwargs: target.copy()) as align:
                 np.testing.assert_array_equal(func(data, False), data)
-                align.assert_called_once()
-                np.testing.assert_array_equal(align.call_args.args[0], data)
-                self.assertEqual(align.call_args.kwargs, dict(zip(names, expected)))
+                self.assertEqual(align.call_count, 2)
+                for call in align.call_args_list:
+                    np.testing.assert_array_equal(call.args[0], data[..., 1])
+                    self.assertEqual(call.kwargs, dict(zip(('mask_fraction', 'rotate', 'max_angle'), expected)))
         panel._mask_enabled.setChecked(True)
         panel._derotate.setChecked(True)
         self.assertTrue(panel._mask_percent.isEnabled())
@@ -76,14 +72,6 @@ class AlignRgbDialogTests(unittest.TestCase):
                 self.assertAlmostEqual(match.angle_deg, -1.37, delta=.04)
                 self.assertEqual(actual.shape, ref.shape)
         np.testing.assert_array_equal(target, original)
-
-    def test_align_rgb_matches_per_channel_alignment_without_dispersion(self):
-        green = planet()
-        data = np.stack([shift(rotate(green, .8, reshape=False), (2.2, -3.1)),
-                         green, shift(rotate(green, -.6, reshape=False), (-1.7, 2.3))], axis=-1)
-        expected = np.stack([align_channel(green, data[..., 0], rotate=True, max_angle=3), green,
-                             align_channel(green, data[..., 2], rotate=True, max_angle=3)], axis=-1)
-        np.testing.assert_array_equal(align_rgb(data, rotate=True, max_angle=3), expected)
 
     def test_preview_toggle_cancel_apply_and_undo_in_detachable_dock(self):
         green = planet()
@@ -144,7 +132,7 @@ class AlignRgbDialogTests(unittest.TestCase):
             window._active_filter_dlg.preview.setChecked(False)
             window._active_filter_dlg._accept()
         try:
-            with patch('planetary_tools.ui.align_rgb_dialog.align_rgb',
+            with patch('planetary_tools.ui.align_rgb_dialog.align_channel',
                        side_effect=ValueError('Alignment failed')), \
                  patch('PyQt6.QtWidgets.QMessageBox.critical') as error:
                 QTimer.singleShot(0, accept)
