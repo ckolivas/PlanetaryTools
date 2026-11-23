@@ -109,6 +109,18 @@ def remember_save_path(path: str | Path) -> None:
         _settings().setValue("lastSaveDir", str(directory))
 
 
+def save_workflow_with_image() -> bool:
+    """Whether saving an image also writes its edits as a batch workflow."""
+    raw = _settings().value("saveWorkflowWithImage", False)
+    return raw is True or str(raw).lower() == "true"
+
+
+def remember_save_workflow_with_image(enabled: bool) -> None:
+    settings = _settings()
+    settings.setValue("saveWorkflowWithImage", bool(enabled))
+    settings.sync()
+
+
 def last_save_filter() -> str | None:
     """Return the last confirmed image file-type choice, if any."""
     raw = _settings().value("lastSaveFilter")

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtWidgets import (
-    QFileDialog as QtFileDialog, QFrame, QLabel, QListView, QListWidget,
+    QFileDialog as QtFileDialog, QFrame, QGridLayout, QLabel, QListView, QListWidget,
     QListWidgetItem, QSplitter, QStyle, QVBoxLayout, QWidget,
 )
 
@@ -82,14 +82,25 @@ class QFileDialog(QtFileDialog):
                 recent_files.remember_directory(directory)
         settings.sync()
 
+    def add_option(self, widget: QWidget) -> None:
+        """Show an extra option (e.g. a tick box) along the dialog's bottom."""
+        layout = self.layout()
+        if isinstance(layout, QGridLayout):
+            layout.addWidget(widget, layout.rowCount(), 0, 1, layout.columnCount())
+        elif layout is not None:
+            layout.addWidget(widget)
+
     @classmethod
-    def _choose(cls, parent, caption, directory, filter, initialFilter, options, mode, accept):
+    def _choose(cls, parent, caption, directory, filter, initialFilter, options, mode, accept,
+                option=None):
         dialog = cls(parent, caption, directory, filter)
         dialog.setOptions(options | cls.Option.DontUseNativeDialog)
         dialog.setFileMode(mode)
         dialog.setAcceptMode(accept)
         if initialFilter:
             dialog.selectNameFilter(initialFilter)
+        if option is not None:
+            dialog.add_option(option)
         try:
             if dialog.exec() == cls.DialogCode.Accepted:
                 return dialog.selectedFiles(), dialog.selectedNameFilter()
@@ -109,9 +120,12 @@ class QFileDialog(QtFileDialog):
                            cls.FileMode.ExistingFiles, cls.AcceptMode.AcceptOpen)
 
     @classmethod
-    def getSaveFileName(cls, parent=None, caption="", directory="", filter="", initialFilter="", options=QtFileDialog.Option(0)):
+    def getSaveFileName(cls, parent=None, caption="", directory="", filter="", initialFilter="",
+                        options=QtFileDialog.Option(0), option=None):
+        """As Qt's, plus ``option``: a widget shown along the bottom, owned by
+        the dialog (read its state before returning to the event loop)."""
         paths, selected = cls._choose(parent, caption, directory, filter, initialFilter, options,
-                                      cls.FileMode.AnyFile, cls.AcceptMode.AcceptSave)
+                                      cls.FileMode.AnyFile, cls.AcceptMode.AcceptSave, option)
         return (paths[0] if paths else ""), selected
 
     @classmethod

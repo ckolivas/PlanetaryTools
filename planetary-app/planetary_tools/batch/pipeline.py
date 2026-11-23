@@ -185,6 +185,27 @@ def workflow_from_dict(data: dict[str, Any]) -> tuple[BatchWorkflow, list[str]]:
     return workflow, warnings
 
 
+def steps_from_operations(operations) -> tuple[list[PipelineStep], list[str]]:
+    """Batch steps for the edits applied to an image, oldest first, as the
+    batch Current workflow button builds them, and the labels of the edits
+    that have no batch step."""
+    steps = [
+        PipelineStep(
+            filter_id=op.filter_id,
+            params={**deepcopy(FILTERS[op.filter_id].default_params), **deepcopy(op.params)},
+        )
+        for op in operations
+        if op.filter_id is not None
+    ]
+    skipped = [op.label for op in operations if op.filter_id is None]
+    return steps, skipped
+
+
+def workflow_path_for(image_path: str | Path) -> Path:
+    """The workflow file saved alongside an image: same name, .ptbatch."""
+    return Path(image_path).with_suffix(WORKFLOW_EXTENSION)
+
+
 def save_workflow(path: str | Path, workflow: BatchWorkflow) -> None:
     path = Path(path)
     if path.suffix.lower() != WORKFLOW_EXTENSION:

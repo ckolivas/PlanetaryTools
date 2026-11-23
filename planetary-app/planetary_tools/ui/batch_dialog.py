@@ -37,6 +37,7 @@ from planetary_tools.batch.pipeline import (
     planned_output_paths,
     run_batch,
     save_workflow,
+    steps_from_operations,
 )
 from planetary_tools.core.presets import ensure_builtin_presets
 from planetary_tools.core.undo import AppliedOperation
@@ -507,15 +508,7 @@ class BatchDialog(QDialog):
         self._refresh_step_list()
 
     def _import_current_workflow(self) -> None:
-        steps = [
-            PipelineStep(
-                filter_id=op.filter_id,
-                params={**deepcopy(FILTERS[op.filter_id].default_params), **deepcopy(op.params)},
-            )
-            for op in self._current_operations
-            if op.filter_id is not None
-        ]
-        skipped = [op.label for op in self._current_operations if op.filter_id is None]
+        steps, skipped = steps_from_operations(self._current_operations)
         if not steps:
             QMessageBox.information(
                 self, "Current workflow",

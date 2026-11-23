@@ -10,7 +10,7 @@ import numpy as np
 from PyQt6.QtCore import QSettings, QTimer
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from planetary_tools.batch.pipeline import apply_pipeline
+from planetary_tools.batch.pipeline import apply_pipeline, load_workflow
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.undo import AppliedOperation, UndoStack
 from planetary_tools.ui.batch_dialog import BatchDialog
@@ -161,6 +161,79 @@ class CurrentWorkflowTests(unittest.TestCase):
             self.assertEqual(len(batch._steps), expected)
         self.assertEqual(batch._steps[0].filter_id, 'scale_image')
         self.assertIn('Caption', info.call_args.args[2])
+
+    def save_as(self, path, filter_name, tick):
+        """Save As through the dialog, ticking its workflow box or not."""
+        seen = {}
+
+        def choose(*args, option=None, **kwargs):
+            seen['initial'] = option.isChecked()
+            option.setChecked(tick)
+            return str(path), filter_name
+        with patch('planetary_tools.ui.file_dialog.QFileDialog.getSaveFileName',
+                   side_effect=choose):
+            self.assertTrue(self.window._try_save_document_as())
+        return seen['initial']
+
+    def test_save_writes_the_current_workflow_beside_the_image(self):
+        w = self.window
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: [p.unlink() for p in root.iterdir()] and root.rmdir())
+        self.apply_panel(w._run_wavelet_sharpen, {'fine': 40.0, 'medium': 10.0})
+        self.scale(50.0)
+        w._commit_filter('Caption', w._document.data.copy())
+        # Off by default: the image alone.
+        self.assertFalse(self.save_as(root/'saturn.png', 'PNG 16-bit (*.png)', tick=False))
+        self.assertEqual(sorted(p.name for p in root.iterdir()), ['saturn.png'])
+        self.assertFalse(w._save_workflow_act.isChecked())
+        # Ticked: the workflow beside it, as Current workflow would import it.
+        self.assertFalse(self.save_as(root/'saturn.png', 'PNG 16-bit (*.png)', tick=True))
+        self.assertTrue(w._save_workflow_act.isChecked())
+        saved = root/'saturn.ptbatch'
+        workflow, warnings = load_workflow(saved)
+        self.assertEqual(warnings, [])
+        batch = self.imported()
+        with patch.object(QMessageBox, 'information'):  # the caption is skipped
+            batch._current_wf_btn.click()
+        self.assertEqual([(s.filter_id, s.params) for s in workflow.steps],
+                         [(s.filter_id, s.params) for s in batch._steps])
+        self.assertEqual([s.filter_id for s in workflow.steps], ['wavelet_sharpen', 'scale_image'])
+        self.assertEqual(workflow.bit_depth, 16)
+        self.assertIn('saturn.ptbatch', w._status.currentMessage())
+        self.assertIn('1 edit with no batch step', w._status.currentMessage())
+        # The choice is remembered: the next Save As starts ticked, and a
+        # plain Save rewrites the workflow after a further edit.
+        self.assertTrue(MainWindow()._save_workflow_act.isChecked())
+        self.rotate(12.0)
+        w._save_file()
+        self.assertEqual([s.filter_id for s in load_workflow(saved)[0].steps],
+                         ['wavelet_sharpen', 'scale_image', 'rotate_image'])
+        # Unticked in the File menu: plain Save leaves the workflow alone.
+        w._save_workflow_act.setChecked(False)
+        saved.unlink()
+        w._save_file()
+        self.assertFalse(saved.exists())
+
+    def test_save_without_batch_edits_writes_no_workflow(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: [p.unlink() for p in root.iterdir()] and root.rmdir())
+        self.window._commit_filter('Caption', self.window._document.data.copy())
+        self.save_as(root/'moon.tif', 'TIFF float32 (*.tif *.tiff)', tick=True)
+        self.assertEqual(sorted(p.name for p in root.iterdir()), ['moon.tif'])
+        self.assertIn('no workflow saved', self.window._status.currentMessage())
+
+    def test_save_as_dialog_shows_the_workflow_box(self):
+        from PyQt6.QtWidgets import QCheckBox
+        from planetary_tools.ui.file_dialog import QFileDialog
+        dialog = QFileDialog(None, 'Save Image As', str(Path.home()), 'PNG (*.png)')
+        self.addCleanup(dialog.deleteLater)
+        box = QCheckBox('Save workflow with image (.ptbatch)')
+        dialog.add_option(box)
+        dialog.show()
+        self.app.processEvents()
+        self.assertIs(box.window(), dialog)
+        self.assertTrue(box.isVisible())
+        dialog.reject()
 
     def test_disabled_without_edits_and_cleared_by_open_or_close(self):
         self.assertFalse(self.imported()._current_wf_btn.isEnabled())

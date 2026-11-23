@@ -14,6 +14,7 @@ from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QAbstractButton,
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDockWidget,
@@ -37,6 +38,12 @@ from planetary_tools.core.rotate import rotate_image
 from planetary_tools.core.scale import scale_image
 from planetary_tools.core.undo import AppliedOperation, UndoManager
 # from planetary_tools.filters import oklab_compose, oklab_decompose
+from planetary_tools.batch.pipeline import (
+    BatchWorkflow,
+    save_workflow,
+    steps_from_operations,
+    workflow_path_for,
+)
 from planetary_tools.io.loader import (
     load_image,
     save_channel,
@@ -89,7 +96,9 @@ from planetary_tools.ui.recent_files import (
     remember_open_path,
     remember_save_filter,
     remember_save_path,
+    remember_save_workflow_with_image,
     remove_recent,
+    save_workflow_with_image,
 )
 
 # Rec. 601 luma weights, used to derive a missing RGB channel from the other two.
@@ -344,6 +353,17 @@ class MainWindow(QMainWindow):
         )
         self._save_as_act.triggered.connect(self._save_file_as)
         file_menu.addAction(self._save_as_act)
+
+        self._save_workflow_act = QAction("Save &Workflow With Image", self)
+        self._save_workflow_act.setCheckable(True)
+        self._save_workflow_act.setChecked(save_workflow_with_image())
+        self._save_workflow_act.setToolTip(
+            "When saving, also save the edits applied to the image as a batch "
+            "workflow (.ptbatch) beside it, with the same name, as the batch "
+            "Current workflow button would build it."
+        )
+        self._save_workflow_act.toggled.connect(remember_save_workflow_with_image)
+        file_menu.addAction(self._save_workflow_act)
 
         file_menu.addSeparator()
         self._batch_act = QAction("&Batch Processing…", self)
@@ -809,12 +829,35 @@ class MainWindow(QMainWindow):
         # extension, so PNG 8-bit and PNG 16-bit collapse to a single entry.
         return QFileDialog.Option.DontUseNativeDialog
 
-    def _write_document(self, path: str, bit_depth: int) -> None:
+    def _write_document(self, path: str, bit_depth: int | None = None) -> None:
         if self._document is None:
             return
         save_image(self._document, path, bit_depth=bit_depth)
         self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
-        self._status.showMessage(f"Saved {path}")
+        message = f"Saved {path}"
+        if self._save_workflow_act.isChecked():
+            message += self._save_workflow_alongside(path, bit_depth)
+        self._status.showMessage(message)
+
+    def _save_workflow_alongside(self, image_path: str | Path, bit_depth: int | None) -> str:
+        """Save the edits behind the image as a batch workflow beside it; the
+        status-bar note on what was saved."""
+        steps, skipped = steps_from_operations(self._undo.stack.applied_operations())
+        if not steps:
+            return "; no edits with a batch step, so no workflow saved"
+        depth = bit_depth if bit_depth in (8, 16, 32) else (
+            self._document.storage_bits if self._document.storage_bits in (8, 16, 32) else 16)
+        path = workflow_path_for(image_path)
+        try:
+            save_workflow(path, BatchWorkflow(steps=steps, bit_depth=depth))
+        except Exception as exc:
+            QMessageBox.warning(self, "Workflow not saved",
+                                f"The image was saved, but its workflow could not be:\n{exc}")
+            return "; workflow not saved"
+        note = f"; workflow saved to {path.name}"
+        if skipped:
+            note += f" ({len(skipped)} edit{'s' if len(skipped) > 1 else ''} with no batch step left out)"
+        return note
 
     def _populate_recent_menu(self) -> None:
         self._recent_menu.clear()
@@ -893,6 +936,9 @@ class MainWindow(QMainWindow):
                         filename = str(Path(filename).with_suffix(extensions[0]))
                     break
             initial_path /= filename
+        workflow_box = QCheckBox("Save workflow with image (.ptbatch)")
+        workflow_box.setToolTip(self._save_workflow_act.toolTip())
+        workflow_box.setChecked(self._save_workflow_act.isChecked())
         path, selected = QFileDialog.getSaveFileName(
             self,
             "Save Image As",
@@ -900,9 +946,12 @@ class MainWindow(QMainWindow):
             self._save_as_filters(),
             selected_filter,
             options=self._save_as_dialog_options(),
+            option=workflow_box,
         )
         if not path:
             return False
+        # Read before the dialog (which owns the box) is deleted.
+        self._save_workflow_act.setChecked(workflow_box.isChecked())
         if selected:
             selected_filter = selected
         remember_save_filter(selected_filter)
@@ -931,9 +980,7 @@ class MainWindow(QMainWindow):
         if self._document.path is None:
             return self._try_save_document_as()
         try:
-            save_image(self._document, self._document.path)
-            self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
-            self._status.showMessage(f"Saved {self._document.path}")
+            self._write_document(str(self._document.path))
             return True
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", str(exc))
@@ -944,15 +991,7 @@ class MainWindow(QMainWindow):
             return
         if self._guard_filter_dialog("Save", self._save_file):
             return
-        if self._document.path is None:
-            self._try_save_document_as()
-            return
-        try:
-            save_image(self._document, self._document.path)
-            self.setWindowTitle(f"Planetary Tools — {self._document.title()}")
-            self._status.showMessage(f"Saved {self._document.path}")
-        except Exception as exc:
-            QMessageBox.critical(self, "Save failed", str(exc))
+        self._try_save_document()
 
     def _save_file_as(self) -> None:
         if self._guard_filter_dialog("Save As", self._save_file_as):
