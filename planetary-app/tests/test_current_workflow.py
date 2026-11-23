@@ -185,10 +185,12 @@ class CurrentWorkflowTests(unittest.TestCase):
         self.apply_panel(w._run_wavelet_sharpen, {'fine': 40.0, 'medium': 10.0})
         self.scale(50.0)
         w._commit_filter('Caption', w._document.data.copy())
-        # Off by default: the image alone.
-        self.assertFalse(self.save_as(root/'saturn.png', 'PNG 16-bit (*.png)', tick=False))
+        # On at first use; unticked: the image alone.
+        self.assertTrue(w._save_workflow_act.isChecked())
+        self.assertTrue(self.save_as(root/'saturn.png', 'PNG 16-bit (*.png)', tick=False))
         self.assertEqual(sorted(p.name for p in root.iterdir()), ['saturn.png'])
         self.assertFalse(w._save_workflow_act.isChecked())
+        self.assertFalse(MainWindow()._save_workflow_act.isChecked())  # remembered off
         # Ticked: the workflow beside it, as Current workflow would import it.
         self.assertFalse(self.save_as(root/'saturn.png', 'PNG 16-bit (*.png)', tick=True))
         self.assertTrue(w._save_workflow_act.isChecked())

@@ -110,8 +110,9 @@ def remember_save_path(path: str | Path) -> None:
 
 
 def save_workflow_with_image() -> bool:
-    """Whether saving an image also writes its edits as a batch workflow."""
-    raw = _settings().value("saveWorkflowWithImage", False)
+    """Whether saving an image also writes its edits as a batch workflow:
+    on until the user turns it off."""
+    raw = _settings().value("saveWorkflowWithImage", True)
     return raw is True or str(raw).lower() == "true"
 
 
