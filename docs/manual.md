@@ -784,6 +784,8 @@ Select an installed system font and its size in image pixels, defaulting to 12 p
 
 After OK, PT remembers the caption text, position, font, size, styles, colour, border and preview setting for next time, including after restarting. Cancel keeps the previously saved settings.
 
+To keep several captions, such as a signature line or a per-target layout, use the Preset row at the top: Save… stores the text, position, font, size, styles, colour and border under a name, choosing the name from the list loads them, and Delete removes the selected one. Default resets to a fresh caption. Editing any setting after loading a preset switches the list back to (None) without changing the saved preset. A saved border is limited to what fits the current image.
+
 Border sets the distance in pixels between the visible text and the selected image edges. Centre positions keep the text horizontally centred while respecting the side borders. Font size and border are independent of canvas zoom. If the caption cannot fit, reduce its size, border or number of lines; OK remains unavailable until it fits.
 
 Preview on canvas compares the caption with the original. OK adds the caption to the image; Cancel leaves the image unchanged. Undo Caption removes it. A coloured caption converts a grayscale image to RGB; neutral text keeps it grayscale. Undo also restores the original colour mode. Add captions near the end of processing, before saving the final image.

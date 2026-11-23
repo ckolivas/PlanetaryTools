@@ -29,6 +29,10 @@ def isolate_settings(test):
     settings_patch = patch('planetary_tools.ui.caption_dialog.QSettings', side_effect=test.settings)
     settings_patch.start()
     test.addCleanup(settings_patch.stop)
+    test.preset_dir = Path(directory.name) / 'presets'
+    preset_patch = patch('planetary_tools.core.presets.PRESET_DIR', test.preset_dir)
+    preset_patch.start()
+    test.addCleanup(preset_patch.stop)
 
 
 class CaptionTests(unittest.TestCase):
@@ -133,6 +137,53 @@ class CaptionTests(unittest.TestCase):
         self.assertFalse(ok.isEnabled())
         self.assertIn('Reduce', dialog.message.text())
         np.testing.assert_array_equal(dialog.build_filter_func()(source, False), source)
+
+    def test_presets_save_load_and_delete(self):
+        from PyQt6.QtWidgets import QInputDialog, QMessageBox
+        dialog = CaptionDialog(400, 240)
+        self.addCleanup(dialog.close)
+        combo = dialog.preset_combo
+        self.assertEqual([combo.itemText(i) for i in range(combo.count())], ['(None)', 'Default'])
+        dialog.text.setPlainText('C. Kolivas\n16" LX200')
+        dialog.position.setCurrentText('Top right')
+        dialog.font_size.setValue(18)
+        dialog.italic.setChecked(True)
+        dialog.colour.setCurrentIndex(dialog.colour.findData('gold'))
+        dialog.border.setValue(25)
+        saved = dialog.get_params()
+        with patch.object(QInputDialog, 'getText', return_value=(' Signature ', True)):
+            dialog._save_preset()
+        self.assertEqual(combo.currentText(), 'Signature')
+        self.assertTrue((self.preset_dir / 'caption.json').exists())
+        # A hand edit leaves the preset; Default resets everything.
+        dialog.bold.setChecked(True)
+        self.assertEqual(combo.currentText(), '(None)')
+        combo.setCurrentText('Default')
+        self.assertEqual(dialog.get_params(), dialog.default_params())
+        self.assertEqual(combo.currentText(), 'Default')
+        # A new dialog (another session) loads the saved preset exactly.
+        other = CaptionDialog(400, 240)
+        self.addCleanup(other.close)
+        other.preset_combo.setCurrentText('Signature')
+        self.assertEqual(other.get_params(), saved)
+        self.assertTrue(other.has_caption())
+        # Reserved names are refused, an existing name asks before replacing.
+        with patch.object(QInputDialog, 'getText', return_value=('Default', True)), \
+                patch.object(QMessageBox, 'warning') as warning:
+            other._save_preset()
+        warning.assert_called_once()
+        other.font_size.setValue(30)
+        with patch.object(QInputDialog, 'getText', return_value=('Signature', True)), \
+                patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.No):
+            other._save_preset()
+        other.preset_combo.setCurrentText('Signature')
+        self.assertEqual(other.font_size.value(), 18)
+        with patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.Yes):
+            other._delete_preset()
+        self.assertEqual(other.preset_combo.findText('Signature'), -1)
+        fresh = CaptionDialog(400, 240)
+        self.addCleanup(fresh.close)
+        self.assertEqual(fresh.preset_combo.findText('Signature'), -1)
 
     def test_settings_round_trip_and_smaller_image(self):
         dialog = CaptionDialog(400, 240)

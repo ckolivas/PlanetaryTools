@@ -9,10 +9,16 @@ from PyQt6.QtCore import QPointF, QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QIcon, QImage, QPainter, QPixmap, QTextLayout, QTextOption
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFontComboBox,
-    QFormLayout, QHBoxLayout, QLabel, QPlainTextEdit, QSpinBox, QVBoxLayout,
+    QFormLayout, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPlainTextEdit,
+    QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from planetary_tools.core.colour import srgb_to_linear
+from planetary_tools.core.presets import load_presets, reserved_preset_names, save_presets
+
+# Saved caption settings live with the filter presets, under this name.
+CAPTION_PRESET_ID = "caption"
+_PRESET_NONE = "(None)"
 
 POSITIONS = ('Top left', 'Top centre', 'Top right',
              'Bottom left', 'Bottom centre', 'Bottom right')
@@ -122,7 +128,9 @@ class CaptionDialog(QDialog):
         self.setWindowTitle('Caption')
         self._width, self._height = width, height
         self._overlay = None
+        self._applying_preset = False
         root = QVBoxLayout(self)
+        root.addWidget(self._make_preset_row())
         self.text = QPlainTextEdit()
         self.text.setPlaceholderText('Type your caption here. Use Enter for a new line.')
         self.text.setMinimumHeight(110)
@@ -184,8 +192,143 @@ class CaptionDialog(QDialog):
         self.border.valueChanged.connect(self._update_overlay)
         for box in (self.bold, self.underline, self.italic):
             box.toggled.connect(self._update_overlay)
+        for signal in (self.text.textChanged, self.position.currentIndexChanged,
+                       self.font_family.currentFontChanged, self.font_size.valueChanged,
+                       self.colour.currentIndexChanged, self.border.valueChanged,
+                       *(box.toggled for box in (self.bold, self.underline, self.italic))):
+            signal.connect(self._mark_preset_edited)
         self.resize(420, self.sizeHint().height())
         self._update_overlay()
+
+    # --- presets ---------------------------------------------------------
+
+    def default_params(self) -> dict:
+        """Settings of a fresh caption: no text, white, bottom left."""
+        return {
+            'text': '', 'position': 'Bottom left',
+            'font_family': QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont).family(),
+            'font_size': 12, 'bold': False, 'underline': False, 'italic': False,
+            'colour': 'white', 'border': 10,
+        }
+
+    def _make_preset_row(self) -> QWidget:
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(QLabel('Preset:'))
+        self.preset_combo = QComboBox()
+        self.preset_combo.setToolTip(
+            'Saved caption settings: text, position, font, size, style, colour '
+            'and border. Default is a fresh caption.')
+        row.addWidget(self.preset_combo, 1)
+        save_btn = QPushButton('Save…')
+        save_btn.setToolTip('Save the current caption settings under a name.')
+        save_btn.clicked.connect(self._save_preset)
+        delete_btn = QPushButton('Delete')
+        delete_btn.setToolTip('Delete the selected saved caption settings.')
+        delete_btn.clicked.connect(self._delete_preset)
+        row.addWidget(save_btn)
+        row.addWidget(delete_btn)
+        self._presets = {name: params for name, params
+                         in load_presets(CAPTION_PRESET_ID, {}).items()
+                         if isinstance(params, dict) and name not in reserved_preset_names(CAPTION_PRESET_ID)}
+        self._populate_presets()
+        self.preset_combo.currentTextChanged.connect(self._load_preset)
+        return holder
+
+    def _populate_presets(self, select: str = _PRESET_NONE) -> None:
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.addItems([_PRESET_NONE, 'Default', *sorted(self._presets)])
+        self.preset_combo.setCurrentText(select)
+        self.preset_combo.blockSignals(False)
+
+    def _load_preset(self, name: str) -> None:
+        params = self.default_params() if name == 'Default' else self._presets.get(name)
+        if params is None:
+            return
+        self._applying_preset = True
+        try:
+            self.set_params(params)
+        finally:
+            self._applying_preset = False
+
+    def _mark_preset_edited(self, *_):
+        """A hand edit no longer matches the chosen preset."""
+        if self._applying_preset or self.preset_combo.currentText() == _PRESET_NONE:
+            return
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.setCurrentText(_PRESET_NONE)
+        self.preset_combo.blockSignals(False)
+
+    def _save_preset(self) -> None:
+        name, ok = QInputDialog.getText(self, 'Save Caption Preset', 'Preset name:')
+        name = name.strip()
+        if not ok or not name:
+            return
+        if name == _PRESET_NONE or name in reserved_preset_names(CAPTION_PRESET_ID):
+            QMessageBox.warning(self, 'Save Caption Preset', f'"{name}" is a reserved preset name.')
+            return
+        if name in self._presets and QMessageBox.question(
+                self, 'Save Caption Preset', f'Replace the "{name}" preset?') \
+                != QMessageBox.StandardButton.Yes:
+            return
+        self._presets[name] = self.get_params()
+        save_presets(CAPTION_PRESET_ID, self._presets)
+        self._populate_presets(name)
+
+    def _delete_preset(self) -> None:
+        name = self.preset_combo.currentText()
+        if name not in self._presets:
+            if name == 'Default':
+                QMessageBox.warning(self, 'Delete Caption Preset',
+                                    'Cannot delete the "Default" preset.')
+            return
+        if QMessageBox.question(self, 'Delete Caption Preset',
+                                f'Delete the "{name}" preset?') != QMessageBox.StandardButton.Yes:
+            return
+        del self._presets[name]
+        save_presets(CAPTION_PRESET_ID, self._presets)
+        self._populate_presets()
+
+    def get_params(self) -> dict:
+        """The caption's settings, as saved in a preset."""
+        return {
+            'text': self.text.toPlainText(),
+            'position': self.position.currentText(),
+            'font_family': self.font_family.currentFont().family(),
+            'font_size': self.font_size.value(),
+            'bold': self.bold.isChecked(),
+            'underline': self.underline.isChecked(),
+            'italic': self.italic.isChecked(),
+            'colour': self.colour.currentData(),
+            'border': self.border.value(),
+        }
+
+    def set_params(self, params: dict) -> None:
+        """Apply saved settings; unknown values (a missing font, an old
+        colour name) leave that control as it is."""
+        defaults = self.default_params()
+
+        def get(key, kind):
+            try:
+                return kind(params.get(key, defaults[key]))
+            except (TypeError, ValueError):
+                return defaults[key]
+        self.text.setPlainText(get('text', str))
+        if get('position', str) in POSITIONS:
+            self.position.setCurrentText(get('position', str))
+        family = get('font_family', str)
+        if self.font_family.findText(family) >= 0:
+            self.font_family.setCurrentFont(QFont(family))
+        self.font_size.setValue(get('font_size', int))
+        for key in ('bold', 'underline', 'italic'):
+            getattr(self, key).setChecked(bool(params.get(key, defaults[key])))
+        colour_index = self.colour.findData(get('colour', str))
+        if colour_index >= 0:
+            self.colour.setCurrentIndex(colour_index)
+        # The spin box limits the inset to this image's dimensions.
+        self.border.setValue(get('border', int))
 
     def _restore_settings(self):
         settings = QSettings()
@@ -216,18 +359,7 @@ class CaptionDialog(QDialog):
     def save_settings(self):
         """Remember the last applied caption, including its text, across restarts."""
         settings = QSettings()
-        values = {
-            'text': self.text.toPlainText(),
-            'position': self.position.currentText(),
-            'font_family': self.font_family.currentFont().family(),
-            'font_size': self.font_size.value(),
-            'bold': self.bold.isChecked(),
-            'underline': self.underline.isChecked(),
-            'italic': self.italic.isChecked(),
-            'colour': self.colour.currentData(),
-            'border': self.border.value(),
-            'preview': self.preview.isChecked(),
-        }
+        values = {**self.get_params(), 'preview': self.preview.isChecked()}
         for key, value in values.items():
             settings.setValue(f'caption/{key}', value)
         settings.sync()
