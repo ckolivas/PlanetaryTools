@@ -841,7 +841,7 @@ Astigmatism, an elongated moon, is not corrected. Boosting detail along the long
 
 1. Open the unsharpened stack. The tool is designed for it: the moons are measured cleanly there and the correction barely rings. On an already sharpened image it deepens the wavelet ringing and amplifies noise. Always run it before Moon Enhance, denoising or clamping, which change the moons' shape.
 2. Leave Auto-select moons on, or click a moon on the image or drag a box around it. Shift-drag pans the image. The moons used are circled; the panel shows their measured size, elongation and angle, the strength of each aberration, and the moon before and after correction.
-3. Leave Coma/collimation and Trefoil ticked to correct everything measured, or untick either you do not want corrected.
+3. Leave Coma/collimation and Trefoil ticked to correct everything measured, or untick either you do not want corrected. Correcting an aberration measured below 5% is not recommended: at that strength it is hard to tell from noise and the moons' own shape, correcting it gains little, and it introduces other artefacts such as ringing.
 4. Leave Protect background on, so the sky's noise is left alone.
 5. Compare the limb and ring edges with Show difference, then sharpen as usual; Wavelet Sharpen Auto chooses suitable, usually lower, amounts for the corrected image.
 
