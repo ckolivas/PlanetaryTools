@@ -244,6 +244,78 @@ class FilterTests(unittest.TestCase):
                 after = abs(_harmonic_vectors(oc.measure_psf(only, x, y).psf, m.fwhm_minor)[order])
                 self.assertLess(after, before/2.5, (key, x, y))
 
+    def test_correction_follows_a_long_collimation_tail(self):
+        # A narrow tail reaching ~3 FWHM, as on an SCT out of collimation
+        # (2026-11-01 1205_8): the phase is corrected out to its tip.
+        h, w = 200, 320
+        yy, xx = np.mgrid[:h, :w]
+        sharp = np.zeros((h, w))
+        sharp[np.hypot(yy - 100, xx - 90) < 40] = .5
+        for x, y, f in ((250, 60, 2.0), (285, 150, 1.2), (215, 170, .9)):
+            sharp[y, x] = f
+        py, px = np.mgrid[-20:21, -20:21]
+        psf = np.exp(-(px**2 + py**2)/(2*1.8**2))
+        for t in np.arange(2, 15, 0.5):
+            psf += .06*np.exp(-t/7)*np.exp(-((px + t*.707)**2 + (py - t*.707)**2)/(2*1.2**2))
+        image = ndimage.convolve(sharp, psf/psf.sum(), mode='reflect') + 1e-4
+        image = (image + np.random.default_rng(7).normal(0, 5e-6, (h, w))).astype(np.float32)
+        m = oc.measure_moons(image, True, oc.auto_select_moons(image, True))
+        self.assertGreater(m.flare_radius, 2.5*m.fwhm_major)
+
+        def one_sided(img, x=250, y=60, r=20):
+            c = img[y-r:y+r+1, x-r:x+r+1].astype(np.float64) - 1e-4
+            d = np.hypot(*np.mgrid[-r:r+1, -r:r+1])
+            return np.abs(0.5*(c - c[::-1, ::-1]))[(d >= 4) & (d < 12)].sum()/c.clip(0).sum()
+
+        def corrected(mm):
+            return oc.correct_plane(image, mm, *oc.signal_maps(image, mm), target_size=100,
+                                    max_boost=3, astigmatism=False, coma=True, trefoil=True)
+        core_only = one_sided(corrected(replace(m, flare_radius=0.0)))
+        self.assertLess(one_sided(corrected(m)), .88*core_only)
+        # No coma or trefoil: no flare, the cutoff stays at the core.
+        self.assertEqual(oc.measure_moons(scene(), True, oc.auto_select_moons(scene(), True))
+                         .flare_radius, 0.0)
+
+    def test_strength_scales_each_correction(self):
+        from planetary_tools.filters.optical_correction import _harmonic_vectors
+        # Coma: 0x is no correction, 1x the default, 2x overshoots to a tail
+        # the other way.
+        image = self.lobed_scene(1)
+        fw = oc.measure_moons(image, True, oc.auto_select_moons(image, True)).fwhm_minor
+
+        def coma(img):
+            return _harmonic_vectors(oc.measure_psf(img, 250, 60).psf, fw)[1]
+
+        settings = dict(astigmatism=False, trefoil=False)
+        zero = oc.correct_optical_aberrations(image, True, coma_strength=0.0, **settings)
+        np.testing.assert_allclose(zero, image, atol=1e-6)
+        np.testing.assert_array_equal(
+            oc.correct_optical_aberrations(image, True, coma_strength=1.0, **settings),
+            oc.correct_optical_aberrations(image, True, **settings))
+        half = oc.correct_optical_aberrations(image, True, coma_strength=0.5, **settings)
+        double = oc.correct_optical_aberrations(image, True, coma_strength=2.0, **settings)
+        before = coma(image)
+        self.assertLess(abs(coma(half)), .8*abs(before))
+        self.assertGreater(abs(coma(half)), .2*abs(before))
+        self.assertLess(np.real(coma(double)*np.conj(before)), 0)  # flipped
+        # Coma and trefoil together: each strength still applies on its own.
+        both = dict(astigmatism=False)
+        np.testing.assert_allclose(
+            oc.correct_optical_aberrations(image, True, trefoil_strength=0.0, **both),
+            oc.correct_optical_aberrations(image, True, trefoil=False, **both), atol=5e-4)
+        # Astigmatism: elongation left falls as the strength rises.
+        image = scene()
+        ratios = []
+        for strength in (0.0, 0.5, 1.0, 2.0):
+            out = oc.correct_optical_aberrations(
+                image, True, coma=False, trefoil=False, protect_background=False,
+                max_boost=20, astigmatism_strength=strength)
+            major, minor = measured(out, *MOON)
+            ratios.append(major/minor)
+        self.assertAlmostEqual(ratios[0], measured(image, *MOON)[0]/measured(image, *MOON)[1],
+                               delta=.01)
+        self.assertTrue(all(a > b for a, b in zip(ratios, ratios[1:])), ratios)
+
     def test_moons_with_opposite_coma_are_reported(self):
         a = oc.measure_psf(self.lobed_scene(1), 250, 60)
         flipped = replace(a, psf=a.psf[::-1, ::-1].copy(),
@@ -381,6 +453,30 @@ class PanelTests(unittest.TestCase):
         self.assertLess(corrected, measured)
         self.assertIn('drift', panel.agreement_warning.text())
         self.assertFalse(panel.agreement_warning.isHidden())
+
+    def test_strength_boxes_scale_the_corrected_figure_and_are_saved(self):
+        panel, _ = self.panel()
+        box, spin = panel._aberration_boxes['astigmatism'], panel._strength_spins['astigmatism']
+        self.assertRegex(box.text(), r'^Astigmatism \(\d+%\)$')
+        spin.setValue(2.0)
+        measured, corrected = map(int, re.fullmatch(
+            r'Astigmatism \((\d+)%, (\d+)% corrected\)', box.text()).groups())
+        self.assertAlmostEqual(corrected, 2*measured, delta=1)
+        self.assertEqual(panel.get_params()['astigmatism_strength'], 2.0)
+        box.setChecked(False)
+        self.assertFalse(spin.isEnabled())
+        params = panel.get_params()
+        other, _ = self.panel()
+        other.set_params({**params, 'coma_strength': 0.3})
+        self.assertEqual(other._strength_spins['astigmatism'].value(), 2.0)
+        self.assertEqual(other._strength_spins['coma'].value(), 0.3)
+        self.assertFalse(other._strength_spins['astigmatism'].isEnabled())
+        # The filter takes them from saved parameters.
+        image = scene()
+        np.testing.assert_array_equal(
+            apply_filter('optical_correction', image, True,
+                         {**params, 'astigmatism': True, 'astigmatism_strength': 0.0}),
+            apply_filter('optical_correction', image, True, {**params, 'astigmatism': False}))
 
     def test_click_or_box_picks_a_moon_and_turns_off_auto(self):
         panel, markers = self.panel()
