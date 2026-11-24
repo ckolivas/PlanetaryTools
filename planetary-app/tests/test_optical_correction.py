@@ -431,6 +431,54 @@ class FilterTests(unittest.TestCase):
         ignored = oc.correct_optical_aberrations(image, True, astigmatism=True, max_boost=12.0)
         np.testing.assert_allclose(ignored, oc.correct_optical_aberrations(image, True), atol=1e-7)
 
+    def test_a_saved_psf_corrects_a_planet_with_no_moon(self):
+        import json
+        moons = np.stack([self.lobed_scene(1)*f for f in (1.0, .8, .6)], axis=2)
+        found = oc.measure_image_psf(moons, False)
+        self.assertEqual(len(found.channels), 3)
+        saved = json.loads(json.dumps(oc.psf_to_dict(found, 'moons.png')))
+        self.assertEqual(oc.psf_from_dict(saved).source, 'moons.png')
+        # Saved and loaded, it corrects exactly as measuring the image does.
+        np.testing.assert_array_equal(
+            apply_filter('optical_correction', moons, False, {'psf': saved}),
+            apply_filter('optical_correction', moons, False, {}))
+        lone = np.repeat(scene(moons=False)[..., None], 3, axis=2)
+        with self.assertRaises(oc.NoMoonError):
+            apply_filter('optical_correction', lone, False, {})
+        run = FILTERS['optical_correction'].apply
+        out = run(lone, False, {'psf': saved})
+        self.assertGreater(float(np.abs(out - lone).max()), 1e-3)
+        np.testing.assert_allclose(
+            out, oc.correct_optical_aberrations(lone, False, psf=found), atol=1e-7)
+        # The saved PSF overrides the moon choice; off, nothing changes.
+        off = run(lone, False, {'psf': saved, 'coma': False, 'trefoil': False})
+        np.testing.assert_allclose(off, lone, atol=1e-6)
+        # Each channel uses its own saved PSF unless told not to.
+        luminance_only = oc.ImagePsf(found.luminance)
+        np.testing.assert_allclose(
+            run(lone, False, {'psf': saved, 'per_channel': False}),
+            oc.correct_optical_aberrations(lone, False, psf=luminance_only), atol=1e-7)
+        # A greyscale PSF also corrects a colour image, and the other way round.
+        grey = oc.psf_to_dict(oc.measure_image_psf(self.lobed_scene(1), True))
+        self.assertIsNone(grey['channels'])
+        apply_filter('optical_correction', lone, False, {'psf': grey})
+        apply_filter('optical_correction', lone[..., 0], True, {'psf': saved})
+
+    def test_a_damaged_psf_file_is_refused(self):
+        found = oc.measure_image_psf(self.lobed_scene(3), True)
+        good = oc.psf_to_dict(found)
+        damaged = [
+            {'format': 'something else'},
+            {**good, 'version': 99},
+            {**good, 'luminance': {**good['luminance'], 'psf': {'size': 4, 'data': ''}}},
+            {**good, 'luminance': {k: v for k, v in good['luminance'].items() if k != 'snr'}},
+            {**good, 'channels': [None]},
+            {**good, 'luminance': {**good['luminance'], 'fwhm_major': 'wide'}},
+        ]
+        for bad in damaged:
+            with self.assertRaises(ValueError, msg=str(bad)[:60]):
+                oc.psf_from_dict(bad)
+
     def test_registered_for_batch_with_auto_label(self):
         from planetary_tools.batch.pipeline import PipelineStep
         fdef = FILTERS['optical_correction']
@@ -438,6 +486,10 @@ class FilterTests(unittest.TestCase):
         self.assertEqual(fdef.label, 'Correct Optical Aberrations')
         step = PipelineStep('optical_correction', dict(fdef.default_params))
         self.assertTrue(step.label.endswith('Auto'))
+        self.assertIsNone(fdef.default_params['psf'])
+        saved = oc.psf_to_dict(oc.measure_image_psf(scene(), True), 'moons.png')
+        step = PipelineStep('optical_correction', {**fdef.default_params, 'psf': saved})
+        self.assertTrue(step.label.endswith('Saved PSF (moons.png)'))
 
 
 class PanelTests(unittest.TestCase):
@@ -504,6 +556,110 @@ class PanelTests(unittest.TestCase):
         panel.auto.setChecked(False)
         params = panel.get_params()
         self.assertEqual((round(params['moon_x']), round(params['moon_y'])), MOON)
+
+    def test_save_and_load_a_psf_for_a_planet_with_no_moon(self):
+        import json
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        target = Path(folder.name)/'moons'
+        panel = OpticalCorrectionDialog(True, source_path=Path(folder.name)/'moons.png')
+        self.addCleanup(panel.close)
+        panel.set_input_brightness(np.repeat(scene()[..., None], 3, axis=2), True)
+        self.assertTrue(panel.save_psf_button.isEnabled())
+        asked = []
+
+        def save_name(_parent, _caption, directory, _filter):
+            asked.append(directory)
+            return str(target), ''
+        with patch('planetary_tools.ui.optical_correction_dialog.QFileDialog.getSaveFileName',
+                   save_name):
+            panel.save_psf_button.click()
+        self.assertEqual(asked, [str(Path(folder.name)/'moons.ptpsf')])
+        path = target.with_suffix('.ptpsf')
+        self.assertEqual(json.loads(path.read_text())['source'], 'moons.png')
+
+        lone, markers = OpticalCorrectionDialog(True), []
+        self.addCleanup(lone.close)
+        lone.markers_changed.connect(markers.append)
+        lone.set_input_brightness(np.repeat(scene(moons=False)[..., None], 3, axis=2), True)
+        self.assertIn('load a saved PSF', lone.moon_info.text())
+        self.assertFalse(lone.save_psf_button.isEnabled())
+        changed = []
+        lone.params_changed.connect(lambda: changed.append(1))
+        with patch('planetary_tools.ui.optical_correction_dialog.QFileDialog.getOpenFileName',
+                   lambda *a: (str(path), '')):
+            lone.load_psf_button.click()
+        self.assertTrue(changed)
+        self.assertTrue(lone.moon_info.text().startswith('Saved PSF from moons.png'))
+        self.assertIsNotNone(lone.corrected_view.pixmap())
+        self.assertEqual(markers[-1], [])
+        params = lone.get_params()
+        self.assertFalse(params['auto'])
+        self.assertEqual(params['psf']['source'], 'moons.png')
+        apply_filter('optical_correction', np.repeat(scene(moons=False)[..., None], 3, axis=2),
+                     True, params)
+        # Reopened with those params, the panel uses the saved PSF again.
+        again = OpticalCorrectionDialog(True)
+        self.addCleanup(again.close)
+        again.set_input_brightness(np.repeat(scene(moons=False)[..., None], 3, axis=2), True)
+        again.set_params(params)
+        self.assertTrue(again.moon_info.text().startswith('Saved PSF'))
+        # Ticking Auto measures the image's own moons again.
+        lone.auto.setChecked(True)
+        self.assertIsNone(lone.get_params()['psf'])
+        self.assertIn('No suitable moon', lone.moon_info.text())
+
+    def test_loading_a_file_that_is_not_a_psf_warns(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name)/'other.ptpsf'
+        path.write_text('{"steps": []}')
+        panel, _ = self.panel()
+        warned = []
+        with patch('planetary_tools.ui.optical_correction_dialog.QFileDialog.getOpenFileName',
+                   lambda *a: (str(path), '')), \
+             patch('planetary_tools.ui.optical_correction_dialog.QMessageBox.warning',
+                   lambda *a: warned.append(a[2])):
+            panel.load_psf_button.click()
+        self.assertEqual(len(warned), 1)
+        self.assertIn('not a Planetary Tools PSF', warned[0])
+        self.assertIsNone(panel.get_params()['psf'])
+        self.assertTrue(panel.get_params()['auto'])
+
+    def test_batch_step_keeps_or_drops_the_saved_psf(self):
+        from PyQt6.QtWidgets import QCheckBox, QComboBox
+        from planetary_tools.core.presets import ensure_builtin_presets, save_presets
+        from planetary_tools.ui.dialogs import edit_filter_params
+        fdef = FILTERS['optical_correction']
+        saved = oc.psf_to_dict(oc.measure_image_psf(scene(), True), 'moons.png')
+        presets = ensure_builtin_presets('optical_correction', fdef.default_params)
+        presets['Scope PSF'] = {**fdef.default_params, 'auto': False, 'psf': saved}
+        save_presets('optical_correction', presets)
+
+        def edit(params, action):
+            def drive():
+                dlg = QApplication.activeModalWidget()
+                action(dlg)
+                dlg.accept()
+            QTimer.singleShot(0, drive)
+            return edit_filter_params('optical_correction', params, True)[0]
+
+        def use_box(dlg):
+            return [b for b in dlg.findChildren(QCheckBox) if b.text().startswith('Use saved PSF')]
+        with_psf = {**fdef.default_params, 'auto': False, 'psf': saved}
+        seen = []
+
+        def look(dlg):
+            boxes = use_box(dlg)
+            seen.append((boxes[0].text(), [b.isEnabled() for b in dlg.findChildren(QCheckBox)
+                                           if b.text() == 'Auto-select moons']))
+        self.assertEqual(edit(with_psf, look)['psf'], saved)
+        self.assertEqual(seen, [('Use saved PSF from moons.png', [False])])
+        self.assertIsNone(edit(with_psf, lambda d: use_box(d)[0].setChecked(False))['psf'])
+        # A preset holding a PSF brings it into a step that had none.
+        out = edit(dict(fdef.default_params),
+                   lambda d: d.findChild(QComboBox).setCurrentText('Scope PSF'))
+        self.assertEqual(out['psf'], saved)
 
     def test_tools_menu_runs_with_canvas_picking(self):
         window = MainWindow()

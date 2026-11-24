@@ -1392,7 +1392,8 @@ class MainWindow(QMainWindow):
         if self._document is None:
             return
         self._run_filter_dialog(
-            OpticalCorrectionDialog(self._document.is_grayscale, self),
+            OpticalCorrectionDialog(self._document.is_grayscale, self,
+                                    source_path=self._document.path),
             "Correct Optical Aberrations",
         )
 

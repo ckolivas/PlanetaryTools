@@ -40,7 +40,11 @@ class PipelineStep:
         parts: list[str] = []
         if self.preset_name:
             parts.append(self.preset_name)
-        if self.params.get("auto"):
+        if self.filter_id == "optical_correction" and self.params.get("psf"):
+            source = str(self.params["psf"].get("source", "")) if isinstance(
+                self.params["psf"], dict) else ""
+            parts.append(f"Saved PSF ({source})" if source else "Saved PSF")
+        elif self.params.get("auto"):
             per_channel = (self.filter_id in ("wavelet_sharpen", "adaptive_deconv")
                            and self.params.get("per_channel"))
             parts.append("Auto per channel" if per_channel else "Auto")

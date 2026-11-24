@@ -214,9 +214,9 @@ class MoonEnhanceDef(FilterDef):
 @dataclass
 class OpticalCorrectionDef(FilterDef):
     def apply(self, data: np.ndarray, is_grayscale: bool, params: dict[str, Any]) -> np.ndarray:
-        return correct_optical_aberrations(data, is_grayscale, **{
+        return correct_optical_aberrations(data, is_grayscale, psf=params.get("psf"), **{
             key: type(default)(params.get(key, default))
-            for key, default in DEFAULT_OPTICAL_CORRECTION_PARAMS.items()
+            for key, default in DEFAULT_OPTICAL_CORRECTION_PARAMS.items() if key != "psf"
         })
 
 

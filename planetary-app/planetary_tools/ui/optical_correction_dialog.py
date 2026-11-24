@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
+from PyQt6.QtWidgets import (
+    QCheckBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QWidget,
+)
 
 from planetary_tools.filters import optical_correction as oc
 from planetary_tools.filters.registry import FILTERS
 from planetary_tools.ui.dialogs import _FilterDialog
+from planetary_tools.ui.file_dialog import QFileDialog
+from planetary_tools.ui.recent_files import last_open_directory, last_save_directory
+
+PSF_FILE_FILTER = f"Planetary Tools PSF (*{oc.PSF_FILE_SUFFIX})"
 
 _THUMB_PX = 96
 
@@ -54,8 +62,14 @@ class OpticalCorrectionDialog(_FilterDialog):
          "Light is moved back from the lobes; nothing is amplified."),
     )
 
-    def __init__(self, is_grayscale: bool, parent: QWidget | None = None) -> None:
+    def __init__(self, is_grayscale: bool, parent: QWidget | None = None,
+                 source_path: str | Path | None = None) -> None:
         self._is_grayscale_doc = is_grayscale
+        self._source_path = Path(source_path) if source_path else None
+        # A PSF loaded from a file (and its saved form), used instead of the
+        # image's moons.
+        self._saved: oc.ImagePsf | None = None
+        self._saved_dict: dict | None = None
         self._moon_x = -1.0
         self._moon_y = -1.0
         self._measurement: oc.PsfMeasurement | None = None
@@ -74,7 +88,10 @@ class OpticalCorrectionDialog(_FilterDialog):
             "sharpen as usual (Wavelet Auto picks suitable amounts); always "
             "before Moon Enhance, denoise or clamping, which change the "
             "moons' shape. In a batch, Auto measures every image again and a "
-            "chosen moon is followed within 30 px."
+            "chosen moon is followed within 30 px. For a planet with no moon "
+            "in the frame, Save PSF on a capture that has moons (or a star) "
+            "and Load PSF here; both captures need the same telescope, "
+            "camera, Barlow and camera angle, and neither may be resized."
         )
 
     def _build_filter_params(self) -> None:
@@ -121,6 +138,26 @@ class OpticalCorrectionDialog(_FilterDialog):
                           "show its faint glow and any noise.")
         self._form.addRow(thumbs)
 
+        files = QWidget()
+        row = QHBoxLayout(files)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.save_psf_button = QPushButton("Save PSF…")
+        self.save_psf_button.setToolTip(
+            "Save the PSF measured on these moons (and on each colour "
+            "channel), to correct a capture with no moon in the frame: one "
+            "taken with the same telescope, camera, Barlow and camera angle, "
+            "and not resized.")
+        self.save_psf_button.clicked.connect(self._save_psf)
+        self.load_psf_button = QPushButton("Load PSF…")
+        self.load_psf_button.setToolTip(
+            "Correct this image with a PSF saved from another capture, such "
+            "as a moon or star test, instead of its own moons. Tick Auto or "
+            "pick a moon to measure this image again.")
+        self.load_psf_button.clicked.connect(self._load_psf)
+        row.addWidget(self.save_psf_button)
+        row.addWidget(self.load_psf_button)
+        self._form.addRow(files)
+
         self._aberration_boxes: dict[str, QCheckBox] = {}
         for key, label, _order, tip in self._ABERRATIONS:
             box = QCheckBox(label)
@@ -164,6 +201,8 @@ class OpticalCorrectionDialog(_FilterDialog):
         return getattr(self, "_input_data", None)
 
     def _on_auto_toggled(self, checked: bool) -> None:
+        if checked:
+            self._clear_saved()
         if not checked and self._moon_x < 0 and self._measurement is not None:
             # Keep the moon Auto rated best as the starting manual choice.
             self._moon_x, self._moon_y = self._measurement.x, self._measurement.y
@@ -181,6 +220,7 @@ class OpticalCorrectionDialog(_FilterDialog):
         if choice is None:
             return
         self._moon_x, self._moon_y = round(choice.x, 1), round(choice.y, 1)
+        self._clear_saved()
         self.auto.blockSignals(True)
         self.auto.setChecked(False)
         self.auto.blockSignals(False)
@@ -193,19 +233,91 @@ class OpticalCorrectionDialog(_FilterDialog):
     def _aberrations(self) -> dict[str, bool]:
         return {key: box.isChecked() for key, box in self._aberration_boxes.items()}
 
+    # --- saved PSFs -----------------------------------------------------
+
+    def _clear_saved(self) -> None:
+        self._saved = None
+        self._saved_dict = None
+
+    def _set_saved(self, saved: dict | None) -> None:
+        """Use a PSF in its saved form; ValueError if it is not one."""
+        if saved is None:
+            self._clear_saved()
+            return
+        self._saved = oc.psf_from_dict(saved)
+        self._saved_dict = saved
+
+    def _psf_path_suggestion(self) -> str:
+        if self._source_path is not None:
+            return str(self._source_path.with_suffix(oc.PSF_FILE_SUFFIX))
+        return str(Path(last_save_directory())/f"psf{oc.PSF_FILE_SUFFIX}")
+
+    def _save_psf(self) -> None:
+        data = self._data()
+        if self._saved_dict is not None:
+            saved = self._saved_dict
+        elif data is None:
+            return
+        else:
+            try:
+                found = oc.measure_image_psf(
+                    data, self._input_is_grayscale, **self._selection_params(),
+                    per_channel=True)
+            except oc.NoMoonError as exc:
+                QMessageBox.warning(self, "Save PSF", str(exc))
+                return
+            source = self._source_path.name if self._source_path else "an unsaved image"
+            saved = oc.psf_to_dict(found, source)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save PSF", self._psf_path_suggestion(), PSF_FILE_FILTER)
+        if not path:
+            return
+        path = Path(path)
+        if path.suffix.lower() != oc.PSF_FILE_SUFFIX:
+            path = path.with_name(path.name + oc.PSF_FILE_SUFFIX)
+        try:
+            path.write_text(json.dumps(saved, indent=1), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self, "Save PSF", f"Could not save {path.name}: {exc}")
+
+    def _load_psf(self) -> None:
+        start = str(self._source_path.parent) if self._source_path else last_open_directory()
+        path, _ = QFileDialog.getOpenFileName(self, "Load PSF", start, PSF_FILE_FILTER)
+        if not path:
+            return
+        try:
+            saved = json.loads(Path(path).read_text(encoding="utf-8"))
+            self._set_saved(saved)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            message = str(exc) if isinstance(exc, ValueError) and not isinstance(
+                exc, json.JSONDecodeError) else "This is not a Planetary Tools PSF file."
+            QMessageBox.warning(self, "Load PSF", f"Could not load {Path(path).name}: {message}")
+            return
+        self.auto.blockSignals(True)
+        self.auto.setChecked(False)
+        self.auto.blockSignals(False)
+        self._update_measurement()
+        self.params_changed.emit()
+
     def _update_measurement(self) -> None:
         data = self._data()
         if data is None:
             return
-        moons = oc.choose_moons(data, self._input_is_grayscale, self._selection_params())
-        m = oc.measure_moons(data, self._input_is_grayscale, moons) if moons else None
+        if self._saved is not None:
+            moons = []
+            m = self._saved.luminance
+        else:
+            moons = oc.choose_moons(data, self._input_is_grayscale, self._selection_params())
+            m = oc.measure_moons(data, self._input_is_grayscale, moons) if moons else None
         self._measurement = m
+        self.save_psf_button.setEnabled(m is not None)
         amounts = {"coma": None, "trefoil": None}
         if m is None:
             if not moons and self.auto.isChecked():
-                text = "No suitable moon found. Click a moon or drag a box around it."
+                text = ("No suitable moon found. Click a moon, drag a box "
+                        "around it or load a saved PSF.")
             elif not moons:
-                text = "Click a moon on the image or drag a box around it."
+                text = "Click a moon on the image, drag a box around it or load a saved PSF."
             else:
                 choice = moons[0][0]
                 text = f"No measurable moon at ({choice.x:.0f}, {choice.y:.0f})."
@@ -215,13 +327,16 @@ class OpticalCorrectionDialog(_FilterDialog):
             self.agreement_warning.hide()
         else:
             count = len(m.moons)
-            if self.auto.isChecked():
+            if self._saved is not None:
+                text = oc.psf_summary(self._saved)
+            elif self.auto.isChecked():
                 source = f"Auto: {count} moons combined" if count > 1 else "Auto: moon"
             else:
                 source = "Moon"
-            where = "" if count > 1 else f" at ({m.x:.0f}, {m.y:.0f})"
-            text = (f"{source}{where} — FWHM {m.fwhm_major:.1f} × {m.fwhm_minor:.1f} px, "
-                    f"{m.elongation:.2f}:1 at {m.angle_deg:.0f}°, SNR {m.snr:.0f}")
+            if self._saved is None:
+                where = "" if count > 1 else f" at ({m.x:.0f}, {m.y:.0f})"
+                text = (f"{source}{where} — FWHM {m.fwhm_major:.1f} × {m.fwhm_minor:.1f} px, "
+                        f"{m.elongation:.2f}:1 at {m.angle_deg:.0f}°, SNR {m.snr:.0f}")
             self.moon_info.setText(text)
             self._maps = oc.signal_maps(self._luminance(), m)
             amounts = {"coma": m.coma_amount, "trefoil": m.trefoil_amount}
@@ -261,15 +376,19 @@ class OpticalCorrectionDialog(_FilterDialog):
         m = self._measurement
         if m is None or self._data() is None:
             return
-        maps = self._maps if self.protect_background.isChecked() else None
-        before, after = oc.moon_preview(
-            self._luminance(), m, maps, **self._aberrations())
+        if self._saved is not None:
+            before, after = oc.psf_preview(m, **self._aberrations())
+        else:
+            maps = self._maps if self.protect_background.isChecked() else None
+            before, after = oc.moon_preview(
+                self._luminance(), m, maps, **self._aberrations())
         self.measured_view.setPixmap(_psf_pixmap(before))
         self.corrected_view.setPixmap(_psf_pixmap(after))
 
     def refresh_markers(self) -> None:
         m = self._measurement
-        self.markers_changed.emit(list(m.moons) if m is not None else [])
+        on_image = m is not None and self._saved is None
+        self.markers_changed.emit(list(m.moons) if on_image else [])
 
     # --- params ---------------------------------------------------------
 
@@ -287,6 +406,7 @@ class OpticalCorrectionDialog(_FilterDialog):
             "per_channel": self.per_channel.isChecked(),
             "protect_background": self.protect_background.isChecked(),
             **self._aberrations(),
+            "psf": self._saved_dict,
         })
         return params
 
@@ -302,4 +422,8 @@ class OpticalCorrectionDialog(_FilterDialog):
             box.blockSignals(False)
         self._moon_x = float(params.get("moon_x", -1.0))
         self._moon_y = float(params.get("moon_y", -1.0))
+        try:
+            self._set_saved(params.get("psf"))
+        except ValueError:
+            self._clear_saved()
         self._update_measurement()

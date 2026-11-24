@@ -49,7 +49,8 @@ before Moon Enhance, denoise or clamping.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+import base64
+from dataclasses import dataclass, field, fields, replace
 
 import numpy as np
 from numpy.fft import irfft2, rfft2
@@ -84,6 +85,9 @@ DEFAULT_OPTICAL_CORRECTION_PARAMS = {
     # Which aberrations to correct.
     "coma": True,
     "trefoil": True,
+    # A PSF saved from another capture (see psf_to_dict), used instead of
+    # this image's moons: for a planet with no moon in the frame.
+    "psf": None,
 }
 if ASTIGMATISM_ENABLED:
     DEFAULT_OPTICAL_CORRECTION_PARAMS.update({
@@ -1036,6 +1040,44 @@ class NoMoonError(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class ImagePsf:
+    """The PSF an image is corrected with: luminance and, for a colour image,
+    each channel's own (None where a channel falls back to luminance)."""
+
+    luminance: PsfMeasurement
+    channels: tuple[PsfMeasurement | None, ...] | None = None
+    # Where it came from, for a saved PSF: the image it was measured on.
+    source: str = ""
+
+
+def measure_image_psf(
+    data: np.ndarray, is_grayscale: bool, *, auto: bool = True,
+    moon_x: float = -1.0, moon_y: float = -1.0, per_channel: bool = True,
+) -> ImagePsf:
+    """Measure the image's PSF on its moons; raises NoMoonError."""
+    arr = np.asarray(data, dtype=np.float32)
+    moons = choose_moons(arr, is_grayscale, {"auto": auto, "moon_x": moon_x, "moon_y": moon_y})
+    if not moons:
+        if auto:
+            raise NoMoonError("No suitable moon found for Correct Optical Aberrations.")
+        raise NoMoonError("No moon selected: click a moon or drag a box around it.")
+    base = measure_moons(arr, is_grayscale, moons)
+    if base is None:
+        choice = moons[0][0]
+        raise NoMoonError(
+            f"Could not measure a PSF at ({choice.x:.0f}, {choice.y:.0f}).")
+    if not per_channel or is_grayscale or arr.ndim == 2:
+        return ImagePsf(base)
+    channels = []
+    for c in range(arr.shape[2]):
+        mc = measure_moons(arr, is_grayscale, moons, plane=arr[..., c])
+        # A channel too faint to measure well falls back to luminance.
+        ok = mc is not None and mc.spectral_noise <= 4*max(base.spectral_noise, 1e-4)
+        channels.append(mc if ok else None)
+    return ImagePsf(base, tuple(channels))
+
+
 def correct_optical_aberrations(
     data: np.ndarray,
     is_grayscale: bool,
@@ -1050,23 +1092,21 @@ def correct_optical_aberrations(
     astigmatism: bool = False,
     coma: bool = True,
     trefoil: bool = True,
+    psf: dict | ImagePsf | None = None,
 ) -> np.ndarray:
-    """Correct the moons' aberrations in the image. ``astigmatism`` (with
-    ``target_size`` and ``max_boost``) is ignored unless ASTIGMATISM_ENABLED,
-    which the tests switch on to keep that code working."""
+    """Correct the moons' aberrations in the image, or those of ``psf``, a
+    PSF saved from another capture (which replaces the moon choice).
+    ``astigmatism`` (with ``target_size`` and ``max_boost``) is ignored
+    unless ASTIGMATISM_ENABLED, which the tests switch on to keep that code
+    working."""
     astigmatism = astigmatism and ASTIGMATISM_ENABLED
-    params = {"auto": auto, "moon_x": moon_x, "moon_y": moon_y}
     arr = np.asarray(data, dtype=np.float32)
-    moons = choose_moons(arr, is_grayscale, params)
-    if not moons:
-        if auto:
-            raise NoMoonError("No suitable moon found for Correct Optical Aberrations.")
-        raise NoMoonError("No moon selected: click a moon or drag a box around it.")
-    base = measure_moons(arr, is_grayscale, moons)
-    if base is None:
-        choice = moons[0][0]
-        raise NoMoonError(
-            f"Could not measure a PSF at ({choice.x:.0f}, {choice.y:.0f}).")
+    if psf is None:
+        found = measure_image_psf(arr, is_grayscale, auto=auto, moon_x=moon_x,
+                                  moon_y=moon_y, per_channel=per_channel)
+    else:
+        found = psf if isinstance(psf, ImagePsf) else psf_from_dict(psf)
+    base = found.luminance
 
     mask = snr = None
     if protect_background:
@@ -1079,16 +1119,109 @@ def correct_optical_aberrations(
     if is_grayscale:
         out = correct_plane(arr[..., 0], base, mask, snr, **settings)
         return np.repeat(out[..., None], arr.shape[2], axis=2)
+    channels = found.channels if per_channel and found.channels else (None,)*arr.shape[2]
     out = np.empty_like(arr)
     for c in range(arr.shape[2]):
-        m = base
-        if per_channel:
-            mc = measure_moons(arr, is_grayscale, moons, plane=arr[..., c])
-            # A channel too faint to measure well falls back to luminance.
-            if mc is not None and mc.spectral_noise <= 4*max(base.spectral_noise, 1e-4):
-                m = mc
+        m = channels[c] if c < len(channels) and channels[c] is not None else base
         out[..., c] = correct_plane(arr[..., c], m, mask, snr, **settings)
     return out
+
+
+# --- saved PSFs -----------------------------------------------------------
+
+PSF_FILE_SUFFIX = ".ptpsf"
+_PSF_FORMAT = "planetary-tools-psf"
+_PSF_VERSION = 1
+# Positions on another image mean nothing here; the PSF itself is kept.
+_UNSAVED_FIELDS = {"psf", "harmonics", "agreement", "moon_amounts", "moons", "boost_ellipse"}
+
+
+def _measurement_to_dict(m: PsfMeasurement) -> dict:
+    psf = np.ascontiguousarray(m.psf, dtype="<f8")
+    out = {f.name: float(getattr(m, f.name)) for f in fields(m) if f.name not in _UNSAVED_FIELDS}
+    out.update({
+        "psf": {"size": int(psf.shape[0]),
+                "data": base64.b64encode(psf.tobytes()).decode("ascii")},
+        "harmonics": {str(k): [float(v.real), float(v.imag)] for k, v in m.harmonics.items()},
+        "agreement": {str(k): float(v) for k, v in m.agreement.items()},
+        "moon_amounts": {str(k): float(v) for k, v in m.moon_amounts.items()},
+        "moon_count": len(m.moons),
+        "boost_ellipse": None if m.boost_ellipse is None else [float(v) for v in m.boost_ellipse],
+    })
+    return out
+
+
+def _measurement_from_dict(d: dict) -> PsfMeasurement:
+    size = int(d["psf"]["size"])
+    raw = base64.b64decode(d["psf"]["data"], validate=True)
+    if size < 3 or size % 2 == 0 or len(raw) != 8*size*size:
+        raise ValueError("The PSF stamp is the wrong size.")
+    psf = np.frombuffer(raw, dtype="<f8").reshape(size, size).astype(np.float64)
+    if not np.isfinite(psf).all() or psf.sum() <= 0:
+        raise ValueError("The PSF stamp holds no usable light.")
+    scalars = {f.name: float(d[f.name]) for f in fields(PsfMeasurement)
+               if f.name not in _UNSAVED_FIELDS}
+    if not all(np.isfinite(v) for v in scalars.values()):
+        raise ValueError("The PSF measurement holds invalid numbers.")
+    boost = d.get("boost_ellipse")
+    count = max(1, int(d.get("moon_count", 1)))
+    return PsfMeasurement(
+        **scalars, psf=psf,
+        harmonics={int(k): complex(v[0], v[1]) for k, v in d.get("harmonics", {}).items()},
+        agreement={int(k): float(v) for k, v in d.get("agreement", {}).items()},
+        moon_amounts={int(k): float(v) for k, v in d.get("moon_amounts", {}).items()},
+        # Placeholders off the image: only their count is shown.
+        moons=((-1.0, -1.0, 0.0),)*count,
+        boost_ellipse=None if boost is None else tuple(float(v) for v in boost),
+    )
+
+
+def psf_to_dict(found: ImagePsf, source: str = "") -> dict:
+    """A JSON-ready form of an image's PSF, for a file or a filter's params."""
+    channels = None
+    if found.channels is not None:
+        channels = [None if m is None else _measurement_to_dict(m) for m in found.channels]
+    return {"format": _PSF_FORMAT, "version": _PSF_VERSION,
+            "source": source or found.source,
+            "luminance": _measurement_to_dict(found.luminance), "channels": channels}
+
+
+def psf_from_dict(d: dict) -> ImagePsf:
+    """Read ``psf_to_dict``'s form back; raises ValueError if it is not one."""
+    try:
+        if d.get("format") != _PSF_FORMAT:
+            raise ValueError("This is not a Planetary Tools PSF file.")
+        if int(d.get("version", 0)) > _PSF_VERSION:
+            raise ValueError("This PSF was saved by a newer Planetary Tools.")
+        luminance = _measurement_from_dict(d["luminance"])
+        channels = d.get("channels")
+        if channels is not None:
+            if len(channels) != 3:
+                raise ValueError("The PSF file needs three colour channels.")
+            channels = tuple(None if c is None else _measurement_from_dict(c) for c in channels)
+        return ImagePsf(luminance, channels, str(d.get("source", "")))
+    except ValueError:
+        raise
+    except (AttributeError, KeyError, TypeError, IndexError) as exc:
+        raise ValueError("The PSF file is incomplete or damaged.") from exc
+
+
+def psf_summary(found: ImagePsf) -> str:
+    """Where a saved PSF came from and its shape, for labels."""
+    m = found.luminance
+    source = found.source or "another capture"
+    colour = ", each colour channel" if found.channels and any(found.channels) else ""
+    return (f"Saved PSF from {source}{colour} — FWHM {m.fwhm_major:.1f} × "
+            f"{m.fwhm_minor:.1f} px, {m.elongation:.2f}:1 at {m.angle_deg:.0f}°, "
+            f"SNR {m.snr:.0f}")
+
+
+def psf_preview(m: PsfMeasurement, **settings) -> tuple[np.ndarray, np.ndarray]:
+    """A saved PSF before and after its own correction (for the thumbnails)."""
+    r = m.radius
+    padded = np.pad(m.psf, r)
+    corrected = correct_plane(padded, m, None, None, **settings)
+    return m.psf, corrected[r:-r, r:-r]
 
 
 def signal_maps(lum: np.ndarray, m: PsfMeasurement) -> tuple[np.ndarray, np.ndarray]:

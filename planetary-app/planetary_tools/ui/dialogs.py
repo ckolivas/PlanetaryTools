@@ -2831,6 +2831,17 @@ def edit_filter_params(
         widgets["_sync_relative"] = _sync_relative
         _sync_relative(relative.isChecked())
     elif filter_id == "optical_correction":
+        saved = params.get("psf")
+        if isinstance(saved, dict):
+            source = str(saved.get("source", "")) or "another capture"
+            use_saved = QCheckBox(f"Use saved PSF from {source}")
+            use_saved.setChecked(True)
+            use_saved.setToolTip(
+                "Correct every image with the PSF loaded in the Correct Optical "
+                "Aberrations panel instead of measuring its moons. Untick to "
+                "measure each image's moons.")
+            form.addRow(use_saved)
+            widgets["_use_saved_psf"] = use_saved
         auto_box = QCheckBox("Auto-select moons")
         auto_box.setChecked(bool(params.get("auto", fdef.default_params["auto"])))
         auto_box.setToolTip("Measure and combine the suitable moons again in every image.")
@@ -2865,8 +2876,14 @@ def edit_filter_params(
         widgets["protect_background"] = protect
 
         def _sync_optical_auto(checked: bool) -> None:
-            widgets["moon_x"].setEnabled(not checked)
-            widgets["moon_y"].setEnabled(not checked)
+            saved_on = "_use_saved_psf" in widgets and widgets["_use_saved_psf"].isChecked()
+            auto_box.setEnabled(not saved_on)
+            widgets["moon_x"].setEnabled(not checked and not saved_on)
+            widgets["moon_y"].setEnabled(not checked and not saved_on)
+
+        if "_use_saved_psf" in widgets:
+            widgets["_use_saved_psf"].toggled.connect(
+                lambda _: _sync_optical_auto(auto_box.isChecked()))
 
         auto_box.toggled.connect(_sync_optical_auto)
         widgets["_sync_auto"] = _sync_optical_auto
@@ -2947,6 +2964,10 @@ def edit_filter_params(
         return None
 
     out = dict(params)
+    # A saved PSF has no widget: it comes with the preset chosen.
+    chosen = presets.get(selected_preset[0]) if selected_preset[0] else None
+    if chosen is not None and "psf" in chosen:
+        out["psf"] = chosen["psf"]
     if "_levels_channels" in widgets:
         store = widgets["_levels_store"]
         combo = widgets["_levels_channel_combo"]
@@ -2963,6 +2984,8 @@ def edit_filter_params(
             out[key] = widget.value()
         elif isinstance(widget, QCheckBox):
             out[key] = widget.isChecked()
+    if not out.pop("_use_saved_psf", True):
+        out["psf"] = None
     if CLAMP_LOW_PARAM in out and not out.get(CLAMP_PARAM, False):
         out[CLAMP_LOW_PARAM] = False
     name = selected_preset[0]

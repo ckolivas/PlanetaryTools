@@ -851,6 +851,8 @@ Different-sized inputs are centred on a canvas that fits the largest. This tool 
 
 **Tools > Correct Optical Aberrations**
 
+<img src="images/optical.png" alt="Correct Optical Aberrations measuring 15% coma and 7% trefoil from four moons" width="420">
+
 Use the moons in the image as its own point spread function and correct the aberrations they show. A moon such as Tethys, Dione or Rhea is only 1-2.5 pixels across at typical image scales, so the shape of its blurred image is the telescope and seeing blur of the whole frame. Two aberrations are measured and corrected:
 
 - **Coma/collimation**: a one-sided, comet-like tail, for example from miscollimation.
@@ -860,14 +862,12 @@ Coma and trefoil displace light rather than spread it, so their correction moves
 
 Astigmatism, an elongated moon, is not corrected. Boosting detail along the long axis amplified noise that later sharpening raised further, and the sharpened result was worse than without it; leave the elongation to the usual sharpening.
 
-<img src="images/optical.png" alt="Correct Optical Aberrations measuring 15% coma and 7% trefoil from four moons" width="420">
-
 ### What it needs
 
 Apply the correction to the raw stacked image, straight from the stacker, with at least one small moon in the frame:
 
 - **The raw stack.** Every later step changes the moons' shape. Sharpening adds wavelet ringing around them, which the tool would read as part of the blur, deepen and amplify along with the noise. Moon Enhance, denoising, deglow and clamping alter the moons' cores and halos. Run it first, before any other processing; cropping beforehand is fine.
-- **A small moon.** The moon is the measurement. Without one in the frame there is nothing to measure, and the tool cannot be used. Tethys, Dione, Rhea or Enceladus suit Saturn. A large, resolved moon such as Titan, or Jupiter's Galilean moons, is bigger than the blur and gives a wrong correction. The moon must be bright enough to stand clear of the noise, unclipped and away from the planet's glow. Several moons are better than one.
+- **A small moon.** The moon is the measurement. Without one in the frame, use a PSF saved from another capture; see [Planets without a moon](#planets-without-a-moon). Tethys, Dione, Rhea or Enceladus suit Saturn. A large, resolved moon such as Titan, or Jupiter's Galilean moons, is bigger than the blur and gives a wrong correction. The moon must be bright enough to stand clear of the noise, unclipped and away from the planet's glow. Several moons are better than one.
 
 ### How to use
 
@@ -887,13 +887,27 @@ Trefoil and collimation coma are usually the same across the frame, and the moon
 
 Two moons close together can also look like coma: check the moons at 100% zoom when one shows a strong tail.
 
+<a id="planets-without-a-moon"></a>
+
+### Planets without a moon
+
+A capture with no moon in the frame, such as a lone Mars, or a Jupiter with its moons out of the frame or too large, can be corrected with a PSF measured on another capture. Coma, collimation and trefoil belong to the telescope, so they stay the same from one capture to the next until the optics are touched.
+
+1. Open a raw stack from the same session and equipment that has small moons, or a star test, and open Correct Optical Aberrations.
+2. Choose the moons as usual, and click **Save PSF…**. The file (.ptpsf) holds the luminance measurement and, for a colour image, each colour channel's.
+3. Open the capture without a moon, open Correct Optical Aberrations and click **Load PSF…**. The panel shows where the PSF came from, its measured strengths, and the saved PSF before and after correction. Choose which aberrations to correct as usual.
+
+Both captures need the same telescope, camera, Barlow or focal reducer, and camera angle, and neither may be resized or drizzled: the PSF is measured in pixels and its direction on the sensor. Re-collimating, or rotating the camera, needs a new measurement. A planet stack's blur includes the seeing during that capture, so a PSF from the same night suits it best.
+
+The loaded PSF is saved with presets and with the workflow, so a batch, Current workflow or a saved .ptbatch workflow corrects every image with it. Tick Auto-select moons, or pick a moon, to measure the image's own moons again.
+
 ### Colour images
 
 With Measure each colour channel enabled, red, green and blue are each corrected with their own measurement of the same moons. A channel too faint to measure uses the luminance measurement.
 
 ### Batches
 
-With Auto-select on, each image measures its own moons. A hand-picked moon is followed to the nearest moon within 30 pixels, so a moon drifting between frames of a series is still found. An image without a usable moon is reported as failed.
+With Auto-select on, each image measures its own moons; with a loaded PSF, every image uses it, and the step editor can untick it. A hand-picked moon is followed to the nearest moon within 30 pixels, so a moon drifting between frames of a series is still found. An image without a usable moon is reported as failed.
 
 ### Limits
 
