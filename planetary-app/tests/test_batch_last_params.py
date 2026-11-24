@@ -121,7 +121,9 @@ class BatchLastParamsTests(unittest.TestCase):
                 self.assertNotEqual(applied, FILTERS[fid].default_params)
                 panel.save_last_preset()
                 step = self.batch_step_params(fid)
-                self.assertEqual({k: step[k] for k in applied}, applied)
+                # A loaded PSF (Correct Optical Aberrations) is not kept in "Last".
+                kept = panel.preset_params()
+                self.assertEqual({k: step[k] for k in kept}, kept)
 
     def window_with_image(self):
         window = MainWindow()

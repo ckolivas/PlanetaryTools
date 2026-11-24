@@ -435,7 +435,7 @@ class _FilterDialog(QWidget):
             QMessageBox.warning(self, "Save Preset", f'"{name}" is a reserved preset name.')
             return
         is_new = name not in self._presets
-        self._presets[name] = self.get_params()
+        self._presets[name] = self.preset_params()
         save_presets(self.filter_id, self._presets)
         if is_new:
             self._preset_combo.addItem(name)
@@ -453,16 +453,20 @@ class _FilterDialog(QWidget):
         self._preset_combo.removeItem(self._preset_combo.currentIndex())
         self._set_combo_to("Last")
 
+    def preset_params(self) -> dict[str, Any]:
+        """The params a preset (or "Last") keeps; by default all of them."""
+        return self.get_params()
+
     def save_last_preset(self) -> None:
         if not self.filter_id:
             return
         if self.supports_presets:
-            self._presets["Last"] = self.get_params()
+            self._presets["Last"] = self.preset_params()
             save_presets(self.filter_id, self._presets)
         elif FILTERS[self.filter_id].batch_enabled:
             # No preset menu, but batch steps still start from the last values.
             fdef = FILTERS[self.filter_id]
-            save_last_params(self.filter_id, fdef.default_params, self.get_params())
+            save_last_params(self.filter_id, fdef.default_params, self.preset_params())
 
     def set_input_brightness(
         self,
@@ -2964,10 +2968,6 @@ def edit_filter_params(
         return None
 
     out = dict(params)
-    # A saved PSF has no widget: it comes with the preset chosen.
-    chosen = presets.get(selected_preset[0]) if selected_preset[0] else None
-    if chosen is not None and "psf" in chosen:
-        out["psf"] = chosen["psf"]
     if "_levels_channels" in widgets:
         store = widgets["_levels_store"]
         combo = widgets["_levels_channel_combo"]

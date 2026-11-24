@@ -410,7 +410,14 @@ class OpticalCorrectionDialog(_FilterDialog):
         })
         return params
 
+    def preset_params(self) -> dict[str, Any]:
+        """A loaded PSF belongs to the session, not to presets or "Last"."""
+        params = self.get_params()
+        params.pop("psf", None)
+        return params
+
     def set_params(self, params: dict[str, Any]) -> None:
+        """Apply a preset; it leaves a loaded PSF as it is."""
         super().set_params(params)
         defaults = FILTERS[self.filter_id].default_params
         boxes = [(self.auto, "auto"), (self.per_channel, "per_channel"),
@@ -420,10 +427,11 @@ class OpticalCorrectionDialog(_FilterDialog):
             box.blockSignals(True)
             box.setChecked(bool(params.get(key, defaults[key])))
             box.blockSignals(False)
+        if self._saved is not None:
+            # The loaded PSF replaces the moon choice.
+            self.auto.blockSignals(True)
+            self.auto.setChecked(False)
+            self.auto.blockSignals(False)
         self._moon_x = float(params.get("moon_x", -1.0))
         self._moon_y = float(params.get("moon_y", -1.0))
-        try:
-            self._set_saved(params.get("psf"))
-        except ValueError:
-            self._clear_saved()
         self._update_measurement()

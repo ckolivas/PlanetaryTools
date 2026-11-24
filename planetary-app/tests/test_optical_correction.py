@@ -486,7 +486,7 @@ class FilterTests(unittest.TestCase):
         self.assertEqual(fdef.label, 'Correct Optical Aberrations')
         step = PipelineStep('optical_correction', dict(fdef.default_params))
         self.assertTrue(step.label.endswith('Auto'))
-        self.assertIsNone(fdef.default_params['psf'])
+        self.assertNotIn('psf', fdef.default_params)
         saved = oc.psf_to_dict(oc.measure_image_psf(scene(), True), 'moons.png')
         step = PipelineStep('optical_correction', {**fdef.default_params, 'psf': saved})
         self.assertTrue(step.label.endswith('Saved PSF (moons.png)'))
@@ -598,12 +598,20 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(params['psf']['source'], 'moons.png')
         apply_filter('optical_correction', np.repeat(scene(moons=False)[..., None], 3, axis=2),
                      True, params)
-        # Reopened with those params, the panel uses the saved PSF again.
+        # Presets and "Last" never keep the PSF, and choosing one keeps it loaded.
+        lone.save_last_preset()
+        self.assertNotIn('psf', lone._presets['Last'])
+        with patch('planetary_tools.ui.dialogs.QInputDialog.getText', lambda *a: ('Mine', True)):
+            lone._save_preset()
+        self.assertNotIn('psf', lone._presets['Mine'])
+        lone._preset_combo.setCurrentText('Default')
+        self.assertTrue(lone.moon_info.text().startswith('Saved PSF'))
+        self.assertFalse(lone.get_params()['auto'])
+        self.assertEqual(lone.get_params()['psf']['source'], 'moons.png')
         again = OpticalCorrectionDialog(True)
         self.addCleanup(again.close)
         again.set_input_brightness(np.repeat(scene(moons=False)[..., None], 3, axis=2), True)
-        again.set_params(params)
-        self.assertTrue(again.moon_info.text().startswith('Saved PSF'))
+        self.assertIsNone(again.get_params()['psf'])
         # Ticking Auto measures the image's own moons again.
         lone.auto.setChecked(True)
         self.assertIsNone(lone.get_params()['psf'])
@@ -627,14 +635,10 @@ class PanelTests(unittest.TestCase):
         self.assertTrue(panel.get_params()['auto'])
 
     def test_batch_step_keeps_or_drops_the_saved_psf(self):
-        from PyQt6.QtWidgets import QCheckBox, QComboBox
-        from planetary_tools.core.presets import ensure_builtin_presets, save_presets
+        from PyQt6.QtWidgets import QCheckBox
         from planetary_tools.ui.dialogs import edit_filter_params
         fdef = FILTERS['optical_correction']
         saved = oc.psf_to_dict(oc.measure_image_psf(scene(), True), 'moons.png')
-        presets = ensure_builtin_presets('optical_correction', fdef.default_params)
-        presets['Scope PSF'] = {**fdef.default_params, 'auto': False, 'psf': saved}
-        save_presets('optical_correction', presets)
 
         def edit(params, action):
             def drive():
@@ -656,10 +660,7 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(edit(with_psf, look)['psf'], saved)
         self.assertEqual(seen, [('Use saved PSF from moons.png', [False])])
         self.assertIsNone(edit(with_psf, lambda d: use_box(d)[0].setChecked(False))['psf'])
-        # A preset holding a PSF brings it into a step that had none.
-        out = edit(dict(fdef.default_params),
-                   lambda d: d.findChild(QComboBox).setCurrentText('Scope PSF'))
-        self.assertEqual(out['psf'], saved)
+        self.assertNotIn('psf', edit(dict(fdef.default_params), lambda d: None))
 
     def test_tools_menu_runs_with_canvas_picking(self):
         window = MainWindow()

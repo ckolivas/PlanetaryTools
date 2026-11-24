@@ -85,10 +85,10 @@ DEFAULT_OPTICAL_CORRECTION_PARAMS = {
     # Which aberrations to correct.
     "coma": True,
     "trefoil": True,
-    # A PSF saved from another capture (see psf_to_dict), used instead of
-    # this image's moons: for a planet with no moon in the frame.
-    "psf": None,
 }
+# Params may also hold "psf": a PSF saved from another capture (psf_to_dict),
+# used instead of the image's moons, for a planet with no moon in the frame.
+# It is kept in workflows but never in presets.
 if ASTIGMATISM_ENABLED:
     DEFAULT_OPTICAL_CORRECTION_PARAMS.update({
         # Target PSF size as % of the measured minor axis profile. 100 = round only.
