@@ -690,16 +690,28 @@ class _AutoSearchMixin:
         self.per_channel = QCheckBox("Each RGB channel")
         self.per_channel.setToolTip(
             "Auto searches red, green and blue separately, giving each channel "
-            "its own amounts.\n" + PER_CHANNEL_NOTE
+            "its own amounts. Not available with Luminance, which sharpens "
+            "one channel.\n" + PER_CHANNEL_NOTE
         )
-        self.per_channel.setEnabled(not self._is_grayscale)
         auto_layout.insertWidget(1, self.per_channel)
         self.channel_readout = QLabel()
         self.channel_readout.setVisible(False)
         self._form.addRow(self.channel_readout)
+        self.luminance.toggled.connect(lambda _: self._sync_per_channel())
+        self._sync_per_channel()
+
+    def _sync_per_channel(self) -> None:
+        """Luminance sharpens one channel, so Each RGB channel does not apply."""
+        luminance = self.luminance.isChecked()
+        if luminance and self.per_channel.isChecked():
+            self.per_channel.blockSignals(True)
+            self.per_channel.setChecked(False)
+            self.per_channel.blockSignals(False)
+        self.per_channel.setEnabled(not self._is_grayscale and not luminance)
 
     def _per_channel_active(self) -> bool:
-        return self.per_channel.isChecked() and not self._is_grayscale
+        return (self.per_channel.isChecked() and not self._is_grayscale
+                and not self.luminance.isChecked())
 
     def _show_channel_results(self) -> None:
         results = self._channel_results
@@ -724,9 +736,16 @@ class _AutoSearchMixin:
                 for r in self._channel_results]
 
     def _load_per_channel(self, params: dict[str, Any]) -> None:
+        per_channel = bool(params.get("per_channel", False))
+        if per_channel and params.get("auto"):
+            # Auto searches each channel, ignoring Luminance, so keep that.
+            self.luminance.blockSignals(True)
+            self.luminance.setChecked(False)
+            self.luminance.blockSignals(False)
         self.per_channel.blockSignals(True)
-        self.per_channel.setChecked(bool(params.get("per_channel", False)))
+        self.per_channel.setChecked(per_channel)
         self.per_channel.blockSignals(False)
+        self._sync_per_channel()
         amounts = params.get("channel_amounts")
         valid = (params.get("auto") and self._per_channel_active()
                  and isinstance(amounts, (list, tuple)) and len(amounts) == 3)
@@ -2142,14 +2161,26 @@ def _step_per_channel_box(params: dict[str, Any], is_grayscale: bool) -> QCheckB
     box = QCheckBox("Each RGB channel")
     box.setToolTip(
         "With Auto, search red, green and blue separately for each image, "
-        "giving each channel its own amounts."
+        "giving each channel its own amounts. Not available with Luminance, "
+        "which sharpens one channel."
     )
     box.setChecked(bool(params.get("per_channel", False)) and not is_grayscale)
     return box
 
 
+def _link_step_per_channel(widgets: dict[str, Any], auto: bool) -> None:
+    """Keep Luminance and Each RGB channel from both being ticked."""
+    luminance, per_channel = widgets["luminance"], widgets["per_channel"]
+    if luminance.isChecked() and per_channel.isChecked():
+        # Auto searches each channel, ignoring Luminance, so keep that.
+        (luminance if auto else per_channel).setChecked(False)
+    luminance.toggled.connect(lambda checked: checked and per_channel.setChecked(False))
+
+
 def _sync_step_per_channel(widgets: dict[str, Any], auto: bool, is_grayscale: bool) -> None:
-    widgets["per_channel"].setEnabled(auto and not is_grayscale)
+    widgets["per_channel"].setEnabled(
+        auto and not is_grayscale and not widgets["luminance"].isChecked()
+    )
     widgets["luminance"].setEnabled(
         not is_grayscale and not (auto and widgets["per_channel"].isChecked())
     )
@@ -2274,6 +2305,8 @@ def edit_filter_params(
 
         auto_box.toggled.connect(_sync_wavelet_auto)
         per_channel.toggled.connect(lambda _: _sync_wavelet_auto(auto_box.isChecked()))
+        _link_step_per_channel(widgets, auto_box.isChecked())
+        luminance.toggled.connect(lambda _: _sync_wavelet_auto(auto_box.isChecked()))
         _sync_wavelet_auto(auto_box.isChecked())
         widgets["_sync_auto"] = _sync_wavelet_auto
     elif filter_id == "fft_denoise":
@@ -2378,6 +2411,8 @@ def edit_filter_params(
 
         auto_box.toggled.connect(_sync_deconv_auto)
         per_channel.toggled.connect(lambda _: _sync_deconv_auto(auto_box.isChecked()))
+        _link_step_per_channel(widgets, auto_box.isChecked())
+        luminance.toggled.connect(lambda _: _sync_deconv_auto(auto_box.isChecked()))
         _sync_deconv_auto(auto_box.isChecked())
         widgets["_sync_auto"] = _sync_deconv_auto
     elif filter_id == "wiener_deconv":

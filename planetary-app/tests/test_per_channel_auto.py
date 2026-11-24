@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
-from PyQt6.QtWidgets import QApplication, QProgressDialog
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication, QCheckBox, QProgressDialog
 from scipy.ndimage import gaussian_filter
 
 from planetary_tools.batch.pipeline import PipelineStep, _resolve_auto_params
@@ -21,6 +22,7 @@ from planetary_tools.filters.wavelet_auto import (
 )
 from planetary_tools.ui.dialogs import (
     PER_CHANNEL_NOTE, PER_CHANNEL_READOUT_NOTE, AdaptiveDeconvDialog, WaveletSharpenDialog,
+    edit_filter_params,
 )
 from test_sticky_auto import Isolated
 
@@ -205,6 +207,11 @@ class PerChannelDialogTests(Isolated):
         panel._auto_adaptive_deconv_channel_params = fake_channel_search(
             calls, (1.0, 4.0, 9.0), lambda v: SimpleNamespace(amount=v))
         panel.set_input_brightness(disk(), False)
+        # Luminance starts ticked here, which leaves Each RGB channel unavailable.
+        self.assertTrue(panel.luminance.isChecked())
+        self.assertFalse(panel.per_channel.isEnabled())
+        panel.luminance.setChecked(False)
+        self.assertTrue(panel.per_channel.isEnabled())
         panel.per_channel.setChecked(True)
         panel.auto_apply.click()
         self.assertEqual(calls[0]['adaptive'], panel.adaptive.isChecked())
@@ -216,6 +223,68 @@ class PerChannelDialogTests(Isolated):
         panel.amount.setValue(5.0)
         self.assertIsNone(panel.get_params()['channel_amounts'])
         self.assertTrue(panel.luminance.isEnabled())
+
+
+    def test_luminance_disables_each_rgb_channel(self):
+        calls = []
+        panel = self.wavelet(calls)
+        panel.per_channel.setChecked(True)
+        panel.luminance.setChecked(True)
+        self.assertFalse(panel.per_channel.isEnabled())
+        self.assertFalse(panel.per_channel.isChecked())
+        self.assertIn('Not available with Luminance', panel.per_channel.toolTip())
+        panel.auto_apply.click()
+        self.assertEqual(calls, [])
+        self.assertFalse(panel.get_params()['per_channel'])
+        panel.luminance.setChecked(False)
+        self.assertTrue(panel.per_channel.isEnabled())
+
+        # Saved with both: Auto searched each channel, so that is kept.
+        both = dict(panel.get_params(), luminance=True, per_channel=True, auto=True,
+                    channel_amounts=[list(a) for a in WAVELET])
+        other = self.wavelet(calls)
+        other.set_params(both)
+        self.assertFalse(other.luminance.isChecked())
+        self.assertTrue(other.per_channel.isChecked())
+        self.assertTrue(other.per_channel.isEnabled())
+        # Without Auto, the tick had no effect, and Luminance is kept.
+        other.set_params(dict(both, auto=False, channel_amounts=None))
+        self.assertTrue(other.luminance.isChecked())
+        self.assertFalse(other.per_channel.isChecked())
+        self.assertFalse(other.per_channel.isEnabled())
+
+    def test_batch_step_editor_luminance_disables_each_rgb_channel(self):
+        for filter_id in ('wavelet_sharpen', 'adaptive_deconv'):
+            seen = {}
+
+            def edit():
+                dlg = QApplication.activeModalWidget()
+                boxes = {b.text().split(' (')[0]: b for b in dlg.findChildren(QCheckBox)}
+                lum, rgb = boxes['Luminance'], boxes['Each RGB channel']
+                boxes['Auto'].setChecked(True)
+                lum.setChecked(False)
+                seen['enabled'] = rgb.isEnabled()
+                rgb.setChecked(True)
+                seen['lum_enabled'] = lum.isEnabled()
+                boxes['Auto'].setChecked(False)
+                lum.setChecked(True)
+                boxes['Auto'].setChecked(True)
+                seen['after'] = (rgb.isEnabled(), rgb.isChecked())
+                dlg.accept()
+            QTimer.singleShot(20, edit)
+            params = dict(FILTERS[filter_id].default_params, luminance=False, per_channel=False)
+            result = edit_filter_params(filter_id, params, False)
+            self.assertEqual(seen, {'enabled': True, 'lum_enabled': False,
+                                    'after': (False, False)}, filter_id)
+            self.assertEqual((result[0]['luminance'], result[0]['per_channel']), (True, False))
+
+            # A step saved with both keeps the per-channel Auto search.
+            def accept():
+                QApplication.activeModalWidget().accept()
+            QTimer.singleShot(20, accept)
+            result = edit_filter_params(
+                filter_id, dict(params, auto=True, luminance=True, per_channel=True), False)
+            self.assertEqual((result[0]['luminance'], result[0]['per_channel']), (False, True))
 
 
 class PerChannelBatchTests(unittest.TestCase):

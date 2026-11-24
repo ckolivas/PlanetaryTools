@@ -293,7 +293,7 @@ Increase contrast in detail at several spatial scales. Fine affects the smallest
 
 On a colour image, tick Each RGB channel before pressing Auto to search red, green and blue separately. Each channel is sharpened until it reaches the targets on its own, so a softer or noisier channel gets its own amounts. This suits channels that differ in sharpness, such as RGB composed from filtered captures. Because every channel is held to the noise target, the combined image is usually less noisy than with a shared search at the same contrast. The search takes a little longer than a shared search. The progress window names each channel as it is searched.
 
-The panel lists the amounts found for each channel below Auto, and the sliders show green's. Per-channel amounts cannot be adjusted by hand. Changing any slider, option or target releases Auto, and one set of amounts then applies to all three channels. The progress window and the option's tooltip repeat this. Luminance (BT.709) does not apply while the per-channel amounts are in use. Accepted while Auto is pressed, the option carries into batch steps, which search each channel of each image.
+The panel lists the amounts found for each channel below Auto, and the sliders show green's. Per-channel amounts cannot be adjusted by hand. Changing any slider, option or target releases Auto, and one set of amounts then applies to all three channels. The progress window and the option's tooltip repeat this. Each RGB channel is unavailable while Luminance (BT.709) is ticked, and Luminance does not apply while the per-channel amounts are in use. Accepted while Auto is pressed, the option carries into batch steps, which search each channel of each image.
 
 ### Auto: Target noise
 
