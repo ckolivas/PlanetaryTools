@@ -899,7 +899,7 @@ A capture with no moon in the frame, such as a lone Mars, or a Jupiter with its 
 
 Both captures need the same telescope, camera, Barlow or focal reducer, and camera angle, and neither may be resized or drizzled: the PSF is measured in pixels and its direction on the sensor. Re-collimating, or rotating the camera, needs a new measurement. A planet stack's blur includes the seeing during that capture, so a PSF from the same night suits it best.
 
-Presets do not keep the loaded PSF; load it from its file. Current workflow and a workflow saved with the image (.ptbatch) do keep it, so their batch corrects every image with it. Tick Auto-select moons, or pick a moon, to measure the image's own moons again.
+The panel has no presets; the PSF file is how a measurement is kept. The loaded PSF is kept with the workflow, so a batch, Current workflow or a saved .ptbatch workflow corrects every image with it. Tick Auto-select moons, or pick a moon, to measure the image's own moons again.
 
 ### Colour images
 

@@ -486,7 +486,7 @@ class FilterTests(unittest.TestCase):
         self.assertEqual(fdef.label, 'Correct Optical Aberrations')
         step = PipelineStep('optical_correction', dict(fdef.default_params))
         self.assertTrue(step.label.endswith('Auto'))
-        self.assertNotIn('psf', fdef.default_params)
+        self.assertIsNone(fdef.default_params['psf'])
         saved = oc.psf_to_dict(oc.measure_image_psf(scene(), True), 'moons.png')
         step = PipelineStep('optical_correction', {**fdef.default_params, 'psf': saved})
         self.assertTrue(step.label.endswith('Saved PSF (moons.png)'))
@@ -523,6 +523,8 @@ class PanelTests(unittest.TestCase):
         panel, markers = self.panel()
         self.assertTrue(panel.moon_info.text().startswith('Auto:'))
         self.assertIsNotNone(panel.measured_view.pixmap())
+        # No preset row: Save PSF and Load PSF carry a measurement instead.
+        self.assertFalse(hasattr(panel, '_preset_combo'))
         self.assertIn(MOON, [(round(x), round(y)) for x, y, _ in markers[-1]])
         self.assertRegex(panel._aberration_boxes['coma'].text(), r'Coma/collimation \(\d+%\)')
         # Astigmatism is not offered (switched off), nor its controls.
@@ -598,20 +600,12 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(params['psf']['source'], 'moons.png')
         apply_filter('optical_correction', np.repeat(scene(moons=False)[..., None], 3, axis=2),
                      True, params)
-        # Presets and "Last" never keep the PSF, and choosing one keeps it loaded.
-        lone.save_last_preset()
-        self.assertNotIn('psf', lone._presets['Last'])
-        with patch('planetary_tools.ui.dialogs.QInputDialog.getText', lambda *a: ('Mine', True)):
-            lone._save_preset()
-        self.assertNotIn('psf', lone._presets['Mine'])
-        lone._preset_combo.setCurrentText('Default')
-        self.assertTrue(lone.moon_info.text().startswith('Saved PSF'))
-        self.assertFalse(lone.get_params()['auto'])
-        self.assertEqual(lone.get_params()['psf']['source'], 'moons.png')
+        # Reopened with those params, the panel uses the saved PSF again.
         again = OpticalCorrectionDialog(True)
         self.addCleanup(again.close)
         again.set_input_brightness(np.repeat(scene(moons=False)[..., None], 3, axis=2), True)
-        self.assertIsNone(again.get_params()['psf'])
+        again.set_params(params)
+        self.assertTrue(again.moon_info.text().startswith('Saved PSF'))
         # Ticking Auto measures the image's own moons again.
         lone.auto.setChecked(True)
         self.assertIsNone(lone.get_params()['psf'])
@@ -660,7 +654,7 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(edit(with_psf, look)['psf'], saved)
         self.assertEqual(seen, [('Use saved PSF from moons.png', [False])])
         self.assertIsNone(edit(with_psf, lambda d: use_box(d)[0].setChecked(False))['psf'])
-        self.assertNotIn('psf', edit(dict(fdef.default_params), lambda d: None))
+
 
     def test_tools_menu_runs_with_canvas_picking(self):
         window = MainWindow()
