@@ -113,6 +113,16 @@ If a .ptbatch of that name already exists, including one from an earlier save of
 
 Load the workflow in Batch Processing with Load workflow to repeat the edits on a folder, or run it on another open image with [Apply Workflow to Image](#apply-workflow-to-image).
 
+### Copying and pasting images
+
+**Edit > Copy Image / Paste Image**
+
+Copy Image (Ctrl+C) places the image on the clipboard as 16-bit sRGB, the same values as a PNG 16-bit save, for pasting into another application or another PT window. It copies the image as last applied: a tool's preview that has not been accepted with OK is not included.
+
+Paste Image (Ctrl+V) opens the clipboard's image as a new untitled image, replacing the open one after the usual unsaved-change prompt; Save then asks for a name. A 16-bit image keeps its 16 bits, and transparency is dropped. If an image file was copied in a file manager instead, Paste opens that file. In text fields, Ctrl+C and Ctrl+V copy and paste text as usual.
+
+On Linux, a copied image may be lost when PT closes unless a clipboard manager keeps it.
+
 ### Output choices
 
 TIFF float32 retains floating-point working values. TIFF 16-bit and PNG 16-bit are useful for further processing. PNG 8-bit and JPEG suit delivery; JPEG is lossy. Avoid repeated JPEG editing.

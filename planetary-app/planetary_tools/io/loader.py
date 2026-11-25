@@ -211,6 +211,20 @@ def load_image(path: str | Path, *, pin_noise: bool = True) -> ImageDocument:
     return doc
 
 
+def document_from_samples(arr: np.ndarray) -> ImageDocument:
+    """An untitled document from sRGB-encoded 8- or 16-bit samples, such as a
+    pasted image, converted exactly as an opened PNG of the same samples."""
+    data, grayscale, storage_bits = _normalize_array(arr, Path("pasted.png"))
+    doc = ImageDocument(
+        data=data,
+        is_grayscale=grayscale,
+        modified=True,
+        storage_bits=storage_bits,
+    )
+    doc.pin_noise_context()
+    return doc
+
+
 def _effective_bit_depth(doc: ImageDocument, path: Path, bit_depth: int | None) -> int:
     if bit_depth is not None:
         return bit_depth

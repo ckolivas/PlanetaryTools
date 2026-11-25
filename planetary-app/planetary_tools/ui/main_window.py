@@ -57,6 +57,9 @@ from planetary_tools.io.loader import (
 )
 from planetary_tools.filters.registry import FILTERS
 from planetary_tools.ui.batch_dialog import BatchDialog
+from planetary_tools.ui.clipboard import (
+    document_from_qimage, image_file_from_mime, qimage_from_document,
+)
 from planetary_tools.ui.file_dialog import QFileDialog
 from planetary_tools.ui.file_drop import ImageDropTarget
 from planetary_tools.ui.floating_resize import FloatingResizeBorder
@@ -447,6 +450,25 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._redo_act)
 
         edit_menu.addSeparator()
+        self._copy_act = QAction("&Copy Image", self)
+        self._copy_act.setShortcut(QKeySequence.StandardKey.Copy)
+        self._copy_act.setToolTip(
+            "Copy the image to the clipboard as 16-bit sRGB, without any "
+            "tool preview that has not been applied."
+        )
+        self._copy_act.triggered.connect(self._copy_image)
+        edit_menu.addAction(self._copy_act)
+
+        self._paste_act = QAction("&Paste Image", self)
+        self._paste_act.setShortcut(QKeySequence.StandardKey.Paste)
+        self._paste_act.setToolTip(
+            "Open the clipboard's image as a new untitled image, or open a "
+            "copied image file."
+        )
+        self._paste_act.triggered.connect(self._paste_image)
+        edit_menu.addAction(self._paste_act)
+
+        edit_menu.addSeparator()
         self._scale_act = QAction("&Scale Image…", self)
         self._scale_act.setToolTip(
             "Resize the image by percentage, width, or height."
@@ -727,7 +749,8 @@ class MainWindow(QMainWindow):
     def _update_actions(self) -> None:
         has_doc = self._document is not None
         for act in (
-            self._save_act, self._save_as_act, self._close_act, self._scale_act, self._rotate_act,
+            self._save_act, self._save_as_act, self._close_act, self._copy_act,
+            self._scale_act, self._rotate_act,
             self._apply_workflow_act,
             self._crop_act, self._caption_act, self._optical_act,
             self._sharpen_act, self._denoise_act, self._fft_denoise_act, self._deconv_act,
@@ -1542,6 +1565,37 @@ class MainWindow(QMainWindow):
             self._status.showMessage(f"Saved RGB channels to {base.parent}")
         except Exception as exc:
             QMessageBox.critical(self, "RGB Decompose failed", str(exc))
+
+    def _copy_image(self) -> None:
+        if self._document is None:
+            return
+        QApplication.clipboard().setImage(qimage_from_document(self._document))
+        self._status.showMessage(
+            f"Copied the {self._document.width}×{self._document.height} image to the clipboard"
+        )
+
+    def _paste_image(self) -> None:
+        mime = QApplication.clipboard().mimeData()
+        path = image_file_from_mime(mime)
+        if path is not None:
+            self._open_path(path)  # Resolves an open tool panel itself.
+            return
+        if mime is None or not mime.hasImage():
+            self._status.showMessage("The clipboard has no image to paste")
+            return
+        if self._guard_filter_dialog("Paste Image", self._paste_image):
+            return
+        if not self._confirm_unsaved_changes("before pasting an image"):
+            return
+        try:
+            doc = document_from_qimage(QApplication.clipboard().image())
+        except Exception as exc:
+            QMessageBox.critical(self, "Paste failed", str(exc))
+            return
+        self._set_document(doc)
+        self._status.showMessage(
+            f"Pasted a {doc.width}×{doc.height} image from the clipboard"
+        )
 
     def _run_rgb_compose(self) -> None:
         if self._guard_filter_dialog(
