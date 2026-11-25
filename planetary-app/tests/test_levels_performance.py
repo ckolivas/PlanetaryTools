@@ -68,7 +68,6 @@ class LevelsPerformanceTests(unittest.TestCase):
             for gray in (False, True):
                 with ExitStack() as stack:
                     stack.enter_context(patch.object(levels, '_channel_values', original_channel_values))
-                    stack.enter_context(patch.object(levels, 'auto_input_levels_for_channel', original_auto_input))
                     expected = levels.auto_balance_levels(source, is_grayscale=gray)
                 actual = levels.auto_balance_levels(source, is_grayscale=gray)
                 self.assertEqual(actual, expected)

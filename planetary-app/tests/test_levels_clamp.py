@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog
 from planetary_tools.core.colour import linear_to_srgb, rgb_to_oklab_L, srgb_to_linear
 from planetary_tools.core.presets import load_presets, save_presets
 from planetary_tools.filters.levels import (
-    apply_levels, apply_levels_curve, default_levels_params, identity_levels,
+    apply_levels, apply_levels_curve, auto_balance_levels, default_levels_params, identity_levels,
     levels_params_for_preset,
 )
 from planetary_tools.filters.registry import FILTERS, apply_filter
@@ -97,6 +97,20 @@ class LevelsClampTests(unittest.TestCase):
                 params['L']['out_max'] = out_max
                 out = apply_levels(image, params)
                 self.assertAlmostEqual(float(rgb_to_oklab_L(out).max()), out_max * peak, places=4)
+
+    def test_auto_balance_lowers_a_channel_already_spanning_0_to_100_percent(self):
+        # Black sky and clipped red highlights give red a 0-100% range.
+        yy, xx = np.mgrid[:60, :60]
+        level = np.clip(1.3 - ((yy - 30) ** 2 + (xx - 30) ** 2) / 500, 0, None)
+        image = np.clip(level[..., None] * np.array([1., .45, .16]), 0, 1).astype(np.float32)
+        self.assertGreater(float((image[..., 0] >= 1).mean()), .02)
+        full = auto_balance_levels(image, is_grayscale=False)
+        self.assertEqual((full['R']['in_min'], full['R']['in_max']), (0., 1.))
+        self.assertEqual({full[c]['out_max'] for c in 'RGB'}, {full['B']['in_max']})
+        # A stretch just short of 100% gives nearly the same balance.
+        near = auto_balance_levels(image * np.float32(.999), is_grayscale=False)
+        np.testing.assert_allclose(apply_levels(image * np.float32(.999), near),
+                                   apply_levels(image, full), atol=.002)
 
     def test_legacy_params_default_to_clamped_and_identity_preserves_data(self):
         source = np.array([[[.2, .4, 1.2]]], dtype=np.float32)

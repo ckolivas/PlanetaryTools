@@ -235,15 +235,15 @@ def channel_input_peak(data: np.ndarray, channel: str) -> float:
     return float(np.clip(np.max(values), 0.0, 1.0))
 
 
-def auto_input_levels_for_channel(values: np.ndarray) -> dict[str, float]:
-    """GIMP-style auto input levels for one channel (output 0–1, gamma 1)."""
+def _auto_input_range(values: np.ndarray) -> dict[str, float] | None:
+    """GIMP-style auto input levels, or ``None`` for a channel with no range."""
     flat = np.asarray(values, dtype=np.float64).ravel()
     if flat.size == 0:
-        return identity_levels()
+        return None
 
     lo, hi = map(float, np.percentile(flat, [_AUTO_INPUT_LOW_PCT, _AUTO_INPUT_HIGH_PCT]))
     if hi - lo < 1e-10:
-        return identity_levels()
+        return None
 
     return {
         "in_min": lo,
@@ -254,36 +254,12 @@ def auto_input_levels_for_channel(values: np.ndarray) -> dict[str, float]:
     }
 
 
+def auto_input_levels_for_channel(values: np.ndarray) -> dict[str, float]:
+    """GIMP-style auto input levels for one channel (output 0–1, gamma 1)."""
+    return _auto_input_range(values) or identity_levels()
+
+
 _RGB_LEVEL_CHANNELS = ("R", "G", "B")
-
-
-def _lowest_rgb_input_max(channels: dict[str, dict[str, float]]) -> float:
-    """Lowest auto-balance input maximum across RGB channels."""
-    return float(
-        min(float(channels[ch]["in_max"]) for ch in _RGB_LEVEL_CHANNELS)
-    )
-
-
-def _set_rgb_output_max(
-    channels: dict[str, dict[str, float]],
-    out_max: float,
-) -> None:
-    """Set the same output maximum on all auto-balanced RGB channels."""
-    for ch in _RGB_LEVEL_CHANNELS:
-        if is_identity_levels(channels[ch]):
-            continue
-        channels[ch]["out_max"] = out_max
-
-
-def _clamp_auto_balance_to_peak(
-    channels: dict[str, dict[str, float]],
-    data: np.ndarray,
-    *,
-    is_grayscale: bool,
-) -> None:
-    """Set RGB output maximum to the lowest auto-balance RGB input maximum."""
-    del data, is_grayscale
-    _set_rgb_output_max(channels, _lowest_rgb_input_max(channels))
 
 
 def auto_balance_levels(
@@ -292,10 +268,22 @@ def auto_balance_levels(
     is_grayscale: bool,
 ) -> dict[str, dict[str, float]]:
     """GIMP auto input levels on RGB; output max set to lowest RGB input maximum."""
+    del is_grayscale
     channels = {ch: identity_levels() for ch in LEVEL_CHANNELS}
+    measured = {}
     for ch in _RGB_LEVEL_CHANNELS:
-        channels[ch] = auto_input_levels_for_channel(_channel_values(data, ch))
-    if all(is_identity_levels(channels[ch]) for ch in _RGB_LEVEL_CHANNELS):
+        levels = _auto_input_range(_channel_values(data, ch))
+        if levels is not None:
+            measured[ch] = channels[ch] = levels
+    if not measured:
         return channels
+    # Every measured channel shares the output max, so none clips. A channel
+    # whose range is already 0-100% (black sky and clipped highlights) is
+    # measured too: it looks unchanged, but still needs lowering with the
+    # others, or it alone stays at full brightness.
+    out_max = min(float(levels["in_max"]) for levels in measured.values())
+    for levels in measured.values():
+        levels["out_max"] = out_max
+    return channels
     _clamp_auto_balance_to_peak(channels, data, is_grayscale=is_grayscale)
     return channels
