@@ -2,7 +2,7 @@
 
 [Project overview and downloads](../README.md) · [PDF edition](../Planetary-Tools-Manual.pdf) · [Development guide](development.md)
 
-Revised **23 November 2026**. Covers application build **c0ca4f0**, labelled **1.5.0**. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
+Revised **25 November 2026**. Covers application build **d424d8f**, labelled **1.5.2**. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
 
 ## Contents
 
@@ -1007,7 +1007,7 @@ Input/output directories and output-depth preferences persist; the output folder
 
 Use view controls to inspect pixels and Help to identify the running version or check for a newer published release.
 
-<img src="images/about.png" alt="About Planetary Tools showing version 1.5.0" width="400">
+<img src="images/about.png" alt="About Planetary Tools showing version 1.5.2" width="400">
 
 <img src="images/updates.png" alt="Update check displaying a network connection error" width="550">
 
@@ -1027,7 +1027,16 @@ Use view controls to inspect pixels and Help to identify the running version or 
 
 ### Manual build identification
 
-This manual covers application build c0ca4f0, labelled 1.5.0. Changes since the 1.4.0 manual include:
+This manual covers application build d424d8f, labelled 1.5.2. Changes since the 1.5.0 manual include:
+
+- Correct Optical Aberrations can save and load a PSF, so a planet without a moon can be corrected with a measurement from another capture or a nearby star. The panel no longer has presets.
+- Each RGB channel is unavailable while Luminance is ticked in Wavelet Sharpen and Adaptive Deconvolution.
+- Levels: Luminance settings near their defaults no longer dim a strongly coloured image, and Luminance output max sets the peak lightness.
+- Levels Auto Balance balances to the brightest colour rather than the faintest, including when a channel already spans 0-100%.
+- The preview updates 0.3 s after the last change, rather than 0.5 s.
+- RGB Decompose to Files starts with the image's name and asks only about replacing the channel files.
+
+1.5.0 added, since the 1.4.0 manual:
 
 - Tools > Correct Optical Aberrations, which uses the moons to correct coma and trefoil.
 - Save Workflow With Image, which writes a .ptbatch beside the saved image, and asks before replacing one.
@@ -1097,7 +1106,7 @@ Check crop bounds, Moon Enhance margin, sensitivity and Max moons, and tone/clam
 
 ### Source and revision
 
-Revised 23 November 2026 for application build c0ca4f0. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
+Revised 25 November 2026 for application build d424d8f. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
 
 [Back to contents](#contents)
 
