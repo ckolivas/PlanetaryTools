@@ -9,7 +9,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
 from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog
 
-from planetary_tools.core.colour import linear_to_srgb, srgb_to_linear
+from planetary_tools.core.colour import linear_to_srgb, rgb_to_oklab_L, srgb_to_linear
 from planetary_tools.core.presets import load_presets, save_presets
 from planetary_tools.filters.levels import (
     apply_levels, apply_levels_curve, default_levels_params, identity_levels,
@@ -63,6 +63,40 @@ class LevelsClampTests(unittest.TestCase):
         self.assertGreater(float(apply_levels(source, params).max()), 1.)
         params['clamp'] = True
         self.assertLessEqual(float(apply_levels(source, params).max()), 1.)
+
+    def test_luminance_on_a_stretched_red_image_brightens_from_100_percent(self):
+        # A red planet stretched so red reaches 1, with an OKLab L peak far below 1.
+        yy, xx = np.mgrid[:40, :40]
+        level = np.clip(1 - ((yy - 20) ** 2 + (xx - 20) ** 2) / 400, 0, 1)
+        image = (level[..., None] * np.array([1., .45, .16])).astype(np.float32)
+        peak = float(rgb_to_oklab_L(image).max())
+        self.assertLess(peak, .85)
+        for clamp in (True, False):
+            means = [image.mean()]
+            for in_max in (.999, .98, .95, .9, peak):
+                params = default_levels_params()
+                params['L']['in_max'] = in_max
+                out = apply_levels(image, dict(params, clamp=clamp))
+                means.append(out.mean())
+                if in_max == .999:
+                    np.testing.assert_allclose(out, image, atol=.004)
+            self.assertTrue(all(b > a for a, b in zip(means, means[1:])), (clamp, means))
+        # Input max at the L peak still matches a 100% stretch.
+        params = default_levels_params()
+        params['L']['in_max'] = peak
+        np.testing.assert_allclose(
+            apply_levels(image, params),
+            apply_filter('stretch_contrast', image, False, {'amount': 100.0}), atol=1e-6)
+
+    def test_luminance_output_max_sets_the_peak_lightness(self):
+        for image in (np.full((4, 4, 3), .5, np.float32),
+                      np.tile(np.array([1., .45, .16], np.float32), (4, 4, 1))):
+            peak = float(rgb_to_oklab_L(image).max())
+            for out_max in (.999, .9, .5):
+                params = default_levels_params()
+                params['L']['out_max'] = out_max
+                out = apply_levels(image, params)
+                self.assertAlmostEqual(float(rgb_to_oklab_L(out).max()), out_max * peak, places=4)
 
     def test_legacy_params_default_to_clamped_and_identity_preserves_data(self):
         source = np.array([[[.2, .4, 1.2]]], dtype=np.float32)

@@ -140,8 +140,22 @@ def _apply_oklab_l(
     work = clamp01(rgb) if clamp else np.maximum(rgb, 0.0)
     L = rgb_to_oklab_L(work)
     L_new = apply_levels_curve(L, levels, clamp=clamp)
-    peak = float(np.clip(np.max(L_new), 0.0, 1.0) if clamp else np.max(L_new))
-    return scale_rgb_by_oklab_L(work, L, L_new, peak=peak, clamp=clamp)
+    L_peak = float(np.max(L_new))
+    if clamp:
+        L_peak = min(L_peak, 1.0)
+    out = scale_rgb_by_oklab_L(work, L, L_new, peak=1.0, clamp=clamp)
+    # The curve's peak is an OKLab L, not a channel value: a saturated red at
+    # 1.0 has an L far below it. Scale so the brightest L reaches that peak;
+    # L scales as the cube root of linear RGB, so the factor is a cube. Near
+    # identity this returns the input, rather than dimming it to its L peak.
+    L_out = float(np.max(rgb_to_oklab_L(out)))
+    if L_out < 1e-7:
+        return out
+    factor = (L_peak / L_out) ** 3
+    if clamp:
+        factor = min(factor, 1.0)  # out's channel peak is 1
+    result = out * np.float32(factor)
+    return clamp01(result) if clamp else result.astype(np.float32)
 
 
 def _apply_srgb_rgb_output(
