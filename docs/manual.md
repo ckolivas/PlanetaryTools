@@ -654,7 +654,7 @@ Adjust black point, white point and midtones for Luminance or an individual RGB 
 
 ### Auto Balance
 
-Uses the 2% and 98% histogram percentiles for RGB input levels, then sets RGB output maxima to the lowest input maximum. It does not change the Luminance settings.
+Uses the 2% and 98% histogram percentiles for RGB input levels, then sets RGB output maxima to the highest input maximum, so the balanced image keeps the brightness of its brightest colour. It does not change the Luminance settings.
 
 ### Channel spaces
 

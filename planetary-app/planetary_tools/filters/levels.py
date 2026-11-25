@@ -267,7 +267,7 @@ def auto_balance_levels(
     *,
     is_grayscale: bool,
 ) -> dict[str, dict[str, float]]:
-    """GIMP auto input levels on RGB; output max set to lowest RGB input maximum."""
+    """GIMP auto input levels on RGB; output max set to highest RGB input maximum."""
     del is_grayscale
     channels = {ch: identity_levels() for ch in LEVEL_CHANNELS}
     measured = {}
@@ -277,11 +277,11 @@ def auto_balance_levels(
             measured[ch] = channels[ch] = levels
     if not measured:
         return channels
-    # Every measured channel shares the output max, so none clips. A channel
-    # whose range is already 0-100% (black sky and clipped highlights) is
-    # measured too: it looks unchanged, but still needs lowering with the
-    # others, or it alone stays at full brightness.
-    out_max = min(float(levels["in_max"]) for levels in measured.values())
+    # Every measured channel shares the output max: the brightest channel's
+    # input max, so the balanced image is as bright as its brightest colour.
+    # A channel whose range is already 0-100% (black sky and clipped
+    # highlights) is measured too, and shares it like the others.
+    out_max = max(float(levels["in_max"]) for levels in measured.values())
     for levels in measured.values():
         levels["out_max"] = out_max
     return channels

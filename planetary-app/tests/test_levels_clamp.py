@@ -98,7 +98,7 @@ class LevelsClampTests(unittest.TestCase):
                 out = apply_levels(image, params)
                 self.assertAlmostEqual(float(rgb_to_oklab_L(out).max()), out_max * peak, places=4)
 
-    def test_auto_balance_lowers_a_channel_already_spanning_0_to_100_percent(self):
+    def test_auto_balance_shares_the_highest_input_max(self):
         # Black sky and clipped red highlights give red a 0-100% range.
         yy, xx = np.mgrid[:60, :60]
         level = np.clip(1.3 - ((yy - 30) ** 2 + (xx - 30) ** 2) / 500, 0, None)
@@ -106,7 +106,8 @@ class LevelsClampTests(unittest.TestCase):
         self.assertGreater(float((image[..., 0] >= 1).mean()), .02)
         full = auto_balance_levels(image, is_grayscale=False)
         self.assertEqual((full['R']['in_min'], full['R']['in_max']), (0., 1.))
-        self.assertEqual({full[c]['out_max'] for c in 'RGB'}, {full['B']['in_max']})
+        self.assertEqual({full[c]['out_max'] for c in 'RGB'}, {1.})
+        self.assertLess(full['B']['in_max'], full['G']['in_max'])
         # A stretch just short of 100% gives nearly the same balance.
         near = auto_balance_levels(image * np.float32(.999), is_grayscale=False)
         np.testing.assert_allclose(apply_levels(image * np.float32(.999), near),

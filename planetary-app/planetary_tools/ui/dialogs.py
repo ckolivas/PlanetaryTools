@@ -1782,7 +1782,7 @@ class LevelsDialog(_FilterDialog):
         auto_balance.setToolTip(
             "Set RGB input levels from 2% / 98% histogram percentiles "
             "(GIMP Auto Input Levels), then set RGB output maximum to the "
-            "lowest input maximum. Luminance is not changed."
+            "highest input maximum. Luminance is not changed."
         )
         auto_balance.clicked.connect(self._auto_balance)
         reset_ch = QPushButton("Reset")
