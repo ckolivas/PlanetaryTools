@@ -11,7 +11,7 @@ from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import numpy as np
 from PyQt6.QtCore import QSettings
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.ui.animate_dialog import AnimateDialog
@@ -62,6 +62,12 @@ class OutputPreferenceTests(unittest.TestCase):
              patch('planetary_tools.ui.main_window.save_channel') as save:
             window._run_rgb_decompose()
             self.assertEqual(picker.call_args.args[4], selected)
+            # Prefilled like Save As: the image's name in the chosen format.
+            self.assertEqual(Path(picker.call_args.args[2]).name, 'source.png')
+            # Only the suffixed channel files are written, so the picker
+            # must not ask about replacing the chosen name itself.
+            self.assertTrue(picker.call_args.kwargs['options']
+                            & QFileDialog.Option.DontConfirmOverwrite)
             self.assertEqual([call.args[1].suffix for call in save.call_args_list], ['.tif']*3)
             self.assertTrue(all(call.kwargs['bit_depth']==32 for call in save.call_args_list))
         reopened = self.window()

@@ -985,12 +985,10 @@ class MainWindow(QMainWindow):
             return
         self._open_path(path, confirm_unsaved=False)
 
-    def _try_save_document_as(self) -> bool:
-        if self._document is None:
-            return True
-        selected_filter = self._default_save_as_filter()
+    def _save_as_initial_path(self, selected_filter: str) -> Path:
+        """The last open directory and the image's name, in the chosen format."""
         initial_path = Path(last_open_directory())
-        if self._document.path is not None:
+        if self._document is not None and self._document.path is not None:
             filename = Path(self._document.path).name
             for format_name, extensions in (
                 ("png", (".png",)),
@@ -1002,6 +1000,13 @@ class MainWindow(QMainWindow):
                         filename = str(Path(filename).with_suffix(extensions[0]))
                     break
             initial_path /= filename
+        return initial_path
+
+    def _try_save_document_as(self) -> bool:
+        if self._document is None:
+            return True
+        selected_filter = self._default_save_as_filter()
+        initial_path = self._save_as_initial_path(selected_filter)
         workflow_box = QCheckBox("Save workflow with image (.ptbatch)")
         workflow_box.setToolTip(self._save_workflow_act.toolTip())
         workflow_box.setChecked(self._save_workflow_act.isChecked())
@@ -1497,10 +1502,13 @@ class MainWindow(QMainWindow):
         path, selected = QFileDialog.getSaveFileName(
             self,
             "RGB Decompose to Files",
-            last_open_directory(),
+            str(self._save_as_initial_path(selected_filter)),
             self._save_as_filters(),
             selected_filter,
-            options=self._save_as_dialog_options(),
+            # The chosen name gets -red/-green/-blue suffixes, so only those
+            # files are checked for overwriting, below.
+            options=self._save_as_dialog_options()
+            | QFileDialog.Option.DontConfirmOverwrite,
         )
         if not path:
             return

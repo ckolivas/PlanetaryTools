@@ -89,7 +89,7 @@ Drag rows within the Batch, Derotate/Align and Animate file lists to change thei
 
 **File > Open / Open Recent / Save / Save As / Close**
 
-PT remembers file-dialog locations and the last selected output format. Save As starts in the last directory used to open an image, with the current image name, and adjusts its extension to the selected format. RGB Decompose also starts in the last open directory; Animate uses it when no output path is already entered. Batch keeps its own input/output directory choices.
+PT remembers file-dialog locations and the last selected output format. Save As starts in the last directory used to open an image, with the current image name, and adjusts its extension to the selected format. RGB Decompose starts the same way, with the image name as its base filename; Animate uses the last open directory when no output path is already entered. Batch keeps its own input/output directory choices.
 
 <img src="images/save.png" alt="Opening and saving images interface" width="760">
 
@@ -772,9 +772,9 @@ Save the current colour image's red, green and blue components as three separate
 ### How to use
 
 1. Open the colour image and choose RGB Decompose to Files.
-2. Choose an output folder, base filename, format and bit depth in the save dialog.
+2. Choose an output folder, base filename, format and bit depth in the save dialog. The base filename starts as the image's name.
 3. PT appends -red, -green and -blue before the extension. For example, saturn.png produces saturn-red.png, saturn-green.png and saturn-blue.png.
-4. Check for existing files before confirming any overwrite prompts.
+4. PT asks before overwriting only if one of those three files already exists. Choosing the original image's name is safe: that file is not replaced.
 
 ### Choose precision deliberately
 
