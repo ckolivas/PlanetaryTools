@@ -62,7 +62,7 @@ class PreviewController(QObject):
     preview_failed = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
 
-    def __init__(self, debounce_ms: int = 500, parent: QObject | None = None) -> None:
+    def __init__(self, debounce_ms: int = 300, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._debounce_ms = debounce_ms
         self._timer = QTimer(self)
