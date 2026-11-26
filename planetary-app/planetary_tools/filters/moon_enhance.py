@@ -109,6 +109,16 @@ _SELECT_MIN_SNR = 5.0
 _SELECT_MIN_FRACTION = 0.4
 # A moon that moved during a derotated stack is trailed (14×6 px on 2moons.png).
 _SELECT_MAX_ELONGATION = 3.0
+# The window's compact-residual spread is about this fraction of the pixel
+# step noise on clean sky (0.15-0.36 on the sample captures).
+_SELECT_STEP_NOISE_RATIO = 0.3
+# Noise peaks reach 1.3-1.9 times the window's median peak; moons 4 or more.
+# Skipped when the sky is clipped flat and there are too few peaks to judge.
+_SELECT_PEAK_CONTRAST = 3.0
+_SELECT_MIN_SKY_PEAKS = 25
+# A peak beside brighter glow must rise this fraction of its height above
+# the dip between them.
+_SELECT_MIN_PROMINENCE = 0.3
 _FWHM_TO_SIGMA = 1.0 / 2.355
 _MIN_MASK_SIGMA = 1.0
 
@@ -287,6 +297,48 @@ def _measure_fwhm(residual: np.ndarray, y: int, x: int) -> tuple[float, float]:
     return fx, fy
 
 
+def _selection_peak_is_compact(
+    compact: np.ndarray, iy: int, ix: int, x0: int, y0: int, w: int, h: int,
+) -> bool:
+    """Whether a peak is a hill of its own, no bigger than a moon.
+
+    Glow just outside a ring or limb is a long band. Its FWHM, measured
+    across and along the band through the peak, can look moon-sized, but
+    the area above half its peak spreads far along the band, and the noise
+    bumps along it barely rise above the band. A moon beside the band is cut
+    off from it at the dip between them, so its own hill is measured above
+    half its peak or that dip, whichever is higher.
+    """
+    peak = float(compact[iy, ix])
+
+    def hill(level: float) -> np.ndarray:
+        labels, _ = ndimage.label(compact > level)
+        return labels == labels[iy, ix]
+
+    low, high = 0.5 * peak, peak
+    blob = hill(low)
+    if compact[blob].max() > peak:
+        # Joined to higher ground: find the dip that separates them.
+        for _ in range(12):
+            mid = 0.5 * (low + high)
+            if compact[hill(mid)].max() > peak:
+                low = mid
+            else:
+                high = mid
+        if high > (1.0 - _SELECT_MIN_PROMINENCE) * peak:
+            return False  # A bump on brighter glow, not a source of its own.
+        blob = hill(high)
+    if blob.sum() > np.pi * (_FWHM_MAX / 2.0) ** 2:
+        return False
+    rows, cols = np.nonzero(blob)
+    wh, ww = compact.shape
+    # Running off the window means it spreads beyond the search; the image
+    # border itself is no evidence of that.
+    return not ((rows.min() == 0 and y0 > 0) or (cols.min() == 0 and x0 > 0)
+                or (rows.max() == wh - 1 and y0 + wh < h)
+                or (cols.max() == ww - 1 and x0 + ww < w))
+
+
 def locate_selected_moon(
     data: np.ndarray,
     is_grayscale: bool,
@@ -314,10 +366,21 @@ def locate_selected_moon(
     smooth = ndimage.gaussian_filter(window, _RESIDUAL_SMOOTH_SIGMA)
     compact = smooth - ndimage.grey_opening(smooth, size=_SELECT_OPEN_SIZE)
     noise = 1.4826 * float(np.median(np.abs(compact - np.median(compact))))
+    # Ring or limb glow can fill much of the window and inflate that spread.
+    # Neighbouring-pixel differences barely see smooth glow, so they cap it.
+    steps = np.concatenate([np.diff(window, axis=0).ravel(), np.diff(window, axis=1).ravel()])
+    if steps.size:
+        step_noise = 1.4826 * float(np.median(np.abs(steps))) / np.sqrt(2.0)
+        noise = min(noise, _SELECT_STEP_NOISE_RATIO * step_noise)
     floor = max(_SELECT_MIN_SNR * noise, _SIGMA_FLOOR_FRAC * float(lum.max()))
+    maxima = (compact == ndimage.maximum_filter(compact, size=5)) & (compact > 0)
+    if np.count_nonzero(maxima) >= _SELECT_MIN_SKY_PEAKS:
+        # The residual is never negative, so its spread understates how high
+        # noise peaks reach; a moon stands well above the typical one.
+        floor = max(floor, _SELECT_PEAK_CONTRAST * float(np.median(compact[maxima])))
     yy, xx = np.ogrid[y0 : y0 + window.shape[0], x0 : x0 + window.shape[1]]
     near = (yy - cy) ** 2 + (xx - cx) ** 2 <= search ** 2
-    peaks = (compact == ndimage.maximum_filter(compact, size=5)) & near & (compact > floor)
+    peaks = maxima & near & (compact > floor)
     # The planet's own pieces, as the detector finds them: a bright moon can
     # pass the seed threshold without being part of the planet.
     planet = _planet_seed(lum, planet_floor)[0][y0 : y0 + window.shape[0],
@@ -334,6 +397,8 @@ def locate_selected_moon(
             continue
         if compact[iy, ix] < _SELECT_MIN_FRACTION * smooth[iy, ix]:
             continue  # A ripple on the glow, not a source of its own.
+        if not _selection_peak_is_compact(compact, int(iy), int(ix), x0, y0, w, h):
+            continue  # A band of ring or limb glow, not a moon.
         if best is None or compact[iy, ix] > compact[best]:
             best = (iy, ix)
     if best is None:

@@ -56,6 +56,21 @@ class SelectionFilterTests(Isolated):
         self.assertIsNone(locate_selected_moon(data, False, 150, 100))  # planet
         self.assertIsNone(locate_selected_moon(data, False, 150, 185))  # empty sky
 
+    def test_click_below_ring_glow_finds_the_faint_moon(self):
+        # A band of glow along a tilted ring edge is brighter than the moon
+        # below it and, measured across x and y, about moon-sized.
+        data = field()
+        yy, xx = np.mgrid[:200, :300]
+        tilt = np.radians(20)
+        along = np.cos(tilt) * (xx - 215) + np.sin(tilt) * (yy - 110)
+        across = -np.sin(tilt) * (xx - 215) + np.cos(tilt) * (yy - 110)
+        glow = 0.0016 * np.exp(-(along / 60.0) ** 2 - (across / 3.5) ** 2)
+        glow += 0.0008 * np.exp(-((yy - 125) ** 2 + (xx - 220) ** 2) / (2 * 2.5 ** 2))
+        data += glow[..., None].astype(np.float32)
+        for click in ((220, 125), (217, 122), (224, 128)):
+            self.assertEqual(locate_selected_moon(data, False, *click), (220, 125))
+        self.assertIsNone(locate_selected_moon(data, False, 200, 104))  # on the band
+
     def test_selected_moon_comes_first(self):
         data = field()
 
