@@ -395,6 +395,24 @@ class FilterTests(unittest.TestCase):
         major, minor = measured(out, FAINT_MOON[0] + 12, FAINT_MOON[1] - 9)
         self.assertLess(major/minor, 1.25)
 
+    def test_picked_moons_are_kept_apart_and_combined(self):
+        image = scene()
+        params = {'auto': False, 'moons': [list(FAINT_MOON), list(MOON), [MOON[0] + 1, MOON[1]]]}
+        moons = oc.choose_moons(image, True, params)
+        # Each pick keeps its own moon; repeats of one moon count once.
+        self.assertEqual([(round(c.x), round(c.y)) for c, _ in moons], [FAINT_MOON, MOON])
+        self.assertEqual([w for _, w in moons], [1.0, 1.0])
+        m = oc.measure_moons(image, True, moons)
+        self.assertEqual(len(m.moons), 2)
+        # Each follows its own moon when the frame drifts.
+        drifted = oc.choose_moons(scene(shift=(12, -9)), True, params)
+        self.assertEqual([(round(c.x), round(c.y)) for c, _ in drifted],
+                         [(FAINT_MOON[0] + 12, FAINT_MOON[1] - 9), (MOON[0] + 12, MOON[1] - 9)])
+        rgb = np.repeat(image[..., None], 3, axis=2)
+        out = apply_filter('optical_correction', rgb, True,
+                           {**FILTERS['optical_correction'].default_params, **params})
+        self.assertEqual(out.shape, rgb.shape)
+
     @patch.object(oc, 'ASTIGMATISM_ENABLED', True)
     def test_each_colour_channel_uses_its_own_psf(self):
         red = scene(sigma=(1.8, 3.0))
@@ -533,31 +551,52 @@ class PanelTests(unittest.TestCase):
         self.assertFalse({'astigmatism', 'max_boost', 'target_size'} & set(panel.get_params()))
         self.assertTrue(panel.agreement_warning.isHidden())
 
-    def test_click_or_box_picks_a_moon_and_turns_off_auto(self):
+    def test_clicks_enable_and_disable_moons(self):
         panel, markers = self.panel()
         changed = []
         panel.params_changed.connect(lambda: changed.append(1))
+
+        def picked():
+            return [tuple(round(v) for v in p) for p in panel.get_params()['moons']]
+
+        def circled():
+            return [(round(x), round(y)) for x, y, _ in markers[-1]]
+        # No Auto checkbox: the suitable moons start enabled, and a batch
+        # chooses again for each image until a moon is clicked.
+        self.assertFalse(hasattr(panel, 'auto'))
+        self.assertTrue(panel.get_params()['auto'])
+        self.assertIn('enable or disable', panel.pick_hint.text())
+        auto = circled()
+        self.assertEqual(set(auto), {MOON, FAINT_MOON, TITAN})
+        # Clicking a circled moon disables it; the others stay.
         panel.set_picked_region(FAINT_MOON[0] + 4, FAINT_MOON[1] + 3, 0, 0)
         params = panel.get_params()
         self.assertFalse(params['auto'])
-        self.assertEqual((round(params['moon_x']), round(params['moon_y'])), FAINT_MOON)
         self.assertTrue(changed)
-        self.assertEqual([(round(x), round(y)) for x, y, _ in markers[-1]], [FAINT_MOON])
-        panel.set_picked_region(MOON[0] - 10, MOON[1] - 10, 20, 20)
-        self.assertEqual((round(panel.get_params()['moon_x']),
-                          round(panel.get_params()['moon_y'])), MOON)
-        # Turning Auto back on chooses again.
-        panel.auto.setChecked(True)
+        self.assertEqual(set(picked()), {MOON, TITAN})
+        self.assertEqual(set(circled()), {MOON, TITAN})
+        self.assertTrue(panel.moon_info.text().startswith('2 moons combined'))
+        # Clicking it again enables it; a box picks a moon among others.
+        panel.set_picked_region(FAINT_MOON[0] - 3, FAINT_MOON[1] + 2, 0, 0)
+        self.assertEqual(set(picked()), {MOON, TITAN, FAINT_MOON})
+        panel.set_picked_region(TITAN[0] - 6, TITAN[1] - 6, 12, 12)
+        panel.set_picked_region(FAINT_MOON[0], FAINT_MOON[1], 0, 0)
+        self.assertEqual(picked(), [MOON])
+        self.assertTrue(panel.moon_info.text().startswith('Moon at'))
+        # Empty sky selects nothing and says so.
+        panel.set_picked_region(300, 20, 0, 0)
+        self.assertEqual(picked(), [MOON])
+        self.assertIn('No moon found', panel.pick_hint.text())
+        # Old workflows saved one moon as moon_x/moon_y.
+        panel.set_params({**panel.get_params(), 'moons': [],
+                          'moon_x': float(FAINT_MOON[0]), 'moon_y': float(FAINT_MOON[1])})
+        self.assertEqual(picked(), [FAINT_MOON])
+        # Reset to the defaults chooses automatically again.
+        panel.set_params(FILTERS['optical_correction'].default_params)
         self.assertTrue(panel.moon_info.text().startswith('Auto:'))
         # The aberration boxes are saved with the params.
         panel._aberration_boxes['coma'].setChecked(False)
         self.assertEqual([panel.get_params()[k] for k in ('coma', 'trefoil')], [False, True])
-
-    def test_unticking_auto_keeps_its_moon(self):
-        panel, _ = self.panel()
-        panel.auto.setChecked(False)
-        params = panel.get_params()
-        self.assertEqual((round(params['moon_x']), round(params['moon_y'])), MOON)
 
     def test_save_and_load_a_psf_for_a_planet_with_no_moon(self):
         import json
@@ -606,10 +645,14 @@ class PanelTests(unittest.TestCase):
         again.set_input_brightness(np.repeat(scene(moons=False)[..., None], 3, axis=2), True)
         again.set_params(params)
         self.assertTrue(again.moon_info.text().startswith('Saved PSF'))
-        # Ticking Auto measures the image's own moons again.
-        lone.auto.setChecked(True)
-        self.assertIsNone(lone.get_params()['psf'])
-        self.assertIn('No suitable moon', lone.moon_info.text())
+        # On an image with moons, clicking one measures them again.
+        panel, _ = self.panel()
+        panel.set_params(params)
+        self.assertTrue(panel.moon_info.text().startswith('Saved PSF'))
+        panel.set_picked_region(MOON[0], MOON[1], 0, 0)
+        self.assertIsNone(panel.get_params()['psf'])
+        self.assertEqual([tuple(round(v) for v in p) for p in panel.get_params()['moons']],
+                         [MOON])
 
     def test_loading_a_file_that_is_not_a_psf_warns(self):
         folder = tempfile.TemporaryDirectory()
@@ -683,7 +726,8 @@ class PanelTests(unittest.TestCase):
         self.assertFalse(any(m.isVisible() for m in window._canvas._markers))
         op = window._undo.stack.applied_operations()[-1]
         self.assertEqual(op.filter_id, 'optical_correction')
-        self.assertEqual((round(op.params['moon_x']), round(op.params['moon_y'])), FAINT_MOON)
+        self.assertEqual({tuple(round(v) for v in p) for p in op.params['moons']},
+                         {MOON, TITAN})
         window._document.modified = False
 
 

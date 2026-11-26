@@ -44,6 +44,7 @@ detection params so brightness-only preview updates are instant.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 import numpy as np
 from scipy import ndimage
@@ -107,6 +108,13 @@ _SELECT_MIN_SNR = 5.0
 # ...and make up this much of its own brightness. Moons on the sample images
 # are 0.5-1.0 of it; sky noise 0.25-0.33 and glow knots near the rings ~0.06.
 _SELECT_MIN_FRACTION = 0.4
+# A peak clicked within this distance needs only this fraction: a faint moon
+# on strong glow, chosen deliberately. It must be moon-sized, as glow knots
+# near the planet are not (moons measure up to 11 px across on the samples,
+# 14 trailed; such knots 15 or more).
+_SELECT_SQUARE_PX = 6.0
+_SELECT_SQUARE_MIN_FRACTION = 0.2
+_SELECT_SQUARE_MAX_FWHM = 12.0
 # A moon that moved during a derotated stack is trailed (14×6 px on 2moons.png).
 _SELECT_MAX_ELONGATION = 3.0
 # The window's compact-residual spread is about this fraction of the pixel
@@ -349,6 +357,7 @@ def locate_selected_moon(
     sensitivity: float | None = None,
     planet_margin: float = 0.0,
     max_moons: int = 0,
+    known: Iterable[tuple[float, float]] = (),
 ) -> tuple[int, int] | None:
     """The (x, y) peak of the moon nearest a clicked point, if there is one.
 
@@ -361,7 +370,9 @@ def locate_selected_moon(
     Given ``sensitivity``, ``planet_margin`` and ``max_moons``, the moons
     the automatic detection picks with those settings count too: a moon
     brightened automatically can always be selected, even on glow too strong
-    for the checks above. Of all these, the one nearest the click is taken.
+    for the checks above. ``known`` positions (moons another tool picks
+    itself) count the same way. Of all these, the one nearest the click is
+    taken.
     """
     lum = _luminance(data, is_grayscale)
     h, w = lum.shape
@@ -393,7 +404,7 @@ def locate_selected_moon(
     # pass the seed threshold without being part of the planet.
     planet = _planet_seed(lum, planet_floor)[0][y0 : y0 + window.shape[0],
                                                 x0 : x0 + window.shape[1]]
-    best = None
+    best = close = None
     for iy, ix in zip(*np.nonzero(peaks)):
         fx, fy = _measure_fwhm(compact, int(iy), int(ix))
         fwhm = 0.5 * (fx + fy)
@@ -403,19 +414,30 @@ def locate_selected_moon(
             continue
         if planet[iy, ix]:
             continue
-        if compact[iy, ix] < _SELECT_MIN_FRACTION * smooth[iy, ix]:
-            continue  # A ripple on the glow, not a source of its own.
+        # A ripple on the glow, not a source of its own; but a moon on
+        # strong glow, clicked squarely, needs only to stand clear of it.
+        fraction = compact[iy, ix] / max(float(smooth[iy, ix]), 1e-30)
+        if fraction < _SELECT_MIN_FRACTION and not (
+                fraction >= _SELECT_SQUARE_MIN_FRACTION
+                and max(fx, fy) <= _SELECT_SQUARE_MAX_FWHM
+                and np.hypot(x0 + ix - x, y0 + iy - y) <= _SELECT_SQUARE_PX):
+            continue
         if not _selection_peak_is_compact(compact, int(iy), int(ix), x0, y0, w, h):
             continue  # A band of ring or limb glow, not a moon.
-        if best is None or compact[iy, ix] > compact[best]:
+        if fraction < _SELECT_MIN_FRACTION:
+            if close is None or compact[iy, ix] > compact[close]:
+                close = (iy, ix)
+        elif best is None or compact[iy, ix] > compact[best]:
             best = (iy, ix)
-    candidates = [] if best is None else [(x0 + int(best[1]), y0 + int(best[0]))]
+    candidates = [(x0 + int(c[1]), y0 + int(c[0])) for c in (best, close) if c is not None]
     if sensitivity is not None and max_moons > 0:
         detections, _ = _cached_detections(
             lum, sensitivity, planet_margin, max_moons, planet_floor
         )
         candidates += [(d.x, d.y) for d in detections
                        if np.hypot(d.x - x, d.y - y) <= search]
+    candidates += [(int(round(kx)), int(round(ky))) for kx, ky in known
+                   if np.hypot(kx - x, ky - y) <= search]
     if not candidates:
         return None
     return min(candidates, key=lambda c: np.hypot(c[0] - x, c[1] - y))

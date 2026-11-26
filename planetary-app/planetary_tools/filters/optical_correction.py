@@ -59,7 +59,9 @@ from scipy import ndimage, optimize
 from planetary_tools.filters.moon_enhance import (
     DEFAULT_PLANET_FLOOR,
     MoonDetection,
+    SELECT_SEARCH_PX,
     _cached_detections,
+    locate_selected_moon,
     _luminance,
 )
 
@@ -75,7 +77,10 @@ ASTIGMATISM_ENABLED = False
 DEFAULT_OPTICAL_CORRECTION_PARAMS = {
     # Pick the most suitable moon in each image.
     "auto": True,
-    # Manual moon position in image pixels; negative = none chosen.
+    # Hand-picked moons, [[x, y], ...] in image pixels, combined equally.
+    "moons": [],
+    # A single hand-picked moon, as saved before several could be picked;
+    # used only when "moons" is empty. Negative = none.
     "moon_x": -1.0,
     "moon_y": -1.0,
     # Measure each colour channel's PSF on the same moon.
@@ -116,6 +121,11 @@ _MIN_FWHM = 1.3
 # frames of a batch), else the brightest pixel within the local radius.
 _PICK_SEARCH_PX = 30.0
 _PICK_LOCAL_PX = 8
+# A hand-picked moon still where it was picked: matched this closely first,
+# so a nearby brighter moon does not take its place.
+_PICK_MATCH_PX = 6.0
+# Two picks this close are the same moon.
+_PICK_SAME_PX = 3.0
 # Stamp radius from the measured FWHM.
 _RADIUS_PER_FWHM = 2.5
 _MIN_RADIUS = 6
@@ -766,23 +776,67 @@ def locate_moon(
     return MoonChoice(float(x0 + ix), float(y0 + iy), 0.0, 0.0, False)
 
 
+def manual_moons(params: dict) -> list[tuple[float, float]]:
+    """The hand-picked moon positions in ``params``: "moons", else the single
+    moon_x/moon_y saved before several moons could be picked."""
+    picks = [(float(p[0]), float(p[1])) for p in (params.get("moons") or ())
+             if len(p) >= 2 and p[0] >= 0 and p[1] >= 0]
+    if picks:
+        return picks
+    x, y = float(params.get("moon_x", -1.0)), float(params.get("moon_y", -1.0))
+    return [(x, y)] if x >= 0 and y >= 0 else []
+
+
+def select_moon(
+    data: np.ndarray, is_grayscale: bool, x: float, y: float,
+    search: float = SELECT_SEARCH_PX,
+) -> tuple[int, int] | None:
+    """The moon a click on the image selects, as Moon Enhance's Select finds
+    it; the moons Auto would use can always be selected too."""
+    known = [(c.x, c.y) for c, _ in auto_select_moons(data, is_grayscale)]
+    return locate_selected_moon(data, is_grayscale, x, y, search, known=known)
+
+
+def follow_moon(data: np.ndarray, is_grayscale: bool, x: float, y: float) -> MoonChoice | None:
+    """The moon a hand-picked position means in this image.
+
+    Still where it was picked (the image it was picked on), it is that moon
+    even when a brighter one is near; in a batch it is followed to the
+    nearest moon within 30 px as it drifts.
+    """
+    lum = _plane(data, is_grayscale)
+    near = [d for d in _candidates(lum) if np.hypot(d.x - x, d.y - y) <= _PICK_MATCH_PX]
+    if near:
+        d = min(near, key=lambda d: np.hypot(d.x - x, d.y - y))
+        return MoonChoice(float(d.x), float(d.y), d.snr, d.fwhm, False)
+    here = locate_selected_moon(data, is_grayscale, x, y, _PICK_MATCH_PX)
+    if here is not None:
+        return MoonChoice(float(here[0]), float(here[1]), 0.0, 0.0, False)
+    return locate_moon(data, is_grayscale, x, y)
+
+
 def choose_moon(data: np.ndarray, is_grayscale: bool, params: dict) -> MoonChoice | None:
+    """Auto: the most suitable moon; manual: the first hand-picked one."""
     if params.get("auto", True):
         return auto_select_moon(data, is_grayscale)
-    x, y = float(params.get("moon_x", -1.0)), float(params.get("moon_y", -1.0))
-    if x < 0 or y < 0:
-        return None
-    return locate_moon(data, is_grayscale, x, y)
+    picks = manual_moons(params)
+    return follow_moon(data, is_grayscale, *picks[0]) if picks else None
 
 
 def choose_moons(
     data: np.ndarray, is_grayscale: bool, params: dict,
 ) -> list[tuple[MoonChoice, float]]:
-    """Auto: every suitable moon with its weight; manual: the picked moon."""
+    """Auto: every suitable moon with its weight; manual: the picked moons,
+    weighted equally."""
     if params.get("auto", True):
         return auto_select_moons(data, is_grayscale)
-    choice = choose_moon(data, is_grayscale, params)
-    return [(choice, 1.0)] if choice is not None else []
+    chosen: list[MoonChoice] = []
+    for x, y in manual_moons(params):
+        choice = follow_moon(data, is_grayscale, x, y)
+        if choice is not None and all(np.hypot(choice.x - c.x, choice.y - c.y) > _PICK_SAME_PX
+                                      for c in chosen):
+            chosen.append(choice)
+    return [(choice, 1.0) for choice in chosen]
 
 
 def measure_moons(
@@ -1054,10 +1108,12 @@ class ImagePsf:
 def measure_image_psf(
     data: np.ndarray, is_grayscale: bool, *, auto: bool = True,
     moon_x: float = -1.0, moon_y: float = -1.0, per_channel: bool = True,
+    moons=(),
 ) -> ImagePsf:
     """Measure the image's PSF on its moons; raises NoMoonError."""
     arr = np.asarray(data, dtype=np.float32)
-    moons = choose_moons(arr, is_grayscale, {"auto": auto, "moon_x": moon_x, "moon_y": moon_y})
+    moons = choose_moons(arr, is_grayscale, {"auto": auto, "moons": moons,
+                                             "moon_x": moon_x, "moon_y": moon_y})
     if not moons:
         if auto:
             raise NoMoonError("No suitable moon found for Correct Optical Aberrations.")
@@ -1083,6 +1139,7 @@ def correct_optical_aberrations(
     is_grayscale: bool,
     *,
     auto: bool = True,
+    moons=(),
     moon_x: float = -1.0,
     moon_y: float = -1.0,
     target_size: float = 100.0,
@@ -1102,7 +1159,7 @@ def correct_optical_aberrations(
     astigmatism = astigmatism and ASTIGMATISM_ENABLED
     arr = np.asarray(data, dtype=np.float32)
     if psf is None:
-        found = measure_image_psf(arr, is_grayscale, auto=auto, moon_x=moon_x,
+        found = measure_image_psf(arr, is_grayscale, auto=auto, moons=moons, moon_x=moon_x,
                                   moon_y=moon_y, per_channel=per_channel)
     else:
         found = psf if isinstance(psf, ImagePsf) else psf_from_dict(psf)

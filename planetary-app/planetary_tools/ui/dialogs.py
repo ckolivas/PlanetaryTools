@@ -3042,18 +3042,15 @@ def edit_filter_params(
         auto_box.setToolTip("Measure and combine the suitable moons again in every image.")
         form.addRow(auto_box)
         widgets["auto"] = auto_box
-        for key, label in (("moon_x", "Moon x"), ("moon_y", "Moon y")):
-            spin = QDoubleSpinBox()
-            spin.setRange(-1.0, 100000.0)
-            spin.setDecimals(1)
-            spin.setSpecialValueText("None")
-            spin.setToolTip(
-                "Chosen moon position in pixels; each image uses the moon "
-                "nearest it, within 30 px. Pick it in the Correct Optical "
-                "Aberrations panel.")
-            spin.setValue(float(params.get(key, fdef.default_params[key])))
-            form.addRow(label, spin)
-            widgets[key] = spin
+        from planetary_tools.filters.optical_correction import manual_moons
+        picks = manual_moons(params)
+        chosen = QLabel(", ".join(f"({x:.0f}, {y:.0f})" for x, y in picks) or "None")
+        chosen.setWordWrap(True)
+        chosen.setToolTip(
+            "Moon positions in pixels; each image uses the moon nearest each, "
+            "within 30 px. Pick them in the Correct Optical Aberrations panel.")
+        form.addRow("Chosen moons", chosen)
+        widgets["_chosen_moons"] = chosen
         per_channel = QCheckBox("Measure each colour channel")
         per_channel.setChecked(bool(params.get("per_channel", fdef.default_params["per_channel"])))
         form.addRow(per_channel)
@@ -3073,8 +3070,7 @@ def edit_filter_params(
         def _sync_optical_auto(checked: bool) -> None:
             saved_on = "_use_saved_psf" in widgets and widgets["_use_saved_psf"].isChecked()
             auto_box.setEnabled(not saved_on)
-            widgets["moon_x"].setEnabled(not checked and not saved_on)
-            widgets["moon_y"].setEnabled(not checked and not saved_on)
+            widgets["_chosen_moons"].setEnabled(not checked and not saved_on)
 
         if "_use_saved_psf" in widgets:
             widgets["_use_saved_psf"].toggled.connect(

@@ -444,7 +444,7 @@ Enhance shows the canvas in grey as OKLab lightness, the same view as an OKLab l
 
 ### Selecting moons
 
-While Select is pressed, click a moon on the image to choose it; click a circled moon again to remove it, or press Clear to remove them all. Shift-drag pans while selecting. If moons are close together, drag a box around the one you want. A click takes the strongest moon-sized source within about 20 pixels that stands out from the sky noise and from the glow around the planet and rings, so a faint moon just outside the rings can be chosen while the glowing band along the ring edge is passed over. A moon that the current Sensitivity, Planet margin and Max moons settings already brighten automatically can always be selected, even where the glow beneath it is too strong for these checks. If there is none, the panel says so and nothing is selected, and a click on the planet itself is ignored.
+While Select is pressed, click a moon on the image to choose it; click a circled moon again to remove it, or press Clear to remove them all. Shift-drag pans while selecting. If moons are close together, drag a box around the one you want. A click takes the strongest moon-sized source within about 20 pixels that stands out from the sky noise and from the glow around the planet and rings, so a faint moon just outside the rings can be chosen while the glowing band along the ring edge is passed over. A moon on strong glow is still found when clicked squarely, within about 6 pixels of its centre, and a moon that the current Sensitivity, Planet margin and Max moons settings already brighten automatically can always be selected. If there is none, the panel says so and nothing is selected, and a click on the planet itself is ignored.
 
 Selected moons come first: they are brightened even when they are fainter than Sensitivity allows, or within the planet margin, and they count toward Max moons, so the strongest other detections fill only the remaining places. Selecting the expected moons and setting Max moons to their number therefore brightens exactly those moons. Selections fit this image alone: they are not saved in presets or Last values, and batch steps and Current workflow do not use them.
 
@@ -893,18 +893,20 @@ Apply the correction to the raw stacked image, straight from the stacker, with a
 ### How to use
 
 1. Open the raw stack, with at least one small moon in the frame; see What it needs above.
-2. Leave Auto-select moons on, or click a moon on the image or drag a box around it. Shift-drag pans the image. The moons used are circled; the panel shows their measured size, elongation and angle, the strength of each aberration, and the moon before and after correction.
+2. The suitable moons are chosen automatically and circled. Click moons on the image to enable or disable them; see Choosing moons below. Shift-drag pans the image. The panel shows the moons' measured size, elongation and angle, the strength of each aberration, and the moon before and after correction.
 3. Leave Coma/collimation and Trefoil ticked to correct everything measured, or untick either you do not want corrected. Correcting an aberration measured below 5% is not recommended: at that strength it is hard to tell from noise and the moons' own shape, correcting it gains little, and it introduces other artefacts such as ringing.
 4. Leave Protect background on, so the sky's noise is left alone.
 5. Compare the limb and ring edges with Show difference, then sharpen as usual; Wavelet Sharpen Auto chooses suitable, usually lower, amounts for the corrected image.
 
 ### Choosing moons
 
-Auto-select combines every suitable moon: bright, compact, away from other moons, not clipped and away from the planet's glow. Combining moons measures the blur with more signal. A moon on the planet's glow is measured unreliably and its correction can leave rings around the planet, so pick one by hand only if no other moon is available. A resolved disc such as Titan, or Jupiter's large moons, is larger than the blur and would give a wrong correction; Auto avoids it when smaller moons are present.
+The panel starts by combining every suitable moon: bright, compact, away from other moons, not clipped and away from the planet's glow. Combining moons measures the blur with more signal. A moon on the planet's glow is measured unreliably and its correction can leave rings around the planet, so enable one only if no other moon is available. A resolved disc such as Titan, or Jupiter's large moons, is larger than the blur and would give a wrong correction; the automatic choice avoids it when smaller moons are present, or weights it least.
+
+Click a circled moon to disable it, or any other moon to enable it; the enabled moons are measured and combined with equal weight. A click finds a moon as Moon Enhance's Select does: the strongest moon-sized source within about 20 pixels, passing over the planet, ring glow and noise; a faint moon on strong glow is found when clicked squarely. Any moon chosen automatically can always be enabled. If moons are close together, drag a box around the one you want. If nothing is found there, the panel says so. To return to the automatic choice, close the panel and open it again.
 
 ### Aberrations that vary across the field
 
-Trefoil and collimation coma are usually the same across the frame, and the moons agree. Off-axis coma grows and turns away from the optical centre, so moons on different sides of the planet disagree and none of them shows the planet's own blur. The panel warns when the moons disagree on an aberration; untick it, or pick the moon nearest the planet.
+Trefoil and collimation coma are usually the same across the frame, and the moons agree. Off-axis coma grows and turns away from the optical centre, so moons on different sides of the planet disagree and none of them shows the planet's own blur. The panel warns when the moons disagree on an aberration; untick it, or click away all but the moon nearest the planet.
 
 Two moons close together can also look like coma: check the moons at 100% zoom when one shows a strong tail.
 
@@ -922,7 +924,7 @@ Both captures need the same telescope, camera, Barlow or focal reducer, and came
 
 For a star, slew to one close to the planet, so it is seen through a similar depth of atmosphere, without a meridian flip or touching the focuser, and capture and stack it the same way as the planet. Choose one bright enough to stand clear of the noise, and set the exposure or gain so its core is not clipped. Stack it on the star itself, with no drizzle or resizing.
 
-The panel has no presets; the PSF file is how a measurement is kept. The loaded PSF is kept with the workflow, so a batch, Current workflow or a saved .ptbatch workflow corrects every image with it. Tick Auto-select moons, or pick a moon, to measure the image's own moons again.
+The panel has no presets; the PSF file is how a measurement is kept. The loaded PSF is kept with the workflow, so a batch, Current workflow or a saved .ptbatch workflow corrects every image with it. Click a moon to measure the image's own moons again.
 
 ### Colour images
 
@@ -930,7 +932,7 @@ With Measure each colour channel enabled, red, green and blue are each corrected
 
 ### Batches
 
-With Auto-select on, each image measures its own moons; with a loaded PSF, every image uses it, and the step editor can untick it. A hand-picked moon is followed to the nearest moon within 30 pixels, so a moon drifting between frames of a series is still found. An image without a usable moon is reported as failed.
+Until a moon is clicked, each image's moons are chosen again in a batch (the step editor's Auto-select moons); with a loaded PSF, every image uses it, and the step editor can untick it. Once moons are clicked, each is followed to the nearest moon within 30 pixels, so moons drifting between frames of a series are still found; the step editor lists their positions. An image without a usable moon is reported as failed.
 
 ### Limits
 
@@ -994,7 +996,7 @@ Apply an ordered pipeline to many images and write processed copies. Batch runs 
 
 ### Current workflow
 
-Process one image interactively, then click Current workflow to repeat the same steps on the batch with the same settings. It follows Undo and Redo, so undone edits are left out. Edits without a batch filter, such as Caption, Merge Wavelet Detail or flipped rotations, are skipped and listed. PT asks before replacing existing pipeline steps. FFT Denoise, Wavelet Sharpen and Adaptive Deconvolution applied with Auto still pressed stay in Auto mode, recalculating for each image; Correct Optical Aberrations with Auto-select moons measures each image's own moons.
+Process one image interactively, then click Current workflow to repeat the same steps on the batch with the same settings. It follows Undo and Redo, so undone edits are left out. Edits without a batch filter, such as Caption, Merge Wavelet Detail or flipped rotations, are skipped and listed. PT asks before replacing existing pipeline steps. FFT Denoise, Wavelet Sharpen and Adaptive Deconvolution applied with Auto still pressed stay in Auto mode, recalculating for each image; Correct Optical Aberrations with no moon clicked chooses each image's own moons.
 
 <a id="apply-workflow-to-image"></a>
 
@@ -1139,7 +1141,7 @@ The author's normal process for one-shot colour images corrects optical aberrati
 
 ### Suggested process
 
-1. First, on the raw stack, open Correct Optical Aberrations with Auto-select moons on. It needs at least one small moon in the frame; without one, skip this step. Tick Coma/collimation and Trefoil only if each registers above 5%, and untick any that does not. If neither does, cancel and leave the image uncorrected. See [Correct Optical Aberrations](#correct-optical-aberrations).
+1. First, on the raw stack, open Correct Optical Aberrations and leave the moons it chooses. It needs at least one small moon in the frame; without one, skip this step. Tick Coma/collimation and Trefoil only if each registers above 5%, and untick any that does not. If neither does, cancel and leave the image uncorrected. See [Correct Optical Aberrations](#correct-optical-aberrations).
 2. In Wavelet Sharpen, set Target noise to 3-6 and Target contrast to 25. On one-shot colour images, tick Each RGB channel so that Auto searches each colour channel separately, unless using Luminance mode for a poorer capture (step 5). Then press Auto. Choose a noise level appropriate to the capture quality.
 3. In Adaptive Deconvolution, set Target noise 0.5-1.0 higher than the Wavelet Sharpen target, set Target contrast to 15 and press Auto. For example, a wavelet target of 4 becomes 4.5-5 for deconvolution.
 4. For images intended for WinJUPOS derotation, leave Contrast Adaptive off. For a single stack being finished as the final image, turn Contrast Adaptive on. Adaptive mode is often best saved for this finalising sharpening step.

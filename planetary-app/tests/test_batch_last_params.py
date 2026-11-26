@@ -55,6 +55,8 @@ NESTED_EDITS = {
     'colour_matrix': lambda p: {**p, 'matrix': [[1.1, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, .9]]},
     'curves': _edit_curves,
     'levels': _edit_levels,
+    # Clicked moons: their positions carry to the batch, to be followed.
+    'optical_correction': lambda p: {**p, 'auto': False, 'moons': [[30.0, 20.0]]},
 }
 
 

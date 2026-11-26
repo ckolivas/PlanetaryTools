@@ -48,6 +48,9 @@ class OpticalCorrectionDialog(_FilterDialog):
 
     # [(x, y, radius), ...] of the moons in use; empty hides the markers.
     markers_changed = pyqtSignal(object)
+    # Marker radius for a selected moon that could not be measured, and the
+    # distance within which a click removes a selected moon.
+    _MARKER_RADIUS = 12.0
 
     # Astigmatism is not offered: its correction left a worse result after
     # sharpening (see optical_correction.ASTIGMATISM_ENABLED).
@@ -71,8 +74,8 @@ class OpticalCorrectionDialog(_FilterDialog):
         # image's moons.
         self._saved: oc.ImagePsf | None = None
         self._saved_dict: dict | None = None
-        self._moon_x = -1.0
-        self._moon_y = -1.0
+        # Hand-picked moons, (x, y) in image pixels.
+        self._picks: list[tuple[float, float]] = []
         self._measurement: oc.PsfMeasurement | None = None
         self._maps = None  # protect-background maps for the measurement
         super().__init__("Correct Optical Aberrations", parent)
@@ -81,15 +84,17 @@ class OpticalCorrectionDialog(_FilterDialog):
             "corrects the aberrations they show: coma (a one-sided tail) and "
             "trefoil (three lobes). Each is "
             "measured on the moons; untick any you do not want corrected. "
-            "Auto combines every suitable moon (bright, compact, isolated, "
-            "unclipped and off the planet's glow; a resolved disc such as "
-            "Titan is avoided) and warns when they disagree, as off-axis "
-            "coma does. Or click a moon on the image or drag a box around "
-            "it; Shift-drag pans. Use it on the unsharpened stack, then "
+            "It starts with every suitable moon combined (bright, compact, "
+            "isolated, unclipped and off the planet's glow; a resolved disc "
+            "such as Titan is avoided) and warns when they disagree, as "
+            "off-axis coma does. Click moons on the image to enable or "
+            "disable them; drag a box around a moon among others; Shift-drag "
+            "pans. Use it on the unsharpened stack, then "
             "sharpen as usual (Wavelet Auto picks suitable amounts); always "
             "before Moon Enhance, denoise or clamping, which change the "
-            "moons' shape. In a batch, Auto measures every image again and a "
-            "chosen moon is followed within 30 px. For a planet with no moon "
+            "moons' shape. In a batch, the moons are chosen again in every "
+            "image until you click one; clicked moons are each followed "
+            "within 30 px. For a planet with no moon "
             "in the frame, Save PSF on a capture that has moons (or a star) "
             "and Load PSF here; both captures need the same telescope, "
             "camera, Barlow and camera angle, and neither may be resized."
@@ -97,17 +102,10 @@ class OpticalCorrectionDialog(_FilterDialog):
 
     def _build_filter_params(self) -> None:
         fdef = FILTERS[self.filter_id]
-        self.auto = QCheckBox("Auto-select moons")
-        self.auto.setChecked(bool(fdef.default_params["auto"]))
-        self.auto.setToolTip(
-            "Combine every suitable moon: bright, compact, away from other "
-            "moons, not clipped and off the planet's glow. In a batch it "
-            "chooses again for each image."
-        )
-        self.auto.toggled.connect(self._on_auto_toggled)
-        self._form.addRow(self.auto)
-
-        self.pick_hint = QLabel("Or click a moon on the image, or drag a box around it.")
+        # The suitable moons are chosen automatically until one is clicked.
+        self._auto = bool(fdef.default_params["auto"])
+        self.pick_hint = QLabel()
+        self._set_pick_hint()
         self.pick_hint.setWordWrap(True)
         self._form.addRow(self.pick_hint)
 
@@ -152,8 +150,8 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.load_psf_button = QPushButton("Load PSF…")
         self.load_psf_button.setToolTip(
             "Correct this image with a PSF saved from another capture, such "
-            "as a moon or star test, instead of its own moons. Tick Auto or "
-            "pick a moon to measure this image again.")
+            "as a moon or star test, instead of its own moons. Click a moon "
+            "to measure this image's moons again.")
         self.load_psf_button.clicked.connect(self._load_psf)
         row.addWidget(self.save_psf_button)
         row.addWidget(self.load_psf_button)
@@ -201,35 +199,52 @@ class OpticalCorrectionDialog(_FilterDialog):
     def _data(self) -> np.ndarray | None:
         return getattr(self, "_input_data", None)
 
-    def _on_auto_toggled(self, checked: bool) -> None:
-        if checked:
-            self._clear_saved()
-        if not checked and self._moon_x < 0 and self._measurement is not None:
-            # Keep the moon Auto rated best as the starting manual choice.
-            self._moon_x, self._moon_y = self._measurement.x, self._measurement.y
-        self._update_measurement()
-        self.params_changed.emit()
+    def _set_pick_hint(self, text: str = "") -> None:
+        self.pick_hint.setText(text or (
+            "Click moons on the image to enable or disable them. Drag a box "
+            "around a moon among others."))
 
     def set_picked_region(self, x: int, y: int, width: int, height: int) -> None:
-        """A canvas click (zero size) or dragged box chooses the moon."""
+        """A canvas click (zero size) or dragged box selects a moon, or
+        removes a selected one."""
         data = self._data()
         if data is None:
             return
         cx, cy = x + width/2.0, y + height/2.0
-        search = max(width, height)/2.0 + 4.0 if max(width, height) > 0 else 30.0
-        choice = oc.locate_moon(data, self._input_is_grayscale, cx, cy, search)
-        if choice is None:
-            return
-        self._moon_x, self._moon_y = round(choice.x, 1), round(choice.y, 1)
+        size = max(width, height)
+        # The first click changes the moons chosen automatically; with a
+        # saved PSF loaded it starts a new selection.
+        if self._saved is not None:
+            picks = []
+        elif self._auto:
+            measured = self._measurement.moons if self._measurement is not None else ()
+            picks = [(round(mx, 1), round(my, 1)) for mx, my, _ in measured]
+        else:
+            picks = list(self._picks)
+        hit = max(self._MARKER_RADIUS, size/2.0)
+        near = [p for p in picks if np.hypot(p[0] - cx, p[1] - cy) <= hit]
+        if near:
+            picks.remove(min(near, key=lambda p: np.hypot(p[0] - cx, p[1] - cy)))
+            self._set_pick_hint()
+        else:
+            search = size/2.0 + 4.0 if size > 0 else oc.SELECT_SEARCH_PX
+            found = oc.select_moon(data, self._input_is_grayscale, cx, cy, search)
+            if found is None:
+                self._set_pick_hint("No moon found there. Click closer to it, or "
+                                    "drag a box around it.")
+                return
+            self._set_pick_hint()
+            if any(np.hypot(p[0] - found[0], p[1] - found[1]) <= 3.0 for p in picks):
+                return
+            picks.append((float(found[0]), float(found[1])))
+        self._picks = picks
         self._clear_saved()
-        self.auto.blockSignals(True)
-        self.auto.setChecked(False)
-        self.auto.blockSignals(False)
+        self._auto = False
         self._update_measurement()
         self.params_changed.emit()
 
     def _selection_params(self) -> dict[str, Any]:
-        return {"auto": self.auto.isChecked(), "moon_x": self._moon_x, "moon_y": self._moon_y}
+        return {"auto": self._auto, "moons": [list(p) for p in self._picks]}
 
     def _aberrations(self) -> dict[str, bool]:
         return {key: box.isChecked() for key, box in self._aberration_boxes.items()}
@@ -294,9 +309,7 @@ class OpticalCorrectionDialog(_FilterDialog):
                 exc, json.JSONDecodeError) else "This is not a Planetary Tools PSF file."
             QMessageBox.warning(self, "Load PSF", f"Could not load {Path(path).name}: {message}")
             return
-        self.auto.blockSignals(True)
-        self.auto.setChecked(False)
-        self.auto.blockSignals(False)
+        self._auto = False
         self._update_measurement()
         self.params_changed.emit()
 
@@ -314,11 +327,11 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.save_psf_button.setEnabled(m is not None)
         amounts = {"coma": None, "trefoil": None}
         if m is None:
-            if not moons and self.auto.isChecked():
+            if not moons and self._auto:
                 text = ("No suitable moon found. Click a moon, drag a box "
                         "around it or load a saved PSF.")
             elif not moons:
-                text = "Click a moon on the image, drag a box around it or load a saved PSF."
+                text = "Click moons on the image, drag a box around one or load a saved PSF."
             else:
                 choice = moons[0][0]
                 text = f"No measurable moon at ({choice.x:.0f}, {choice.y:.0f})."
@@ -330,10 +343,10 @@ class OpticalCorrectionDialog(_FilterDialog):
             count = len(m.moons)
             if self._saved is not None:
                 text = oc.psf_summary(self._saved)
-            elif self.auto.isChecked():
+            elif self._auto:
                 source = f"Auto: {count} moons combined" if count > 1 else "Auto: moon"
             else:
-                source = "Moon"
+                source = f"{count} moons combined" if count > 1 else "Moon"
             if self._saved is None:
                 where = "" if count > 1 else f" at ({m.x:.0f}, {m.y:.0f})"
                 text = (f"{source}{where} — FWHM {m.fwhm_major:.1f} × {m.fwhm_minor:.1f} px, "
@@ -387,9 +400,19 @@ class OpticalCorrectionDialog(_FilterDialog):
         self.corrected_view.setPixmap(_psf_pixmap(after))
 
     def refresh_markers(self) -> None:
-        m = self._measurement
-        on_image = m is not None and self._saved is None
-        self.markers_changed.emit(list(m.moons) if on_image else [])
+        if self._saved is not None:
+            self.markers_changed.emit([])
+            return
+        measured = list(self._measurement.moons) if self._measurement is not None else []
+        if self._auto:
+            self.markers_changed.emit(measured)
+            return
+        # Every selected moon, measured or not, so each can be removed again.
+        markers = []
+        for x, y in self._picks:
+            sized = [r for mx, my, r in measured if np.hypot(mx - x, my - y) <= 3.0]
+            markers.append((x, y, sized[0] if sized else self._MARKER_RADIUS))
+        self.markers_changed.emit(markers)
 
     # --- params ---------------------------------------------------------
 
@@ -400,9 +423,11 @@ class OpticalCorrectionDialog(_FilterDialog):
     def get_params(self) -> dict[str, Any]:
         params = super().get_params()
         params.update({
-            "auto": self.auto.isChecked(),
-            "moon_x": float(self._moon_x),
-            "moon_y": float(self._moon_y),
+            "auto": self._auto,
+            "moons": [[float(x), float(y)] for x, y in self._picks],
+            # The single-moon form older workflows saved; "moons" replaces it.
+            "moon_x": -1.0,
+            "moon_y": -1.0,
             # Kept as set for colour images; greyscale ignores it.
             "per_channel": self.per_channel.isChecked(),
             "protect_background": self.protect_background.isChecked(),
@@ -414,15 +439,15 @@ class OpticalCorrectionDialog(_FilterDialog):
     def set_params(self, params: dict[str, Any]) -> None:
         super().set_params(params)
         defaults = FILTERS[self.filter_id].default_params
-        boxes = [(self.auto, "auto"), (self.per_channel, "per_channel"),
+        self._auto = bool(params.get("auto", defaults["auto"]))
+        boxes = [(self.per_channel, "per_channel"),
                  (self.protect_background, "protect_background"),
                  *((box, key) for key, box in self._aberration_boxes.items())]
         for box, key in boxes:
             box.blockSignals(True)
             box.setChecked(bool(params.get(key, defaults[key])))
             box.blockSignals(False)
-        self._moon_x = float(params.get("moon_x", -1.0))
-        self._moon_y = float(params.get("moon_y", -1.0))
+        self._picks = oc.manual_moons(params)
         try:
             self._set_saved(params.get("psf"))
         except ValueError:

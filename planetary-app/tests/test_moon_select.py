@@ -76,7 +76,8 @@ class SelectionFilterTests(Isolated):
         # Glow can be too strong for a click's own checks while detection
         # still brightens the moon; such a moon must stay selectable.
         data = field()
-        with patch.object(moon_enhance, '_SELECT_MIN_FRACTION', 1.01):
+        with patch.object(moon_enhance, '_SELECT_MIN_FRACTION', 1.01), \
+                patch.object(moon_enhance, '_SELECT_SQUARE_MIN_FRACTION', 1.01):
             click = (FAINT[0] + 4, FAINT[1] - 3)
             self.assertIsNone(locate_selected_moon(data, False, *click))
             self.assertEqual(locate_selected_moon(data, False, *click, sensitivity=8.0,
@@ -145,7 +146,8 @@ class SelectionPanelTests(Isolated):
     def test_select_uses_the_panels_detection_settings(self):
         panel = self.panel()
         panel.select.click()
-        with patch.object(moon_enhance, '_SELECT_MIN_FRACTION', 1.01):
+        with patch.object(moon_enhance, '_SELECT_MIN_FRACTION', 1.01), \
+                patch.object(moon_enhance, '_SELECT_SQUARE_MIN_FRACTION', 1.01):
             panel.set_params({**panel.reusable_params(), 'sensitivity': 8.0, 'max_moons': 1})
             panel.set_picked_region(FAINT[0] + 4, FAINT[1], 0, 0)
             self.assertEqual(panel.get_params()['selected_moons'], [])
