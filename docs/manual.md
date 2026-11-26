@@ -2,7 +2,7 @@
 
 [Project overview and downloads](../README.md) · [PDF edition](../Planetary-Tools-Manual.pdf) · [Development guide](development.md)
 
-Revised **25 November 2026**. Covers application build **d424d8f**, labelled **1.5.2**. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
+Revised **26 November 2026**. Covers application build **5b023ef**, labelled **1.5.3**. Screenshots show the Linux Qt interface; window appearance can differ on other operating systems. Screenshots of changed controls have been refreshed; unchanged tools retain their earlier illustrations.
 
 ## Contents
 
@@ -441,6 +441,8 @@ Max moons keeps at most this many detections, strongest first; it starts at 4. L
 ### Enhance
 
 Enhance shows the canvas in grey as OKLab lightness, the same view as an OKLab luminance image from Extract Components. Lightness is close to a cube root of linear light, so moons far too faint to see in the normal view stand out from the sky. It shows the preview when Preview on canvas is ticked, otherwise the original. It only changes the display, and it takes turns with Show difference.
+
+<a id="selecting-moons"></a>
 
 ### Selecting moons
 
@@ -1030,7 +1032,7 @@ Input/output directories and output-depth preferences persist; the output folder
 
 Use view controls to inspect pixels and Help to identify the running version or check for a newer published release.
 
-<img src="images/about.png" alt="About Planetary Tools showing version 1.5.2" width="400">
+<img src="images/about.png" alt="About Planetary Tools showing version 1.5.3" width="400">
 
 <img src="images/updates.png" alt="Update check displaying a network connection error" width="550">
 
@@ -1050,7 +1052,14 @@ Use view controls to inspect pixels and Help to identify the running version or 
 
 ### Manual build identification
 
-This manual covers application build d424d8f, labelled 1.5.2. Changes since the 1.5.0 manual include:
+This manual covers application build 5b023ef, labelled 1.5.3. Changes since the 1.5.2 manual include:
+
+- Edit > Copy Image and Paste Image move images through the system clipboard.
+- Clicking a pressed Auto in Wavelet Sharpen or Adaptive Deconvolution releases it and keeps the amounts it found.
+- Moon Enhance: Enhance shows the image as OKLab lightness to reveal faint moons, and Select lets you click the moons to brighten, including a faint moon beside the rings.
+- Correct Optical Aberrations: click moons on the image to enable or disable them; the Auto-select moons checkbox is gone from the panel.
+
+1.5.2 added, since the 1.5.0 manual:
 
 - Correct Optical Aberrations can save and load a PSF, so a planet without a moon can be corrected with a measurement from another capture or a nearby star. The panel no longer has presets.
 - Each RGB channel is unavailable while Luminance is ticked in Wavelet Sharpen and Adaptive Deconvolution.
@@ -1129,7 +1138,7 @@ Check crop bounds, Moon Enhance margin, sensitivity and Max moons, and tone/clam
 
 ### Source and revision
 
-Revised 25 November 2026 for application build d424d8f. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
+Revised 26 November 2026 for application build 5b023ef. The author's camera-preset and sharpening guidance is retained; examples are starting points to adjust for each capture.
 
 [Back to contents](#contents)
 
