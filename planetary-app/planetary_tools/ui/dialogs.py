@@ -1290,7 +1290,13 @@ class MoonEnhanceDialog(_FilterDialog):
                 break
         else:
             gray = bool(getattr(self, "_input_is_grayscale", False))
-            found = locate_selected_moon(data, gray, cx, cy, search)
+            params = self.get_params()
+            found = locate_selected_moon(
+                data, gray, cx, cy, search,
+                sensitivity=params["sensitivity"],
+                planet_margin=params["planet_margin"],
+                max_moons=int(params["max_moons"]),
+            )
             if found is None:
                 self._update_select_hint("No moon found there. Click closer to "
                                          "it, or drag a box around it.")

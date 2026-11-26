@@ -10,6 +10,7 @@ from planetary_tools.core.colour import rgb_to_oklab_L
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.presets import load_presets
 from planetary_tools.filters.extract_component import extract_component
+from planetary_tools.filters import moon_enhance
 from planetary_tools.filters.moon_enhance import locate_selected_moon
 from planetary_tools.filters.registry import apply_filter
 from planetary_tools.ui.dialogs import MoonEnhanceDialog
@@ -71,6 +72,21 @@ class SelectionFilterTests(Isolated):
             self.assertEqual(locate_selected_moon(data, False, *click), (220, 125))
         self.assertIsNone(locate_selected_moon(data, False, 200, 104))  # on the band
 
+    def test_click_finds_a_moon_detected_automatically(self):
+        # Glow can be too strong for a click's own checks while detection
+        # still brightens the moon; such a moon must stay selectable.
+        data = field()
+        with patch.object(moon_enhance, '_SELECT_MIN_FRACTION', 1.01):
+            click = (FAINT[0] + 4, FAINT[1] - 3)
+            self.assertIsNone(locate_selected_moon(data, False, *click))
+            self.assertEqual(locate_selected_moon(data, False, *click, sensitivity=8.0,
+                                                  max_moons=2), FAINT)
+            # Not one Max moons leaves out, nor a click far from it.
+            self.assertIsNone(locate_selected_moon(data, False, *click, sensitivity=8.0,
+                                                   max_moons=1))
+            self.assertIsNone(locate_selected_moon(data, False, 150, 185, sensitivity=8.0,
+                                                   max_moons=2))
+
     def test_selected_moon_comes_first(self):
         data = field()
 
@@ -125,6 +141,17 @@ class SelectionPanelTests(Isolated):
         panel.clear_selected.click()
         self.assertEqual((panel.get_params()['selected_moons'], markers[-1]), ([], []))
         self.assertFalse(panel.clear_selected.isEnabled())
+
+    def test_select_uses_the_panels_detection_settings(self):
+        panel = self.panel()
+        panel.select.click()
+        with patch.object(moon_enhance, '_SELECT_MIN_FRACTION', 1.01):
+            panel.set_params({**panel.reusable_params(), 'sensitivity': 8.0, 'max_moons': 1})
+            panel.set_picked_region(FAINT[0] + 4, FAINT[1], 0, 0)
+            self.assertEqual(panel.get_params()['selected_moons'], [])
+            panel.set_params({**panel.reusable_params(), 'max_moons': 2})
+            panel.set_picked_region(FAINT[0] + 4, FAINT[1], 0, 0)
+        self.assertEqual(panel.get_params()['selected_moons'], [list(FAINT)])
 
     def test_choosing_a_preset_keeps_the_selection(self):
         panel = self.panel()

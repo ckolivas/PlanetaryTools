@@ -346,6 +346,9 @@ def locate_selected_moon(
     y: float,
     search: float = SELECT_SEARCH_PX,
     planet_floor: float = DEFAULT_PLANET_FLOOR,
+    sensitivity: float | None = None,
+    planet_margin: float = 0.0,
+    max_moons: int = 0,
 ) -> tuple[int, int] | None:
     """The (x, y) peak of the moon nearest a clicked point, if there is one.
 
@@ -354,6 +357,11 @@ def locate_selected_moon(
     ``search`` that stand out from the local noise and from the glow under
     them, the strongest is taken; ring edges are elongated. ``None`` when
     there is no such peak, or it is on the planet itself.
+
+    Given ``sensitivity``, ``planet_margin`` and ``max_moons``, the moons
+    the automatic detection picks with those settings count too: a moon
+    brightened automatically can always be selected, even on glow too strong
+    for the checks above. Of all these, the one nearest the click is taken.
     """
     lum = _luminance(data, is_grayscale)
     h, w = lum.shape
@@ -401,9 +409,16 @@ def locate_selected_moon(
             continue  # A band of ring or limb glow, not a moon.
         if best is None or compact[iy, ix] > compact[best]:
             best = (iy, ix)
-    if best is None:
+    candidates = [] if best is None else [(x0 + int(best[1]), y0 + int(best[0]))]
+    if sensitivity is not None and max_moons > 0:
+        detections, _ = _cached_detections(
+            lum, sensitivity, planet_margin, max_moons, planet_floor
+        )
+        candidates += [(d.x, d.y) for d in detections
+                       if np.hypot(d.x - x, d.y - y) <= search]
+    if not candidates:
         return None
-    return x0 + int(best[1]), y0 + int(best[0])
+    return min(candidates, key=lambda c: np.hypot(c[0] - x, c[1] - y))
 
 
 def _selected_detection(
