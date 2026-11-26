@@ -65,14 +65,23 @@ class StickyAutoButtonTests(Isolated):
         panel.auto_apply.click()
         self.assertTrue(panel.auto_apply.isChecked())
         self.assertEqual((panel.get_params()['auto'], panel.fine.value()), (True, 11.0))
-        # Clicking a pressed Auto searches again and stays pressed.
+        # Clicking a pressed Auto releases it and keeps the amounts.
+        emitted = []
+        panel.params_changed.connect(lambda: emitted.append(True))
+        panel.auto_apply.click()
+        self.assertEqual((len(calls), len(emitted)), (1, 1))
+        self.assertFalse(panel.auto_apply.isChecked())
+        self.assertEqual((panel.get_params()['auto'], panel.fine.value()), (False, 11.0))
+        # Clicking it again searches again.
         panel.auto_apply.click()
         self.assertEqual(len(calls), 2)
         self.assertTrue(panel.auto_apply.isChecked())
+        panel.auto_apply.click()
         for change in (lambda: panel.fine.setValue(5.0), lambda: panel.chunky.setValue(1.0),
                        lambda: panel.luminance.toggle(), lambda: panel.target_noise.setValue(4.0),
                        lambda: panel.target_contrast.setValue(20.0)):
             panel.auto_apply.click()
+            self.assertTrue(panel.auto_apply.isChecked())
             change()
             self.assertFalse(panel.auto_apply.isChecked())
             self.assertFalse(panel.get_params()['auto'])
@@ -119,10 +128,13 @@ class StickyAutoButtonTests(Isolated):
         panel.set_input_brightness(image(), False)
         panel.auto_apply.click()
         self.assertEqual((panel.get_params()['auto'], panel.amount.value()), (True, 7.5))
+        panel.auto_apply.click()
+        self.assertEqual((panel.get_params()['auto'], panel.amount.value()), (False, 7.5))
         for change in (lambda: panel.amount.setValue(3.0), lambda: panel.adaptive.toggle(),
                        lambda: panel.luminance.toggle(), lambda: panel.target_noise.setValue(4.0),
                        lambda: panel.target_contrast.setValue(20.0)):
             panel.auto_apply.click()
+            self.assertTrue(panel.get_params()['auto'])
             change()
             self.assertFalse(panel.get_params()['auto'])
 

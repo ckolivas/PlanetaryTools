@@ -169,6 +169,12 @@ class PerChannelDialogTests(Isolated):
         panel.per_channel.setChecked(True)
         panel.auto_apply.click()
         saved = panel.get_params()
+        # Clicking the pressed Auto releases it: green's amounts apply to all.
+        panel.auto_apply.click()
+        released = panel.get_params()
+        self.assertEqual((released['auto'], released['channel_amounts'], released['fine']),
+                         (False, None, saved['fine']))
+        self.assertTrue(panel.channel_readout.isHidden())
 
         def cancel(data, **kwargs):
             kwargs['channel_started'](0)
@@ -176,8 +182,8 @@ class PerChannelDialogTests(Isolated):
         with patch.object(QProgressDialog, 'wasCanceled', return_value=True):
             panel._auto_wavelet_sharpen_channel_params = cancel
             panel.auto_apply.click()
-        self.assertEqual(panel.get_params(), saved)
-        self.assertFalse(panel.channel_readout.isHidden())
+        self.assertEqual(panel.get_params(), released)
+        self.assertFalse(panel.auto_apply.isChecked())
 
         other = self.wavelet(calls)
         other.set_params(saved)

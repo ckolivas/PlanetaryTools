@@ -296,14 +296,14 @@ Increase contrast in detail at several spatial scales. Fine affects the smallest
 
 1. Inspect the planet at 100% zoom. Increase Fine gradually, then add Medium only as needed. Use Coarse and Chunky sparingly for broader structure.
 2. Optionally enable Luminance (BT.709) to sharpen brightness detail and add that change back to RGB.
-3. For a calculated starting point, set Target noise and Target contrast, then press Auto. Compare the result with preview off. Auto stays pressed until you change a slider, option or target; accepted while pressed, it is remembered as Auto, so batch steps from Last values or Current workflow search each image.
+3. For a calculated starting point, set Target noise and Target contrast, then press Auto. Compare the result with preview off. Auto stays pressed until you change a slider, option or target, or click Auto again to release it and keep its amounts; accepted while pressed, it is remembered as Auto, so batch steps from Last values or Current workflow search each image.
 4. Check the limb, rings and small bright features before accepting. Follow with denoising if sharpening has amplified noise.
 
 ### Auto: Each RGB channel
 
 On a colour image, tick Each RGB channel before pressing Auto to search red, green and blue separately. Each channel is sharpened until it reaches the targets on its own, so a softer or noisier channel gets its own amounts. This suits channels that differ in sharpness, such as RGB composed from filtered captures. Because every channel is held to the noise target, the combined image is usually less noisy than with a shared search at the same contrast. The search takes a little longer than a shared search. The progress window names each channel as it is searched.
 
-The panel lists the amounts found for each channel below Auto, and the sliders show green's. Per-channel amounts cannot be adjusted by hand. Changing any slider, option or target releases Auto, and one set of amounts then applies to all three channels. The progress window and the option's tooltip repeat this. Each RGB channel is unavailable while Luminance (BT.709) is ticked, and Luminance does not apply while the per-channel amounts are in use. Accepted while Auto is pressed, the option carries into batch steps, which search each channel of each image.
+The panel lists the amounts found for each channel below Auto, and the sliders show green's. Per-channel amounts cannot be adjusted by hand. Changing any slider, option or target, or clicking Auto again, releases Auto, and one set of amounts then applies to all three channels. The progress window and the option's tooltip repeat this. Each RGB channel is unavailable while Luminance (BT.709) is ticked, and Luminance does not apply while the per-channel amounts are in use. Accepted while Auto is pressed, the option carries into batch steps, which search each channel of each image.
 
 ### Auto: Target noise
 
@@ -337,7 +337,7 @@ Apply a sharpening/deconvolution step with an adjustable Amount. This can be use
 
 1. Begin with a small Amount and inspect a region containing genuine detail and a bright edge.
 2. Contrast Adaptive favours stronger local contrast and is often best reserved for a finalising sharpening step. Leave it off when preparing images for WinJUPOS derotation.
-3. Optionally enable Luminance (BT.709). Use Auto with Target noise and Target contrast for an estimated amount. As in Wavelet Sharpen, Auto stays pressed until a setting is changed and, accepted while pressed, carries into batch steps. Each RGB channel works as in [Wavelet Sharpen](#wavelet-sharpen): Auto finds one amount per channel, the Amount slider shows green's, and changing any setting applies one amount to all channels. Contrast Adaptive still weights every channel by the image's overall contrast.
+3. Optionally enable Luminance (BT.709). Use Auto with Target noise and Target contrast for an estimated amount. As in Wavelet Sharpen, Auto stays pressed until a setting is changed or it is clicked again and, accepted while pressed, carries into batch steps. Each RGB channel works as in [Wavelet Sharpen](#wavelet-sharpen): Auto finds one amount per channel, the Amount slider shows green's, and changing any setting applies one amount to all channels. Contrast Adaptive still weights every channel by the image's overall contrast.
 4. Toggle preview and accept only if the added detail is useful rather than merely grainier.
 
 ### Amount and targets

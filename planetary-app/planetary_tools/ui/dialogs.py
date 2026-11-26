@@ -677,8 +677,9 @@ class _AutoSearchMixin:
 
     While pressed, ``auto`` is saved with the params, so Last values, presets
     and the Current workflow give batch steps that search each image. Editing
-    any amount, option or target releases it. Loading params with ``auto``
-    searches the current image again, like FFT Denoise's Auto.
+    any amount, option or target releases it, and so does clicking it again.
+    Loading params with ``auto`` searches the current image again, like FFT
+    Denoise's Auto.
     """
 
     _auto_selected = False
@@ -761,11 +762,19 @@ class _AutoSearchMixin:
 
     def _init_auto_button(self, controls) -> None:
         self.auto_apply.setCheckable(True)
-        # The clicked signal's checked argument would be taken as ``loaded``.
-        self.auto_apply.clicked.connect(lambda: self._run_auto_search())
+        self.auto_apply.clicked.connect(lambda _: self._auto_clicked())
         for control in controls:
             signal = control.toggled if isinstance(control, QCheckBox) else control.valueChanged
             signal.connect(lambda *_: self._set_auto_selected(False))
+
+    def _auto_clicked(self) -> None:
+        """A pressed Auto, its result unaltered, releases; otherwise search."""
+        if self._auto_selected:
+            # The amounts stay; per-channel ones give way to the shared set.
+            self._set_auto_selected(False)
+            self.params_changed.emit()
+        else:
+            self._run_auto_search()
 
     def _set_auto_selected(self, selected: bool) -> None:
         self._auto_selected = selected
@@ -833,8 +842,8 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
         self.auto_apply = QPushButton("Auto")
         self.auto_apply.setToolTip(
             "Search fine/medium/coarse to meet the target noise and contrast "
-            "without exceeding either. Stays pressed until a setting is changed; "
-            "while pressed, batch steps search each image."
+            "without exceeding either. Stays pressed until a setting is changed "
+            "or it is clicked again; while pressed, batch steps search each image."
         )
         auto_layout.addWidget(self.auto_apply)
         auto_layout.addStretch(1)
@@ -887,8 +896,7 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
     def _run_auto_search(self, loaded: bool = False) -> None:
         # Clicking toggled the button; it is pressed only by a completed search.
         # Loaded amounts came from another image, so a cancel releases Auto.
-        prior_auto = self._auto_selected and not loaded
-        self._set_auto_selected(prior_auto)
+        self._set_auto_selected(False)
         if self._auto_running:
             return
         data = getattr(self, "_input_data", None)
@@ -904,7 +912,6 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
         )
 
         per_channel = self._per_channel_active()
-        prior_results = self._channel_results
         progress_dlg = QProgressDialog(
             self._progress_label(0 if per_channel else None), "Cancel", 0, 0, self,
         )
@@ -964,7 +971,6 @@ class WaveletSharpenDialog(_AutoSearchMixin, _FilterDialog):
                 self._channel_results = None
         except _Cancelled:
             self._set_amount_spins(*prior)
-            self._channel_results = prior_results if self._auto_selected else None
         finally:
             self._auto_running = False
             self.auto_apply.setEnabled(True)
@@ -1311,8 +1317,8 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
         self.auto_apply = QPushButton("Auto")
         self.auto_apply.setToolTip(
             "Binary-search amount to meet the target noise and contrast "
-            "without exceeding either. Stays pressed until a setting is changed; "
-            "while pressed, batch steps search each image."
+            "without exceeding either. Stays pressed until a setting is changed "
+            "or it is clicked again; while pressed, batch steps search each image."
         )
         auto_layout.addWidget(self.auto_apply)
         auto_layout.addStretch(1)
@@ -1356,8 +1362,7 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
     def _run_auto_search(self, loaded: bool = False) -> None:
         # Clicking toggled the button; it is pressed only by a completed search.
         # Loaded amounts came from another image, so a cancel releases Auto.
-        prior_auto = self._auto_selected and not loaded
-        self._set_auto_selected(prior_auto)
+        self._set_auto_selected(False)
         if self._auto_running:
             return
         data = getattr(self, "_input_data", None)
@@ -1366,7 +1371,6 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
         is_grayscale = bool(getattr(self, "_input_is_grayscale", False))
         prior = self.amount.value()
         per_channel = self._per_channel_active()
-        prior_results = self._channel_results
 
         progress_dlg = QProgressDialog(
             self._progress_label(0 if per_channel else None), "Cancel", 0, 0, self,
@@ -1418,7 +1422,6 @@ class AdaptiveDeconvDialog(_AutoSearchMixin, _FilterDialog):
                 self._channel_results = None
         except _Cancelled:
             self._set_amount_spin(prior)
-            self._channel_results = prior_results if self._auto_selected else None
         finally:
             self._auto_running = False
             self.auto_apply.setEnabled(True)
