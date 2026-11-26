@@ -208,6 +208,7 @@ class MoonEnhanceDef(FilterDef):
             int(params.get("max_moons", 4)),
             retain_relative_brightness=params.get("retain_relative_brightness", False),
             pseudo_relative_brightness=params.get("pseudo_relative_brightness", False),
+            selected_moons=params.get("selected_moons") or (),
         )
 
 

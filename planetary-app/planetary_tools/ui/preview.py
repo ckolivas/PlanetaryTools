@@ -8,7 +8,7 @@ from typing import Callable
 import numpy as np
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
-from planetary_tools.core.colour import linear_to_srgb
+from planetary_tools.core.colour import linear_to_srgb, rgb_to_oklab_L
 from planetary_tools.filters.registry import FilterOutputStats
 
 
@@ -237,3 +237,18 @@ def difference_display_rgb(original_srgb: np.ndarray, modified: np.ndarray) -> n
     if rgb.shape[2] == 1:
         rgb = np.repeat(rgb, 3, axis=2)
     return np.ascontiguousarray(rgb[..., :3])
+
+
+def luminance_display_rgb(data: np.ndarray) -> np.ndarray:
+    """8-bit grey OKLab L of a linear image, shown as is: L 1 is white.
+
+    L is close to a cube root of linear light, so faint moons and sky detail
+    show far brighter than in the sRGB display. Display only.
+    """
+    arr = np.clip(np.asarray(data, dtype=np.float32), 0.0, 1.0)
+    if arr.ndim == 2:
+        arr = arr[..., None]
+    if arr.shape[2] != 3:
+        arr = np.repeat(arr[..., :1], 3, axis=2)
+    grey = (np.clip(rgb_to_oklab_L(arr), 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+    return np.ascontiguousarray(np.repeat(grey[..., None], 3, axis=2))

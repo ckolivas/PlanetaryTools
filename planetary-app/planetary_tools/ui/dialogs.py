@@ -193,11 +193,16 @@ class _FilterDialog(QWidget):
     preview_now = pyqtSignal()
     preview_toggled = pyqtSignal(bool)
     difference_toggled = pyqtSignal(bool)
+    # Any other change to how the canvas shows the preview.
+    view_changed = pyqtSignal()
     accepted = pyqtSignal()
     rejected = pyqtSignal()
 
     filter_id: str = ""
     supports_presets: bool = False
+    # Params that belong to this image alone, such as clicked positions: left
+    # out of presets, Last values and batch steps.
+    image_specific_params: tuple[str, ...] = ()
     supports_clamp: bool = False
     supports_channel_readouts: bool = False
     supports_difference: bool = False
@@ -359,6 +364,17 @@ class _FilterDialog(QWidget):
         # room, and the dock is sized to the dialog's hint when shown.
         self.setMinimumWidth(FILTER_PANEL_WIDTH)
 
+    def reusable_params(self) -> dict[str, Any]:
+        """Params for presets, Last values and batch steps."""
+        params = self.get_params()
+        for key in self.image_specific_params:
+            params.pop(key, None)
+        return params
+
+    def luminance_view_shown(self) -> bool:
+        """True when the canvas should show the preview's OKLab L."""
+        return False
+
     def difference_shown(self) -> bool:
         """True when the canvas should show the preview difference."""
         return (self.show_difference is not None and self.preview.isChecked()
@@ -436,7 +452,7 @@ class _FilterDialog(QWidget):
             QMessageBox.warning(self, "Save Preset", f'"{name}" is a reserved preset name.')
             return
         is_new = name not in self._presets
-        self._presets[name] = self.get_params()
+        self._presets[name] = self.reusable_params()
         save_presets(self.filter_id, self._presets)
         if is_new:
             self._preset_combo.addItem(name)
@@ -458,12 +474,12 @@ class _FilterDialog(QWidget):
         if not self.filter_id:
             return
         if self.supports_presets:
-            self._presets["Last"] = self.get_params()
+            self._presets["Last"] = self.reusable_params()
             save_presets(self.filter_id, self._presets)
         elif FILTERS[self.filter_id].batch_enabled:
             # No preset menu, but batch steps still start from the last values.
             fdef = FILTERS[self.filter_id]
-            save_last_params(self.filter_id, fdef.default_params, self.get_params())
+            save_last_params(self.filter_id, fdef.default_params, self.reusable_params())
 
     def set_input_brightness(
         self,
@@ -1068,9 +1084,21 @@ class MoonEnhanceDialog(_FilterDialog):
     filter_id = "moon_enhance"
     supports_presets = True
     supports_difference = True
+    # MainWindow connects canvas clicks and the moon markers; clicks pick
+    # moons only while Select is pressed.
+    picks_canvas_region = True
+    markers_changed = pyqtSignal(object)
+    region_pick_toggled = pyqtSignal(bool)
+    # Clicked positions fit this image only.
+    image_specific_params = ("selected_moons",)
+    # Radius of the circle marking a selected moon, in image pixels.
+    _MARKER_RADIUS = 12.0
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        self._selected_moons: list[tuple[int, int]] = []
         super().__init__("Moon Enhance", parent)
+        # Enhance and Show difference are two views of the preview; one at a time.
+        self.show_difference.toggled.connect(self._on_difference_toggled)
         self.set_help_text(
             "Detects faint moons outside the planet's disk and ring envelope "
             "and brightens them toward the target brightness. Enable Retain "
@@ -1080,7 +1108,9 @@ class MoonEnhanceDialog(_FilterDialog):
             "order. The planet and "
             "empty sky are left untouched. Detection re-runs when Sensitivity, "
             "Planet margin, or Max moons change; brightness, relative "
-            "brightness, and Radius scale update instantly."
+            "brightness, and Radius scale update instantly. Enhance shows "
+            "OKLab lightness so faint moons stand out; with Select pressed, "
+            "click a moon to brighten it first, even if it is not detected."
         )
 
     def _build_filter_params(self) -> None:
@@ -1172,6 +1202,119 @@ class MoonEnhanceDialog(_FilterDialog):
             "Confirm the expected moons with an ephemerides tool, such as WinJUPOS."
         )
 
+        view_row = QWidget()
+        view_layout = QHBoxLayout(view_row)
+        view_layout.setContentsMargins(0, 0, 0, 0)
+        self.select = QPushButton("Select")
+        self.select.setCheckable(True)
+        self.select.setToolTip(
+            "While pressed, click a moon on the image to keep it first, even "
+            "if it is too faint or close to the planet to be detected; click "
+            "it again to remove it. Selected moons count toward Max moons and "
+            "apply to this image only, not to presets or batch steps."
+        )
+        self.select.toggled.connect(self._on_select_toggled)
+        self.clear_selected = QPushButton("Clear")
+        self.clear_selected.setToolTip("Remove every selected moon.")
+        self.clear_selected.setEnabled(False)
+        self.clear_selected.clicked.connect(self._clear_selected_moons)
+        self.enhance = QPushButton("Enhance")
+        self.enhance.setCheckable(True)
+        self.enhance.setToolTip(
+            "Show the image as its OKLab lightness, in grey, so faint moons "
+            "stand out from the sky. Display only; never saved to the image."
+        )
+        self.enhance.toggled.connect(self._on_enhance_toggled)
+        view_layout.addWidget(self.select)
+        view_layout.addWidget(self.clear_selected)
+        view_layout.addStretch(1)
+        view_layout.addWidget(self.enhance)
+        self._form.addRow(view_row)
+        self.select_hint = QLabel()
+        self.select_hint.setWordWrap(True)
+        self.select_hint.setVisible(False)
+        self._form.addRow(self.select_hint)
+        self._update_select_hint()
+
+    # --- views and moon selection ---------------------------------------
+
+    def luminance_view_shown(self) -> bool:
+        return self.enhance.isChecked()
+
+    def _on_enhance_toggled(self, checked: bool) -> None:
+        if checked and self.show_difference.isChecked():
+            self.show_difference.setChecked(False)
+        self.view_changed.emit()
+
+    def _on_difference_toggled(self, checked: bool) -> None:
+        if checked and self.enhance.isChecked():
+            self.enhance.blockSignals(True)
+            self.enhance.setChecked(False)
+            self.enhance.blockSignals(False)
+            self.view_changed.emit()
+
+    def region_pick_active(self) -> bool:
+        return self.select.isChecked()
+
+    def _on_select_toggled(self, checked: bool) -> None:
+        self._update_select_hint()
+        self.region_pick_toggled.emit(checked)
+
+    def _update_select_hint(self, text: str = "") -> None:
+        count = len(self._selected_moons)
+        if not text:
+            text = ("Click a moon on the image; click a selected moon to "
+                    "remove it. Shift-drag pans.")
+            if count:
+                text += f" Selected: {count}."
+        self.select_hint.setText(text)
+        self.select_hint.setVisible(self.select.isChecked())
+        self.clear_selected.setEnabled(bool(count))
+
+    def set_picked_region(self, x: int, y: int, width: int, height: int) -> None:
+        """A canvas click (zero size) or dragged box selects or removes a moon."""
+        data = getattr(self, "_input_data", None)
+        if data is None or not self.select.isChecked():
+            return
+        from planetary_tools.filters.moon_enhance import (
+            SELECT_SEARCH_PX,
+            locate_selected_moon,
+        )
+
+        cx, cy = x + width / 2.0, y + height / 2.0
+        size = max(width, height)
+        search = size / 2.0 + 4.0 if size > 0 else SELECT_SEARCH_PX
+        for moon in self._selected_moons:
+            if np.hypot(moon[0] - cx, moon[1] - cy) <= max(self._MARKER_RADIUS, size / 2.0):
+                self._selected_moons.remove(moon)
+                break
+        else:
+            gray = bool(getattr(self, "_input_is_grayscale", False))
+            found = locate_selected_moon(data, gray, cx, cy, search)
+            if found is None:
+                self._update_select_hint("No moon found there. Click closer to "
+                                         "it, or drag a box around it.")
+                return
+            if found in self._selected_moons:
+                return
+            self._selected_moons.append(found)
+        self._selected_moons_changed()
+
+    def _clear_selected_moons(self) -> None:
+        if self._selected_moons:
+            self._selected_moons = []
+            self._selected_moons_changed()
+
+    def _selected_moons_changed(self) -> None:
+        self._update_select_hint()
+        self.refresh_markers()
+        # Not a preset edit: selections are kept out of presets.
+        self._emit_params_changed_quietly()
+
+    def refresh_markers(self) -> None:
+        self.markers_changed.emit(
+            [(x, y, self._MARKER_RADIUS) for x, y in self._selected_moons])
+
     def _on_relative_toggled(self, checked: bool) -> None:
         self.pseudo_relative_brightness.setEnabled(checked)
         if not checked:
@@ -1208,11 +1351,18 @@ class MoonEnhanceDialog(_FilterDialog):
                 0.0 if self.margin_auto.isChecked() else self.planet_margin.value()
             ),
             "max_moons": int(self.max_moons.value()),
+            "selected_moons": [list(moon) for moon in self._selected_moons],
         })
         return p
 
     def set_params(self, params: dict[str, Any]) -> None:
         super().set_params(params)
+        # Presets have no selections, so choosing one keeps the clicked moons.
+        if "selected_moons" in params:
+            self._selected_moons = [
+                (int(x), int(y)) for x, y in params.get("selected_moons") or ()]
+            self._update_select_hint()
+            self.refresh_markers()
         spins = (
             (self.brightness, "brightness"),
             (self.sensitivity, "sensitivity"),

@@ -92,6 +92,7 @@ from planetary_tools.ui.dialogs import (
 )
 from planetary_tools.ui.preview import (
     PreviewController, array_to_display_rgb, difference_display_rgb, display_srgb,
+    luminance_display_rgb,
 )
 from planetary_tools.ui.crop_dialog import CropImageDialog
 from planetary_tools.ui.rotate_dialog import RotateImageDialog
@@ -791,6 +792,9 @@ class MainWindow(QMainWindow):
         if self._preview.is_active:
             data = self._preview.display_data()
             rgb = self._difference_rgb(data)
+            dlg = self._active_filter_dlg
+            if rgb is None and data is not None and dlg is not None and dlg.luminance_view_shown():
+                rgb = luminance_display_rgb(data)
             if rgb is not None:
                 self._canvas.show_rgb_uint8(rgb)
                 return
@@ -1247,13 +1251,18 @@ class MainWindow(QMainWindow):
             dlg.preview_now.connect(self._preview.update_now)
             dlg.preview_toggled.connect(self._preview.set_preview_enabled)
             dlg.difference_toggled.connect(self._refresh_canvas_display)
+            dlg.view_changed.connect(self._refresh_canvas_display)
             self._preview.preview_updated.connect(self._update_dialog_brightness)
             self._filter_dock.closed.connect(self._on_filter_dock_closed)
             picks_region = bool(getattr(dlg, "picks_canvas_region", False))
             if picks_region:
                 self._canvas.region_picked.connect(dlg.set_picked_region)
                 dlg.markers_changed.connect(self._canvas.set_markers)
-                self._canvas.set_region_pick_enabled(True)
+                # A dialog with region_pick_active picks only while it says so.
+                active = getattr(dlg, "region_pick_active", None)
+                self._canvas.set_region_pick_enabled(active() if active else True)
+                if active:
+                    dlg.region_pick_toggled.connect(self._canvas.set_region_pick_enabled)
                 dlg.refresh_markers()
 
             def on_accept() -> None:
@@ -1281,18 +1290,21 @@ class MainWindow(QMainWindow):
             dlg.preview_now.disconnect(self._preview.update_now)
             dlg.preview_toggled.disconnect(self._preview.set_preview_enabled)
             dlg.difference_toggled.disconnect(self._refresh_canvas_display)
+            dlg.view_changed.disconnect(self._refresh_canvas_display)
             self._preview.preview_updated.disconnect(self._update_dialog_brightness)
             self._filter_dock.closed.disconnect(self._on_filter_dock_closed)
             if picks_region:
                 self._canvas.region_picked.disconnect(dlg.set_picked_region)
                 dlg.markers_changed.disconnect(self._canvas.set_markers)
+                if hasattr(dlg, "region_pick_active"):
+                    dlg.region_pick_toggled.disconnect(self._canvas.set_region_pick_enabled)
             dlg.accepted.disconnect(on_accept)
             dlg.rejected.disconnect(on_reject)
             self._active_filter_dlg = None
 
             if self._filter_accepted:
                 dlg.save_last_preset()
-                operation = self._applied_operation(label, dlg.filter_id, dlg.get_params())
+                operation = self._applied_operation(label, dlg.filter_id, dlg.reusable_params())
                 result = self._preview.finish(apply=True)
                 if result is not None:
                     as_gray = bool(getattr(dlg, "result_is_grayscale", False))

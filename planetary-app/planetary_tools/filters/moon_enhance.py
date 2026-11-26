@@ -32,6 +32,11 @@ luminance ~1e-4..1e-3 vs planet peak ~0.33):
    Pseudo-relative mode compresses peak ratios with a square root so faint
    moons receive more gain while keeping the brightness ordering.
 
+Selected moons (positions the user clicked, snapped to the local peak by
+``locate_selected_moon``) come first and are always kept, even when below
+Sensitivity, rejected by shape or inside the exclusion zone; the remaining
+``max_moons`` places go to the strongest detections.
+
 Detection (steps 1-3, ~2.5 s at 1600×3088) is cached on an image fingerprint +
 detection params so brightness-only preview updates are instant.
 """
@@ -89,6 +94,21 @@ _BORDER_PX = int(np.ceil(3.5 * _RESIDUAL_SMOOTH_SIGMA))
 # Compact moons (FWHM ~4–7 px on 3moons.png / 4moons.png) still pass.
 _GLOW_HUG_PX = 8.0
 _GLOW_HUG_MIN_FWHM = 10.0
+# A selected point within this distance of a detection is that detection.
+_SELECT_MATCH_PX = 8.0
+# A click searches this far for the moon it means, in image pixels.
+SELECT_SEARCH_PX = 20.0
+# Opening removes structure narrower than this when locating a clicked moon,
+# leaving the broad planet glow; most moons are far narrower.
+_SELECT_OPEN_SIZE = 31
+# A clicked peak must stand this far above the local noise of the glow-free
+# map; low, as a selected moon may be too faint for the detector...
+_SELECT_MIN_SNR = 5.0
+# ...and make up this much of its own brightness. Moons on the sample images
+# are 0.5-1.0 of it; sky noise 0.25-0.33 and glow knots near the rings ~0.06.
+_SELECT_MIN_FRACTION = 0.4
+# A moon that moved during a derotated stack is trailed (14×6 px on 2moons.png).
+_SELECT_MAX_ELONGATION = 3.0
 _FWHM_TO_SIGMA = 1.0 / 2.355
 _MIN_MASK_SIGMA = 1.0
 
@@ -267,6 +287,91 @@ def _measure_fwhm(residual: np.ndarray, y: int, x: int) -> tuple[float, float]:
     return fx, fy
 
 
+def locate_selected_moon(
+    data: np.ndarray,
+    is_grayscale: bool,
+    x: float,
+    y: float,
+    search: float = SELECT_SEARCH_PX,
+    planet_floor: float = DEFAULT_PLANET_FLOOR,
+) -> tuple[int, int] | None:
+    """The (x, y) peak of the moon nearest a clicked point, if there is one.
+
+    Broad glow is removed first, so a click beside the planet does not find
+    the brighter glow toward the limb. Of the moon-sized peaks within
+    ``search`` that stand out from the local noise and from the glow under
+    them, the strongest is taken; ring edges are elongated. ``None`` when
+    there is no such peak, or it is on the planet itself.
+    """
+    lum = _luminance(data, is_grayscale)
+    h, w = lum.shape
+    cx, cy = int(round(x)), int(round(y))
+    if not (0 <= cx < w and 0 <= cy < h):
+        return None
+    reach = int(np.ceil(search)) + _SELECT_OPEN_SIZE
+    y0, x0 = max(0, cy - reach), max(0, cx - reach)
+    window = lum[y0 : min(h, cy + reach + 1), x0 : min(w, cx + reach + 1)]
+    smooth = ndimage.gaussian_filter(window, _RESIDUAL_SMOOTH_SIGMA)
+    compact = smooth - ndimage.grey_opening(smooth, size=_SELECT_OPEN_SIZE)
+    noise = 1.4826 * float(np.median(np.abs(compact - np.median(compact))))
+    floor = max(_SELECT_MIN_SNR * noise, _SIGMA_FLOOR_FRAC * float(lum.max()))
+    yy, xx = np.ogrid[y0 : y0 + window.shape[0], x0 : x0 + window.shape[1]]
+    near = (yy - cy) ** 2 + (xx - cx) ** 2 <= search ** 2
+    peaks = (compact == ndimage.maximum_filter(compact, size=5)) & near & (compact > floor)
+    # The planet's own pieces, as the detector finds them: a bright moon can
+    # pass the seed threshold without being part of the planet.
+    planet = _planet_seed(lum, planet_floor)[0][y0 : y0 + window.shape[0],
+                                                x0 : x0 + window.shape[1]]
+    best = None
+    for iy, ix in zip(*np.nonzero(peaks)):
+        fx, fy = _measure_fwhm(compact, int(iy), int(ix))
+        fwhm = 0.5 * (fx + fy)
+        if not (_FWHM_MIN <= fwhm <= _FWHM_MAX):
+            continue
+        if max(fx, fy) > _SELECT_MAX_ELONGATION * max(min(fx, fy), 1.0):
+            continue
+        if planet[iy, ix]:
+            continue
+        if compact[iy, ix] < _SELECT_MIN_FRACTION * smooth[iy, ix]:
+            continue  # A ripple on the glow, not a source of its own.
+        if best is None or compact[iy, ix] > compact[best]:
+            best = (iy, ix)
+    if best is None:
+        return None
+    return x0 + int(best[1]), y0 + int(best[0])
+
+
+def _selected_detection(
+    lum: np.ndarray,
+    smooth: np.ndarray,
+    snr: np.ndarray,
+    exclusion: np.ndarray,
+    detections: list[MoonDetection],
+    x: float,
+    y: float,
+    planet: np.ndarray,
+) -> MoonDetection | None:
+    """The detection at a selected point, or one measured there if none."""
+    h, w = lum.shape
+    ix, iy = int(round(x)), int(round(y))
+    if not (0 <= ix < w and 0 <= iy < h):
+        return None
+    near = [d for d in detections if np.hypot(d.x - x, d.y - y) <= _SELECT_MATCH_PX]
+    if near:
+        return min(near, key=lambda d: np.hypot(d.x - x, d.y - y))
+    if planet[iy, ix]:
+        return None  # On the planet, not beside it.
+    if exclusion[iy, ix]:
+        fx, fy = _measure_compact_fwhm(lum, iy, ix)
+    else:
+        fx, fy = _measure_fwhm(smooth, iy, ix)
+    fwhm = float(np.clip(0.5 * (fx + fy), _FWHM_MIN, _FWHM_MAX))
+    y0, y1 = max(0, iy - 2), min(h, iy + 3)
+    x0, x1 = max(0, ix - 2), min(w, ix + 3)
+    return MoonDetection(y=iy, x=ix, snr=float(snr[iy, ix]),
+                         peak_l=float(lum[y0:y1, x0:x1].max()), fwhm=fwhm)
+
+
 def detect_moons(
     lum: np.ndarray,
     *,
@@ -274,15 +379,20 @@ def detect_moons(
     planet_margin: float,
     max_moons: int,
     planet_floor: float = DEFAULT_PLANET_FLOOR,
+    selected: tuple[tuple[float, float], ...] = (),
 ) -> tuple[list[MoonDetection], np.ndarray]:
     """Detect compact faint sources outside the planet exclusion zone.
+
+    ``selected`` (x, y) points are moons the user chose: they come first and
+    are kept whatever their strength or place, the strongest detections
+    filling the remaining ``max_moons`` places.
 
     Returns the detections and the boolean exclusion zone, inside which the
     filter must leave pixels bit-identical.
     """
     h, w = lum.shape
     exclusion, fringe = _exclusion_zones(lum, planet_floor, planet_margin)
-    if bool((exclusion & ~fringe).all()):
+    if bool((exclusion & ~fringe).all()) and not selected:
         return [], exclusion
     # Distance outside the exclusion: glow knots peak on this rim.
     outside = ndimage.distance_transform_edt(~exclusion)
@@ -340,11 +450,19 @@ def detect_moons(
         detections.append(
             MoonDetection(y=y, x=x, snr=float(snr[y, x]), peak_l=peak_l, fwhm=fwhm)
         )
-    detections.sort(key=lambda d: d.snr, reverse=True)
-    detections = detections[: max(0, int(max_moons))]
-    # Open the exclusion only over each kept fringe moon's own disk, so the
-    # surrounding glow stays bit-identical.
-    carved = [d for d in detections if fringe[d.y, d.x]]
+    chosen: list[MoonDetection] = []
+    planet = _planet_seed(lum, planet_floor)[0] if selected else None
+    for x, y in selected:
+        d = _selected_detection(lum, smooth, snr, exclusion, detections,
+                                float(x), float(y), planet)
+        if d is not None and d not in chosen:
+            chosen.append(d)
+    rest = sorted((d for d in detections if d not in chosen),
+                  key=lambda d: d.snr, reverse=True)
+    detections = chosen + rest[: max(0, int(max_moons) - len(chosen))]
+    # Open the exclusion only over each kept fringe or selected moon's own
+    # disk, so the surrounding glow stays bit-identical.
+    carved = [d for d in detections if exclusion[d.y, d.x]]
     if carved:
         exclusion = exclusion.copy()
         for d in carved:
@@ -375,6 +493,7 @@ def _cached_detections(
     planet_margin: float,
     max_moons: int,
     planet_floor: float,
+    selected: tuple[tuple[float, float], ...] = (),
 ) -> tuple[list[MoonDetection], np.ndarray]:
     key = (
         _fingerprint(lum),
@@ -382,6 +501,7 @@ def _cached_detections(
         round(float(planet_margin), 4),
         int(max_moons),
         round(float(planet_floor), 6),
+        selected,
     )
     hit = _DETECT_CACHE.get(key)
     if hit is not None:
@@ -392,6 +512,7 @@ def _cached_detections(
         planet_margin=planet_margin,
         max_moons=max_moons,
         planet_floor=planet_floor,
+        selected=selected,
     )
     while len(_DETECT_CACHE) >= _DETECT_CACHE_MAX:
         _DETECT_CACHE.pop(next(iter(_DETECT_CACHE)))
@@ -446,8 +567,12 @@ def moon_enhance(
     max_gain: float = DEFAULT_MAX_GAIN,
     retain_relative_brightness: bool = False,
     pseudo_relative_brightness: bool = False,
+    selected_moons=(),
 ) -> np.ndarray:
     """Brighten detected moons toward ``brightness_pct`` of full scale.
+
+    ``selected_moons`` are (x, y) points of moons to keep first; see
+    ``detect_moons``.
 
     With ``retain_relative_brightness``, set a common gain from the brightest
     detected moon, preserving relative peak luminance. Otherwise each moon has
@@ -457,8 +582,9 @@ def moon_enhance(
     """
     arr = np.asarray(data, dtype=np.float32)
     lum = _luminance(arr, is_grayscale)
+    selected = tuple((float(x), float(y)) for x, y in (selected_moons or ()))
     detections, exclusion = _cached_detections(
-        lum, sensitivity, planet_margin, max_moons, planet_floor
+        lum, sensitivity, planet_margin, max_moons, planet_floor, selected
     )
     target_l = float(brightness_pct) / 100.0
     if not detections or target_l <= 0.0:

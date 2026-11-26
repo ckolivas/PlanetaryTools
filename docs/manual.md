@@ -432,10 +432,21 @@ Find and brighten compact moons outside the planet and ring protection area whil
 2. Set Max moons to the number of moons expected in the frame; see Max moons below. Adjust Sensitivity to detect the desired moons. Lower values admit fainter candidates but also more noise.
 3. Set Max moon brightness. Enable Retain relative brightness to apply a common boost based on the brightest detected moon. With that enabled, Pseudo-relative brightness gives faint moons a stronger lift while keeping their brightness order: a moon at 1% of the brightest moon targets 10% instead. The maximum gain still limits very faint sources. Leave this off for strict brightness ratios.
 4. Adjust Radius scale if the brightening footprint is too tight or too broad, then compare the result at 100% zoom. Show difference highlights exactly which spots were brightened.
+5. If a moon is missed, or a false detection is brightened instead, press Enhance to see faint moons, then press Select and click the moon; see [Selecting moons](#selecting-moons).
 
 ### Max moons
 
-Max moons keeps at most this many detections, strongest first; it starts at 4. Limit it to the number of moons you expect in the frame rather than leaving it high: any extra detections are noise, hot pixels or glow and will be brightened as if they were moons. Confirm which moons are present before choosing the number, using a tool such as WinJUPOS for the capture time and/or a temporary Levels adjustment. In Levels, disable Clamp to 100%, lower Input maximum or raise Gamma until faint moons become visible, note their positions, then Cancel. If a real moon is missing while Max moons matches the expected count, a stronger false detection may have displaced it; raise Sensitivity or adjust the planet margin.
+Max moons keeps at most this many detections, strongest first; it starts at 4. Limit it to the number of moons you expect in the frame rather than leaving it high: any extra detections are noise, hot pixels or glow and will be brightened as if they were moons. Confirm which moons are present before choosing the number, using a tool such as WinJUPOS for the capture time, or press Enhance to show faint moons on the image. If a real moon is missing while Max moons matches the expected count, a stronger false detection may have displaced it; select the moon, raise Sensitivity or adjust the planet margin.
+
+### Enhance
+
+Enhance shows the canvas in grey as OKLab lightness, which is close to a cube root of linear light, so moons far too faint to see in the normal view stand out from the sky. It shows the preview when Preview on canvas is ticked, otherwise the original. It only changes the display, and it takes turns with Show difference.
+
+### Selecting moons
+
+While Select is pressed, click a moon on the image to choose it; click a circled moon again to remove it, or press Clear to remove them all. Shift-drag pans while selecting. If moons are close together, drag a box around the one you want. A click takes the strongest moon-sized source within about 20 pixels that stands out from the sky and the planet's glow. If there is none, the panel says so and nothing is selected, and a click on the planet itself is ignored.
+
+Selected moons come first: they are brightened even when they are fainter than Sensitivity allows, or within the planet margin, and they count toward Max moons, so the strongest other detections fill only the remaining places. Selecting the expected moons and setting Max moons to their number therefore brightens exactly those moons. Selections fit this image alone: they are not saved in presets or Last values, and batch steps and Current workflow do not use them.
 
 ### Relative brightness
 

@@ -117,7 +117,8 @@ class BatchLastParamsTests(unittest.TestCase):
                                 changed = key
                                 break
                 self.assertIsNotNone(changed, f'No editable numeric parameter found for {fid}')
-                applied = panel.get_params()
+                # Image-specific params, such as clicked moons, stay behind.
+                applied = panel.reusable_params()
                 self.assertNotEqual(applied, FILTERS[fid].default_params)
                 panel.save_last_preset()
                 step = self.batch_step_params(fid)
