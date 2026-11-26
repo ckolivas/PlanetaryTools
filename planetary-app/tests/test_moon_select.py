@@ -9,11 +9,12 @@ from PyQt6.QtCore import QTimer
 from planetary_tools.core.colour import rgb_to_oklab_L
 from planetary_tools.core.document import ImageDocument
 from planetary_tools.core.presets import load_presets
+from planetary_tools.filters.extract_component import extract_component
 from planetary_tools.filters.moon_enhance import locate_selected_moon
 from planetary_tools.filters.registry import apply_filter
 from planetary_tools.ui.dialogs import MoonEnhanceDialog
 from planetary_tools.ui.main_window import MainWindow
-from planetary_tools.ui.preview import luminance_display_rgb
+from planetary_tools.ui.preview import array_to_display_rgb, luminance_display_rgb
 from test_sticky_auto import Isolated
 
 BRIGHT = (60, 50)   # (x, y) of a moon the detector finds first
@@ -38,14 +39,16 @@ def params(**changes):
 
 
 class SelectionFilterTests(Isolated):
-    def test_luminance_view_is_grey_oklab_l(self):
+    def test_luminance_view_matches_extracted_oklab_l(self):
         data = field()
         rgb = luminance_display_rgb(data)
-        L = rgb_to_oklab_L(data)
+        extracted = extract_component(data, False, 'oklab_l')
         self.assertEqual(rgb.dtype, np.uint8)
+        np.testing.assert_array_equal(rgb, array_to_display_rgb(extracted, False))
         np.testing.assert_array_equal(rgb[..., 0], rgb[..., 2])
-        np.testing.assert_allclose(rgb[..., 1], np.clip(L, 0, 1) * 255, atol=0.51)
         np.testing.assert_array_equal(luminance_display_rgb(data[..., 0]), rgb)
+        # Brighter than L shown as a screen value: the sky is lifted further.
+        self.assertGreater(rgb[185, 150, 0], np.clip(rgb_to_oklab_L(data), 0, 1)[185, 150] * 255 + 20)
 
     def test_click_snaps_to_the_moon_and_not_to_the_planet(self):
         data = field()

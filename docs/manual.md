@@ -440,7 +440,7 @@ Max moons keeps at most this many detections, strongest first; it starts at 4. L
 
 ### Enhance
 
-Enhance shows the canvas in grey as OKLab lightness, which is close to a cube root of linear light, so moons far too faint to see in the normal view stand out from the sky. It shows the preview when Preview on canvas is ticked, otherwise the original. It only changes the display, and it takes turns with Show difference.
+Enhance shows the canvas in grey as OKLab lightness, the same view as an OKLab luminance image from Extract Components. Lightness is close to a cube root of linear light, so moons far too faint to see in the normal view stand out from the sky. It shows the preview when Preview on canvas is ticked, otherwise the original. It only changes the display, and it takes turns with Show difference.
 
 ### Selecting moons
 
