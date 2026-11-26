@@ -285,5 +285,3 @@ def auto_balance_levels(
     for levels in measured.values():
         levels["out_max"] = out_max
     return channels
-    _clamp_auto_balance_to_peak(channels, data, is_grayscale=is_grayscale)
-    return channels
